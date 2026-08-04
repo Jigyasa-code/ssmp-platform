@@ -39,6 +39,11 @@ app.get('/', (req, res) => {
   res.json({ message: 'SSMP Support Portal API is active' });
 });
 
+// Health Check Route
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date() });
+});
+
 // Register API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
