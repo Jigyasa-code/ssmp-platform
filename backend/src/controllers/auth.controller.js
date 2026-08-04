@@ -4,14 +4,14 @@ const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 
 const generateTokenAndSetCookie = (res, userId) => {
-  const token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'ssmp_jwt_secret_key', {
+  const token = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: '7d'
   });
 
   const cookieOptions = {
     httpOnly: true,
     expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
     secure: process.env.NODE_ENV === 'production'
   };
 
@@ -68,7 +68,7 @@ const logout = async (req, res, next) => {
     res.cookie('token', '', {
       httpOnly: true,
       expires: new Date(0),
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
       secure: process.env.NODE_ENV === 'production'
     });
     return sendSuccess(res, 'Logged out successfully');

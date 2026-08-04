@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import campusImg from '../../assets/image.png';
 
 const Login = () => {
   const [loginId, setLoginId] = useState('');
@@ -46,7 +47,7 @@ const Login = () => {
         <img 
           alt="Manipal University Jaipur Campus" 
           className="absolute inset-0 w-full h-full object-cover animate-fade-in" 
-          src="https://lh3.googleusercontent.com/aida-public/AB6AXuCqNKuXJ07O5Jv8Vl7oG9uVNmLu6Ba8KMDeleZJP-Ee6YmlQgKUmfLkgkKZF_uE4IHMTsywYrVQOctKR0AjZRsgBp7kE_DoKLdv4tJtBqdf3aI4usxQfR-D9iHPddOBmjIl2tUt8pmsJ1WHe0iE0r9Da1C1ZeFUZTCHOCSCK_ZKKRVhvlXfgZ8hB-3t6zKxZeOT2xmFiccaioUhoaQdzcWsSJbVqT0XhqcvWx4lsVA9VPoksrjIb7N4rH3Y60ih9216vQ"
+          src={campusImg}
         />
         {/* Floating Branding Overlay */}
         <div 

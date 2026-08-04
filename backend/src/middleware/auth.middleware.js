@@ -11,7 +11,7 @@ const protect = async (req, res, next) => {
     }
 
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'ssmp_jwt_secret_key');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Get user from token
     req.user = await User.findById(decoded.id).select('-passwordHash');

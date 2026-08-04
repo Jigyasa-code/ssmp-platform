@@ -1,10 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import API from '../../services/api';
+import StatusBadge from '../../components/ui/StatusBadge';
+import SkeletonLoader from '../../components/ui/SkeletonLoader';
+import EmptyState from '../../components/ui/EmptyState';
+import QuickReplies from '../../components/ui/QuickReplies';
+
+// Helper: relative time string
+const relativeTime = (date) => {
+  const diff = Math.floor((Date.now() - new Date(date)) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
 
 const FacultyTicketQueue = () => {
   const { user, logout } = useAuth();
+  const toast = useToast();
   const [tickets, setTickets] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -19,12 +34,14 @@ const FacultyTicketQueue = () => {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [showResolveConfirm, setShowResolveConfirm] = useState(false);
 
   // Stats for cards
   const [stats, setStats] = useState({
     openTicketsCount: 0,
     avgResolutionTime: '4.2h',
-    resolutionRate: '94.2%'
+    resolutionRate: '94.2%',
+    totalTicketsCount: 0
   });
 
   useEffect(() => {
@@ -64,6 +81,7 @@ const FacultyTicketQueue = () => {
       }
     } catch (err) {
       console.error('Error fetching tickets:', err);
+      toast.error('Failed to retrieve support queue');
     } finally {
       setLoading(false);
     }
@@ -77,7 +95,7 @@ const FacultyTicketQueue = () => {
         setIsDetailOpen(true);
       }
     } catch (err) {
-      alert('Could not retrieve ticket details');
+      toast.error('Could not retrieve ticket details');
     }
   };
 
@@ -92,23 +110,25 @@ const FacultyTicketQueue = () => {
         setReplyText('');
         fetchTickets(); // Refresh list
         fetchStats();
+        toast.success('Reply sent successfully');
       }
     } catch (err) {
-      alert('Failed to send reply');
+      toast.error('Failed to send reply');
     }
   };
 
   const handleResolveTicket = async () => {
-    if (!window.confirm('Are you sure you want to mark this ticket as resolved?')) return;
+    setShowResolveConfirm(false);
     try {
       const res = await API.put(`/tickets/${selectedTicket._id}/resolve`);
       if (res.data && res.data.success) {
         setSelectedTicket(res.data.data.ticket);
         fetchTickets();
         fetchStats();
+        toast.success('Ticket marked as resolved');
       }
     } catch (err) {
-      alert('Failed to resolve ticket');
+      toast.error('Failed to resolve ticket');
     }
   };
 
@@ -122,29 +142,51 @@ const FacultyTicketQueue = () => {
     setPage(1);
   };
 
+  const handleSelectQuickReply = (text) => {
+    setReplyText(text);
+  };
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <div className="bg-background text-on-background min-h-screen flex">
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* SideNavBar */}
-      <aside className="h-screen w-64 fixed left-0 top-0 bg-surface border-r border-outline-variant flex flex-col py-6 space-y-2 z-50">
-        <div className="px-6 mb-8">
-          <h1 className="text-headline text-2xl font-extrabold text-primary">
-            {user?.role === 'hod' ? 'SSMP Portal' : 'Faculty Portal'}
-          </h1>
-          <p className="text-label-sm font-label font-medium text-on-surface-variant uppercase tracking-wider">
-            {user?.role === 'hod' ? 'Department Admin' : 'Academic Support'}
-          </p>
+      <aside className={`h-screen w-64 fixed left-0 top-0 bg-surface border-r border-outline-variant flex flex-col py-6 space-y-2 z-50 transition-transform duration-300 md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="px-6 mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-headline text-2xl font-extrabold text-primary">
+              {user?.role === 'hod' ? 'SSMP Portal' : 'Faculty Portal'}
+            </h1>
+            <p className="text-label-sm font-label font-medium text-on-surface-variant uppercase tracking-wider">
+              {user?.role === 'hod' ? 'Department Admin' : 'Academic Support'}
+            </p>
+          </div>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden p-1 text-on-surface-variant hover:bg-surface-container rounded-full"
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
         </div>
         <nav className="flex-grow space-y-1">
-          <Link to="/dashboard" className="flex items-center gap-3 text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors duration-200 px-4 py-3 mx-2">
+          <Link to="/dashboard" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors duration-200 px-4 py-3 mx-2">
             <span className="material-symbols-outlined">dashboard</span>
             <span className="font-label text-label-md">Dashboard</span>
           </Link>
-          <Link to="/ticket-queue" className="flex items-center gap-3 bg-secondary-container text-on-secondary-container rounded-xl px-4 py-3 mx-2 scale-95 transition-transform font-bold">
+          <Link to="/ticket-queue" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 bg-secondary-container text-on-secondary-container rounded-xl px-4 py-3 mx-2 scale-95 transition-transform font-bold">
             <span className="material-symbols-outlined">forum</span>
             <span className="font-label text-label-md">Ticket Queue</span>
           </Link>
           {user?.role === 'hod' && (
-            <Link to="/performance" className="flex items-center gap-3 text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors duration-200 px-4 py-3 mx-2">
+            <Link to="/performance" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors duration-200 px-4 py-3 mx-2">
               <span className="material-symbols-outlined">leaderboard</span>
               <span className="font-label text-label-md">Performance</span>
             </Link>
@@ -170,10 +212,16 @@ const FacultyTicketQueue = () => {
       </aside>
 
       {/* Main Wrapper */}
-      <div className="flex-1 ml-64 flex flex-col min-w-0">
+      <div className="flex-1 md:ml-64 flex flex-col min-w-0">
         {/* Top App Bar */}
         <header className="sticky top-0 bg-surface border-b border-outline-variant flex justify-between items-center w-full px-6 h-16 z-40 shadow-sm">
           <div className="flex items-center gap-4 flex-1">
+            <button 
+              onClick={() => setSidebarOpen(o => !o)}
+              className="md:hidden p-2 text-on-surface-variant hover:bg-surface-container-highest rounded-full transition-all flex items-center justify-center"
+            >
+              <span className="material-symbols-outlined">menu</span>
+            </button>
             <span className="font-headline text-headline-md font-extrabold text-primary">SSMP Nexus</span>
             <div className="relative max-w-md w-full ml-8 hidden md:block">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
@@ -198,6 +246,7 @@ const FacultyTicketQueue = () => {
             </button>
           </div>
         </header>
+
 
         {/* Main Content Area */}
         <main className="p-8 flex-grow custom-scrollbar overflow-y-auto">
@@ -261,16 +310,13 @@ const FacultyTicketQueue = () => {
           {/* Ticket List Table */}
           <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
             {loading ? (
-              <div className="p-xl text-center">
-                <div className="w-8 h-8 rounded-full border-2 border-outline-variant border-t-primary animate-spin mx-auto mb-xs"></div>
-                <span className="text-sm text-on-surface-variant font-medium">Fetching support queue...</span>
-              </div>
+              <SkeletonLoader variant="table" rows={6} />
             ) : tickets.length === 0 ? (
-              <div className="p-xl text-center">
-                <span className="material-symbols-outlined text-4xl text-outline mb-xs">drafts</span>
-                <p className="text-on-surface font-semibold text-lg">No support tickets match filters</p>
-                <p className="text-on-surface-variant text-sm mt-xs">Try selecting a different status or category category filter above.</p>
-              </div>
+              <EmptyState 
+                icon="drafts" 
+                heading="No support tickets match filters" 
+                subtext="Try selecting a different status or category filter above." 
+              />
             ) : (
               <>
                 <table className="w-full text-left border-collapse">
@@ -316,21 +362,10 @@ const FacultyTicketQueue = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                            ticket.status === 'Open' ? 'bg-error-container text-on-error-container' :
-                            ticket.status === 'In Progress' ? 'bg-secondary-container text-on-secondary-container' :
-                            'bg-surface-container-highest text-on-surface-variant'
-                          }`}>
-                            {ticket.status}
-                          </span>
+                          <StatusBadge status={ticket.status} />
                         </td>
                         <td className="px-6 py-4 text-xs text-on-surface-variant">
-                          {new Date(ticket.updatedAt).toLocaleDateString(undefined, {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
+                          {relativeTime(ticket.updatedAt)}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button className="row-hover-action text-primary font-bold text-label-md flex items-center gap-1 ml-auto">
@@ -427,14 +462,8 @@ const FacultyTicketQueue = () => {
                 </p>
               </div>
               <div className="flex items-center gap-xs">
-                <span className={`px-xs py-0.5 rounded text-xs font-bold uppercase ${
-                  selectedTicket.status === 'Open' ? 'bg-error-container text-on-error-container' :
-                  selectedTicket.status === 'In Progress' ? 'bg-secondary-container text-on-secondary-container' :
-                  'bg-surface-container-highest text-on-surface-variant'
-                }`}>
-                  {selectedTicket.status}
-                </span>
-                <button onClick={() => setIsDetailOpen(false)} className="material-symbols-outlined text-on-surface-variant hover:text-primary">close</button>
+                <StatusBadge status={selectedTicket.status} size="lg" />
+                <button onClick={() => { setIsDetailOpen(false); setShowResolveConfirm(false); }} className="material-symbols-outlined text-on-surface-variant hover:text-primary">close</button>
               </div>
             </div>
 
@@ -472,11 +501,18 @@ const FacultyTicketQueue = () => {
                 <div className="p-sm bg-surface-container text-center rounded-xl font-semibold text-sm text-on-surface-variant">
                   This support ticket is resolved and closed.
                 </div>
+              ) : showResolveConfirm ? (
+                <div className="flex items-center gap-sm bg-error-container/50 border border-error/20 rounded-xl p-sm">
+                  <span className="material-symbols-outlined text-error text-sm">warning</span>
+                  <p className="text-xs font-semibold text-on-surface flex-1">Mark this ticket as resolved?</p>
+                  <button onClick={handleResolveTicket} className="px-sm py-1 bg-error text-white text-xs font-bold rounded-lg hover:opacity-90">Resolve</button>
+                  <button onClick={() => setShowResolveConfirm(false)} className="px-sm py-1 border border-outline-variant text-xs font-bold rounded-lg hover:bg-surface-container-low">Cancel</button>
+                </div>
               ) : (
                 <form onSubmit={handleSendReply} className="flex gap-sm items-center">
                   <button 
                     type="button" 
-                    onClick={handleResolveTicket}
+                    onClick={() => setShowResolveConfirm(true)}
                     className="px-md py-3 border border-success/30 text-success bg-success/5 rounded-xl hover:bg-success/15 font-semibold text-xs transition-colors shrink-0"
                   >
                     Mark Resolved
@@ -488,6 +524,7 @@ const FacultyTicketQueue = () => {
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
                   />
+                  <QuickReplies onSelect={handleSelectQuickReply} />
                   <button 
                     type="submit"
                     className="w-10 h-10 rounded-xl bg-primary text-white hover:opacity-90 flex items-center justify-center shrink-0 shadow-md active:scale-95 transition-transform"

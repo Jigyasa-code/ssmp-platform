@@ -5,6 +5,10 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const corsOptions = require('./config/cors');
 const errorHandler = require('./middleware/error.middleware');
+const connectDB = require('./config/db');
+
+// Connect to MongoDB
+connectDB();
 
 // Routes imports
 const authRoutes = require('./routes/auth.routes');

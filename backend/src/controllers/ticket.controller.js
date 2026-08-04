@@ -2,6 +2,9 @@ const Ticket = require('../models/Ticket');
 const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 
+// Valid ticket categories — validate here before hitting Mongoose so we return a clean 400
+const VALID_CATEGORIES = ['Academic', 'ERP/Tech', 'Infrastructure'];
+
 // Create a new ticket (Student only)
 const createTicket = async (req, res, next) => {
   try {
@@ -9,6 +12,14 @@ const createTicket = async (req, res, next) => {
 
     if (!subject || !description || !category) {
       return sendError(res, 'Please provide subject, description, and category', 400);
+    }
+
+    if (!VALID_CATEGORIES.includes(category)) {
+      return sendError(
+        res,
+        `Invalid category '${category}'. Must be one of: ${VALID_CATEGORIES.join(', ')}`,
+        400
+      );
     }
 
     if (!req.user.assignedMentor) {
@@ -44,6 +55,8 @@ const createTicket = async (req, res, next) => {
 const listTickets = async (req, res, next) => {
   try {
     const { status, category, page = 1, limit = 10 } = req.query;
+    // Clamp limit to a safe max — prevents fetching entire collection in one call
+    const safeLimit = Math.min(Number(limit) || 10, 100);
     const query = {};
 
     // Enforce data isolation / RLS
@@ -63,7 +76,7 @@ const listTickets = async (req, res, next) => {
       query.category = category;
     }
 
-    const skipIndex = (page - 1) * limit;
+    const skipIndex = (page - 1) * safeLimit;
     const total = await Ticket.countDocuments(query);
     
     const tickets = await Ticket.find(query)
@@ -71,13 +84,13 @@ const listTickets = async (req, res, next) => {
       .populate('mentorId', 'name email loginId')
       .sort({ updatedAt: -1 })
       .skip(skipIndex)
-      .limit(Number(limit));
+      .limit(safeLimit);
 
     return sendSuccess(res, 'Tickets retrieved successfully', {
       tickets,
       total,
       page: Number(page),
-      pages: Math.ceil(total / limit)
+      pages: Math.ceil(total / safeLimit)
     });
   } catch (error) {
     next(error);
@@ -193,10 +206,45 @@ const resolveTicket = async (req, res, next) => {
   }
 };
 
+// Rate a resolved ticket (Student owner only, once)
+const rateTicket = async (req, res, next) => {
+  try {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return sendError(res, 'Ticket not found', 404);
+
+    // Only the student who owns the ticket can rate it
+    if (ticket.studentId.toString() !== req.user._id.toString()) {
+      return sendError(res, 'You are not authorized to rate this ticket', 403);
+    }
+
+    if (ticket.status !== 'Resolved') {
+      return sendError(res, 'You can only rate a resolved ticket', 400);
+    }
+
+    if (ticket.satisfactionRating !== null) {
+      return sendError(res, 'This ticket has already been rated', 400);
+    }
+
+    const { rating } = req.body;
+    const parsedRating = Number(rating);
+    if (!parsedRating || parsedRating < 1 || parsedRating > 5) {
+      return sendError(res, 'Rating must be a number between 1 and 5', 400);
+    }
+
+    ticket.satisfactionRating = parsedRating;
+    await ticket.save();
+
+    return sendSuccess(res, 'Thank you for your feedback!', { ticket });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createTicket,
   listTickets,
   getTicketDetails,
   addMessage,
-  resolveTicket
+  resolveTicket,
+  rateTicket
 };

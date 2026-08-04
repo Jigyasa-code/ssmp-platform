@@ -101,6 +101,8 @@ const FacultyPerformance = () => {
     )`;
   };
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <div className="bg-background text-on-surface min-h-screen flex">
       {/* Dynamic print-friendly CSS overrides */}
@@ -132,22 +134,38 @@ const FacultyPerformance = () => {
         }
       `}</style>
 
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/40 z-40 md:hidden no-print"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* SideNavBar - Hidden during printing */}
-      <aside className="no-print h-screen w-64 fixed left-0 top-0 bg-surface border-r border-outline-variant flex flex-col py-md z-50">
-        <div className="px-md mb-xl">
-          <h1 className="font-headline text-2xl font-bold text-primary">SSMP Portal</h1>
-          <p className="text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold">Department Admin</p>
+      <aside className={`no-print h-screen w-64 fixed left-0 top-0 bg-surface border-r border-outline-variant flex flex-col py-md z-50 transition-transform duration-300 md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="px-md mb-xl flex justify-between items-center">
+          <div>
+            <h1 className="font-headline text-2xl font-bold text-primary">SSMP Portal</h1>
+            <p className="text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold">Department Admin</p>
+          </div>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden p-1 text-on-surface-variant hover:bg-surface-container rounded-full"
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
         </div>
-        <nav className="flex-1 space-y-base px-sm">
-          <Link to="/dashboard" className="flex items-center gap-sm px-md py-sm transition-colors duration-200 text-on-surface-variant hover:bg-surface-container-highest rounded-lg">
+        <nav className="flex-grow space-y-base px-sm">
+          <Link to="/dashboard" onClick={() => setSidebarOpen(false)} className="flex items-center gap-sm px-md py-sm transition-colors duration-200 text-on-surface-variant hover:bg-surface-container-highest rounded-lg">
             <span className="material-symbols-outlined">dashboard</span>
             <span className="font-body text-sm font-semibold">Dashboard</span>
           </Link>
-          <Link to="/ticket-queue" className="flex items-center gap-sm px-md py-sm transition-colors duration-200 text-on-surface-variant hover:bg-surface-container-highest rounded-lg">
+          <Link to="/ticket-queue" onClick={() => setSidebarOpen(false)} className="flex items-center gap-sm px-md py-sm transition-colors duration-200 text-on-surface-variant hover:bg-surface-container-highest rounded-lg">
             <span className="material-symbols-outlined">confirmation_number</span>
             <span className="font-body text-sm font-semibold">Ticket Queue</span>
           </Link>
-          <Link to="/performance" className="flex items-center gap-sm px-md py-sm text-secondary font-bold border-r-4 border-secondary bg-secondary-container/10 rounded-l-lg">
+          <Link to="/performance" onClick={() => setSidebarOpen(false)} className="flex items-center gap-sm px-md py-sm text-secondary font-bold border-r-4 border-secondary bg-secondary-container/10 rounded-l-lg">
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>leaderboard</span>
             <span className="font-body text-sm">Performance</span>
           </Link>
@@ -164,10 +182,16 @@ const FacultyPerformance = () => {
       </aside>
 
       {/* Main Content Area */}
-      <main className="ml-64 min-h-screen flex-1 flex flex-col min-w-0">
+      <main className="md:ml-64 min-h-screen flex-1 flex flex-col min-w-0">
         {/* TopAppBar - Hidden during printing */}
         <header className="no-print bg-surface border-b border-outline-variant flex justify-between items-center w-full px-lg h-16 z-40 shadow-sm">
           <div className="flex items-center gap-md w-1/2">
+            <button 
+              onClick={() => setSidebarOpen(o => !o)}
+              className="md:hidden p-2 text-on-surface-variant hover:bg-surface-container-highest rounded-full transition-all flex items-center justify-center"
+            >
+              <span className="material-symbols-outlined">menu</span>
+            </button>
             <span className="font-headline text-2xl font-extrabold text-primary">SSMP Nexus</span>
           </div>
           <div className="flex items-center gap-lg">
@@ -180,6 +204,7 @@ const FacultyPerformance = () => {
             </div>
           </div>
         </header>
+
 
         {/* Scrollable Content */}
         <div className="pt-8 pb-12 px-lg max-w-7xl mx-auto space-y-lg flex-grow overflow-y-auto w-full">

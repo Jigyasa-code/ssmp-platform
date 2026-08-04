@@ -1,10 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import API from '../../services/api';
+import StatusBadge from '../../components/ui/StatusBadge';
+import SkeletonLoader from '../../components/ui/SkeletonLoader';
+import EmptyState from '../../components/ui/EmptyState';
+
+// Helper: relative time string
+const relativeTime = (date) => {
+  const diff = Math.floor((Date.now() - new Date(date)) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
 
 const FacultyDashboard = () => {
   const { user, logout } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
   const [stats, setStats] = useState({
     assignedStudentsCount: 0,
@@ -24,6 +38,7 @@ const FacultyDashboard = () => {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [showResolveConfirm, setShowResolveConfirm] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -70,12 +85,12 @@ const FacultyDashboard = () => {
   const handleOpenTicket = async (ticket) => {
     try {
       const res = await API.get(`/tickets/${ticket._id}`);
-      if (res.data && res.data.success) {
+      if (res.data?.success) {
         setSelectedTicket(res.data.data.ticket);
         setIsDetailOpen(true);
       }
-    } catch (err) {
-      alert('Could not retrieve ticket details');
+    } catch {
+      toast.error('Could not retrieve ticket details');
     }
   };
 
@@ -85,45 +100,65 @@ const FacultyDashboard = () => {
 
     try {
       const res = await API.post(`/tickets/${selectedTicket._id}/messages`, { text: replyText });
-      if (res.data && res.data.success) {
+      if (res.data?.success) {
         setSelectedTicket(res.data.data.ticket);
         setReplyText('');
-        fetchRecentTickets(); // Refresh lists
+        fetchRecentTickets();
         fetchStats();
+        toast.success('Reply sent');
       }
-    } catch (err) {
-      alert('Failed to send reply');
+    } catch {
+      toast.error('Failed to send reply');
     }
   };
 
   const handleResolveTicket = async () => {
-    if (!window.confirm('Are you sure you want to mark this ticket as resolved?')) return;
+    setShowResolveConfirm(false);
     try {
       const res = await API.put(`/tickets/${selectedTicket._id}/resolve`);
-      if (res.data && res.data.success) {
+      if (res.data?.success) {
         setSelectedTicket(res.data.data.ticket);
         fetchRecentTickets();
         fetchStats();
+        toast.success('Ticket resolved successfully!');
       }
-    } catch (err) {
-      alert('Failed to resolve ticket');
+    } catch {
+      toast.error('Failed to resolve ticket');
     }
   };
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <div className="bg-background text-on-background min-h-screen flex">
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* SideNavBar */}
-      <aside className="h-screen w-64 fixed left-0 top-0 bg-surface border-r border-outline-variant flex flex-col py-6 space-y-2 z-50">
-        <div className="px-6 mb-8">
-          <h1 className="text-headline text-2xl font-extrabold text-primary">Faculty Portal</h1>
-          <p className="text-label-sm font-label font-medium text-on-surface-variant uppercase tracking-wider">Academic Support</p>
+      <aside className={`h-screen w-64 fixed left-0 top-0 bg-surface border-r border-outline-variant flex flex-col py-6 space-y-2 z-50 transition-transform duration-300 md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="px-6 mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-headline text-2xl font-extrabold text-primary">Faculty Portal</h1>
+            <p className="text-label-sm font-label font-medium text-on-surface-variant uppercase tracking-wider">Academic Support</p>
+          </div>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden p-1 text-on-surface-variant hover:bg-surface-container rounded-full"
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
         </div>
         <nav className="flex-grow space-y-1">
-          <Link to="/dashboard" className="flex items-center gap-3 bg-secondary-container text-on-secondary-container rounded-xl px-4 py-3 mx-2 scale-95 transition-transform font-bold">
+          <Link to="/dashboard" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 bg-secondary-container text-on-secondary-container rounded-xl px-4 py-3 mx-2 scale-95 transition-transform font-bold">
             <span className="material-symbols-outlined">dashboard</span>
             <span className="font-label text-label-md">Dashboard</span>
           </Link>
-          <Link to="/ticket-queue" className="flex items-center gap-3 text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors duration-200 px-4 py-3 mx-2">
+          <Link to="/ticket-queue" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors duration-200 px-4 py-3 mx-2">
             <span className="material-symbols-outlined">forum</span>
             <span className="font-label text-label-md">Ticket Queue</span>
           </Link>
@@ -146,10 +181,16 @@ const FacultyDashboard = () => {
       </aside>
 
       {/* Main Wrapper */}
-      <div className="flex-1 ml-64 flex flex-col min-w-0">
+      <div className="flex-1 md:ml-64 flex flex-col min-w-0">
         {/* Top App Bar */}
         <header className="sticky top-0 bg-surface border-b border-outline-variant flex justify-between items-center w-full px-6 h-16 z-40 shadow-sm">
           <div className="flex items-center gap-4 flex-1">
+            <button 
+              onClick={() => setSidebarOpen(o => !o)}
+              className="md:hidden p-2 text-on-surface-variant hover:bg-surface-container-highest rounded-full transition-all flex items-center justify-center"
+            >
+              <span className="material-symbols-outlined">menu</span>
+            </button>
             <span className="font-headline text-headline-md font-extrabold text-primary">SSMP Nexus</span>
             <div className="relative max-w-md w-full ml-8 hidden md:block">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
@@ -174,6 +215,7 @@ const FacultyDashboard = () => {
             </button>
           </div>
         </header>
+
 
         {/* Main Content */}
         <main className="p-8 flex-grow custom-scrollbar overflow-y-auto">
@@ -222,6 +264,28 @@ const FacultyDashboard = () => {
                 </div>
                 <p className="text-label-sm font-label font-medium text-on-surface-variant">Student Sat.</p>
                 <p className="text-headline text-2xl font-bold text-primary">{stats.satisfactionScore}</p>
+              </div>
+
+              {/* My Impact Panel */}
+              <div className="col-span-2 bg-gradient-to-br from-primary to-secondary text-white rounded-xl overflow-hidden shadow-sm p-md relative">
+                <div className="absolute right-0 top-0 h-full flex items-center opacity-10">
+                  <span className="material-symbols-outlined text-[100px]">insights</span>
+                </div>
+                <p className="font-label text-xs font-bold uppercase tracking-wider opacity-80 mb-1">My Impact</p>
+                <div className="flex gap-lg">
+                  <div>
+                    <p className="text-2xl font-extrabold font-headline">{stats.resolvedTicketsCount || 0}</p>
+                    <p className="text-[11px] opacity-80">Tickets resolved</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-extrabold font-headline">{stats.avgResolutionTime || '—'}</p>
+                    <p className="text-[11px] opacity-80">Avg. resolution</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-extrabold font-headline">{stats.assignedStudentsCount || 0}</p>
+                    <p className="text-[11px] opacity-80">Students mentored</p>
+                  </div>
+                </div>
               </div>
 
               {/* Assigned Students */}
@@ -275,11 +339,7 @@ const FacultyDashboard = () => {
                     <span className="text-sm text-on-surface-variant font-medium">Fetching tickets list...</span>
                   </div>
                 ) : recentTickets.length === 0 ? (
-                  <div className="p-xl text-center">
-                    <span className="material-symbols-outlined text-4xl text-outline mb-xs">done_all</span>
-                    <p className="text-on-surface font-semibold text-lg">All tickets resolved!</p>
-                    <p className="text-on-surface-variant text-sm mt-xs">No active support requests assigned to your queue.</p>
-                  </div>
+                  <EmptyState icon="done_all" heading="All tickets resolved!" subtext="No active support requests assigned to your queue." />
                 ) : (
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -288,16 +348,12 @@ const FacultyDashboard = () => {
                         <th className="px-6 py-4 font-label text-label-md text-on-surface-variant font-semibold">Student</th>
                         <th className="px-6 py-4 font-label text-label-md text-on-surface-variant font-semibold">Subject</th>
                         <th className="px-6 py-4 font-label text-label-md text-on-surface-variant font-semibold">Status</th>
-                        <th className="px-6 py-4 font-label text-label-md text-on-surface-variant text-right font-semibold">Date</th>
+                        <th className="px-6 py-4 font-label text-label-md text-on-surface-variant text-right font-semibold">Updated</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant">
                       {recentTickets.map(ticket => (
-                        <tr 
-                          key={ticket._id} 
-                          onClick={() => handleOpenTicket(ticket)}
-                          className="hover:bg-surface-container-low transition-colors cursor-pointer group"
-                        >
+                        <tr key={ticket._id} onClick={() => handleOpenTicket(ticket)} className="hover:bg-surface-container-low transition-colors cursor-pointer group">
                           <td className="px-6 py-4 font-label text-label-md text-primary font-semibold">{ticket.ticketId}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
@@ -307,21 +363,9 @@ const FacultyDashboard = () => {
                               <span className="font-label text-label-md font-semibold">{ticket.studentId?.name || 'Student'}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-on-surface-variant text-sm truncate max-w-[200px]" title={ticket.subject}>
-                            {ticket.subject}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                              ticket.status === 'Open' ? 'bg-error-container text-on-error-container' :
-                              ticket.status === 'In Progress' ? 'bg-secondary-container text-on-secondary-container' :
-                              'bg-surface-container-highest text-on-surface-variant'
-                            }`}>
-                              {ticket.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right text-on-surface-variant font-label text-label-sm">
-                            {new Date(ticket.updatedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}
-                          </td>
+                          <td className="px-6 py-4 text-on-surface-variant text-sm truncate max-w-[200px]" title={ticket.subject}>{ticket.subject}</td>
+                          <td className="px-6 py-4"><StatusBadge status={ticket.status} /></td>
+                          <td className="px-6 py-4 text-right text-on-surface-variant font-label text-label-sm">{relativeTime(ticket.updatedAt)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -416,29 +460,19 @@ const FacultyDashboard = () => {
             {/* Bottom Actions & Reply Form */}
             <div className="bg-surface-container-low border-t border-outline-variant p-md">
               {selectedTicket.status === 'Resolved' ? (
-                <div className="p-sm bg-surface-container text-center rounded-xl font-semibold text-sm text-on-surface-variant">
-                  This support ticket is resolved and closed.
+                <div className="p-sm bg-surface-container text-center rounded-xl font-semibold text-sm text-on-surface-variant">This support ticket is resolved and closed.</div>
+              ) : showResolveConfirm ? (
+                <div className="flex items-center gap-sm bg-error-container/50 border border-error/20 rounded-xl p-sm">
+                  <span className="material-symbols-outlined text-error text-sm">warning</span>
+                  <p className="text-xs font-semibold text-on-surface flex-1">Mark this ticket as resolved?</p>
+                  <button onClick={handleResolveTicket} className="px-sm py-1 bg-error text-white text-xs font-bold rounded-lg hover:opacity-90">Resolve</button>
+                  <button onClick={() => setShowResolveConfirm(false)} className="px-sm py-1 border border-outline-variant text-xs font-bold rounded-lg hover:bg-surface-container-low">Cancel</button>
                 </div>
               ) : (
                 <form onSubmit={handleSendReply} className="flex gap-sm items-center">
-                  <button 
-                    type="button" 
-                    onClick={handleResolveTicket}
-                    className="px-md py-3 border border-success/30 text-success bg-success/5 rounded-xl hover:bg-success/15 font-semibold text-xs transition-colors shrink-0"
-                  >
-                    Mark Resolved
-                  </button>
-                  <input 
-                    type="text"
-                    placeholder="Type response message..."
-                    className="flex-1 px-sm py-3 rounded-xl border border-outline-variant bg-surface-container-lowest font-body text-sm form-input-focus"
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                  />
-                  <button 
-                    type="submit"
-                    className="w-10 h-10 rounded-xl bg-primary text-white hover:opacity-90 flex items-center justify-center shrink-0 shadow-md active:scale-95 transition-transform"
-                  >
+                  <button type="button" onClick={() => setShowResolveConfirm(true)} className="px-md py-3 border border-success/30 text-success bg-success/5 rounded-xl hover:bg-success/15 font-semibold text-xs transition-colors shrink-0">Mark Resolved</button>
+                  <input type="text" placeholder="Type response message..." className="flex-1 px-sm py-3 rounded-xl border border-outline-variant bg-surface-container-lowest font-body text-sm form-input-focus" value={replyText} onChange={e => setReplyText(e.target.value)} />
+                  <button type="submit" className="w-10 h-10 rounded-xl bg-primary text-white hover:opacity-90 flex items-center justify-center shrink-0 shadow-md active:scale-95 transition-transform">
                     <span className="material-symbols-outlined text-md">send</span>
                   </button>
                 </form>

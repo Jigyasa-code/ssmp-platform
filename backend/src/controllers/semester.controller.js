@@ -1,17 +1,20 @@
 const bcrypt = require('bcryptjs');
-const xlsx = require('xlsx');
+const ExcelJS = require('exceljs');
 const Semester = require('../models/Semester');
 const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 
-// Parse a buffer containing XLSX/XLS or CSV data
-const parseBufferData = (file) => {
+// Parse a buffer containing XLSX or CSV data.
+// NOTE: Legacy .xls (binary Excel) is NOT supported — ExcelJS only reads .xlsx (OOXML).
+//       The HOD upload UI should only accept .xlsx and .csv files.
+const parseBufferData = async (file) => {
   if (file.originalname.endsWith('.csv')) {
+    // ── CSV path: custom parser, no third-party library ──────────────────────
     const csvString = file.buffer.toString('utf8');
     const lines = csvString.split(/\r?\n/).filter(line => line.trim() !== '');
     if (lines.length === 0) return [];
-    
-    // Simple CSV parser supporting quotes
+
+    // Simple CSV parser supporting double-quoted fields
     const parseCSVLine = (line) => {
       const result = [];
       let current = '';
@@ -45,13 +48,41 @@ const parseBufferData = (file) => {
     }
     return data;
   } else {
-    // Excel file
-    const workbook = xlsx.read(file.buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    return xlsx.utils.sheet_to_json(worksheet);
+    // ── Excel path: ExcelJS (replaces vulnerable xlsx package) ───────────────
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer);
+    const worksheet = workbook.worksheets[0];
+
+    if (!worksheet) return [];
+
+    const headers = [];
+    const data = [];
+
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) {
+        // Extract headers from first row
+        row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          headers[colNumber] = String(cell.value || '').trim();
+        });
+      } else {
+        const rowObj = {};
+        row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          if (headers[colNumber]) {
+            rowObj[headers[colNumber]] = cell.value !== null && cell.value !== undefined
+              ? String(cell.value).trim()
+              : '';
+          }
+        });
+        if (Object.keys(rowObj).length > 0) {
+          data.push(rowObj);
+        }
+      }
+    });
+
+    return data;
   }
 };
+
 
 // Step 1: Create a new semester initialization wizard
 const startSemesterInit = async (req, res, next) => {
@@ -104,7 +135,7 @@ const uploadFaculty = async (req, res, next) => {
       return sendError(res, 'No active semester initialization in progress. Please start Step 1.', 400);
     }
 
-    const rawData = parseBufferData(req.file);
+    const rawData = await parseBufferData(req.file);
 
     // Validate headers
     if (rawData.length === 0) {
@@ -153,7 +184,7 @@ const uploadStudent = async (req, res, next) => {
       return sendError(res, 'No active semester initialization in progress. Please start Step 1.', 400);
     }
 
-    const rawData = parseBufferData(req.file);
+    const rawData = await parseBufferData(req.file);
 
     if (rawData.length === 0) {
       return sendError(res, 'The uploaded file is empty', 400);

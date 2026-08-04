@@ -1,16 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import API from '../../services/api';
+import StatCard from '../../components/ui/StatCard';
+import SkeletonLoader from '../../components/ui/SkeletonLoader';
+import StatusBadge from '../../components/ui/StatusBadge';
+
 
 const HODDashboard = () => {
   const { user, logout } = useAuth();
+  const toast = useToast();
   
   // Stepper State
   const [currentStep, setCurrentStep] = useState(1);
   const [semesterInfo, setSemesterInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   
   // Form values
   const [academicYear, setAcademicYear] = useState('2024-25');
@@ -39,10 +46,17 @@ const HODDashboard = () => {
     resolvedTickets: 0
   });
 
+  // Live ticket data for dashboard widgets
+  const [allTickets, setAllTickets] = useState([]);
+  const [facultyList, setFacultyList] = useState([]);
+  const [statsLoading, setStatsLoading] = useState(true);
+
   useEffect(() => {
     fetchCurrentSetup();
     fetchStats();
+    fetchLiveData();
   }, []);
+
 
   const fetchStats = async () => {
     try {
@@ -54,6 +68,52 @@ const HODDashboard = () => {
       console.error('Error fetching stats:', err);
     }
   };
+
+  // Fetch live ticket data + faculty list for HOD dashboard widgets
+  const fetchLiveData = async () => {
+    try {
+      setStatsLoading(true);
+      const [ticketsRes, facultyRes] = await Promise.all([
+        API.get('/tickets?limit=100'),
+        API.get('/users/faculty'),
+      ]);
+      if (ticketsRes.data?.success) setAllTickets(ticketsRes.data.data.tickets || []);
+      if (facultyRes.data?.success) setFacultyList(facultyRes.data.data.faculty || []);
+    } catch (err) {
+      console.error('Live data fetch error:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  // Browser-native CSV export — no extra library needed
+  const exportCSV = () => {
+    if (allTickets.length === 0) {
+      toast.warning('No ticket data to export');
+      return;
+    }
+    const headers = ['Ticket ID', 'Subject', 'Category', 'Status', 'Student', 'Mentor', 'Created', 'Rating'];
+    const rows = allTickets.map(t => [
+      t.ticketId,
+      `"${(t.subject || '').replace(/"/g, '""')}"`,
+      t.category,
+      t.status,
+      t.studentId?.name || '',
+      t.mentorId?.name || '',
+      new Date(t.createdAt).toLocaleDateString(),
+      t.satisfactionRating ?? '',
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `ssmp-tickets-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${allTickets.length} tickets to CSV`);
+  };
+
 
   const fetchCurrentSetup = async () => {
     try {
@@ -209,6 +269,12 @@ const HODDashboard = () => {
       {/* Top Navigation Bar */}
       <header className="bg-surface sticky top-0 z-50 flex justify-between items-center w-full px-margin h-16 border-b border-outline-variant shadow-sm">
         <div className="flex items-center gap-sm">
+          <button 
+            onClick={() => setSidebarOpen(o => !o)}
+            className="md:hidden p-2 text-on-surface-variant hover:bg-surface-container-highest rounded-full transition-all flex items-center justify-center animate-fade-in"
+          >
+            <span className="material-symbols-outlined">menu</span>
+          </button>
           <span className="material-symbols-outlined text-primary text-3xl">school</span>
           <h1 className="font-headline text-headline-md font-bold text-primary">SSMP Portal</h1>
         </div>
@@ -223,26 +289,42 @@ const HODDashboard = () => {
       </header>
 
       <div className="flex">
+        {/* Mobile Sidebar Overlay */}
+        {sidebarOpen && (
+          <div 
+            className="fixed inset-0 bg-black/40 z-40 md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
         {/* Sidebar Navigation */}
-        <aside className="hidden md:flex flex-col h-[calc(100vh-64px)] w-64 fixed left-0 bg-surface-container-low border-r border-outline-variant py-md px-sm space-y-xs">
-          <div className="px-sm mb-lg">
-            <p className="font-label text-xs text-on-surface-variant opacity-70">Academic Year {academicYear}</p>
-            <h2 className="font-headline text-primary font-bold">SSMP Admin</h2>
+        <aside className={`flex flex-col h-[calc(100vh-64px)] w-64 fixed left-0 bg-surface-container-low border-r border-outline-variant py-md px-sm space-y-xs z-50 transition-transform duration-300 md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="px-sm mb-lg flex justify-between items-center">
+            <div>
+              <p className="font-label text-xs text-on-surface-variant opacity-70">Academic Year {academicYear}</p>
+              <h2 className="font-headline text-primary font-bold">SSMP Admin</h2>
+            </div>
+            <button 
+              onClick={() => setSidebarOpen(false)}
+              className="md:hidden p-1 text-on-surface-variant hover:bg-surface-container rounded-full"
+            >
+              <span className="material-symbols-outlined">close</span>
+            </button>
           </div>
-          <nav className="flex-1 space-y-1">
-            <Link to="/dashboard" className="flex items-center gap-sm px-sm py-md text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all">
+          <nav className="flex-grow space-y-1">
+            <Link to="/dashboard" onClick={() => setSidebarOpen(false)} className="flex items-center gap-sm px-sm py-md text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all">
               <span className="material-symbols-outlined">dashboard</span>
               <span className="font-label text-sm">Dashboard</span>
             </Link>
-            <Link to="/ticket-queue" className="flex items-center gap-sm px-sm py-md text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all">
+            <Link to="/ticket-queue" onClick={() => setSidebarOpen(false)} className="flex items-center gap-sm px-sm py-md text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all">
               <span className="material-symbols-outlined">confirmation_number</span>
               <span className="font-label text-sm">Ticket Queue</span>
             </Link>
-            <Link to="/performance" className="flex items-center gap-sm px-sm py-md text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all">
+            <Link to="/performance" onClick={() => setSidebarOpen(false)} className="flex items-center gap-sm px-sm py-md text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all">
               <span className="material-symbols-outlined">leaderboard</span>
               <span className="font-label text-sm">Performance</span>
             </Link>
-            <Link to="/dashboard" className="flex items-center gap-sm px-sm py-md bg-primary-container text-on-primary-container rounded-lg font-bold shadow-sm">
+            <Link to="/dashboard" onClick={() => setSidebarOpen(false)} className="flex items-center gap-sm px-sm py-md bg-primary-container text-on-primary-container rounded-lg font-bold shadow-sm">
               <span className="material-symbols-outlined">admin_panel_settings</span>
               <span className="font-label text-sm">System Onboarding</span>
             </Link>
@@ -274,6 +356,123 @@ const HODDashboard = () => {
               </button>
             )}
           </div>
+
+          {/* ── LIVE DASHBOARD OVERVIEW ─────────────────────────────── */}
+          <section className="mb-xl">
+            {/* Live Stat Cards Row */}
+            <div className="flex items-center justify-between mb-md">
+              <h2 className="font-headline text-xl font-bold text-on-surface">Live Overview</h2>
+              <button onClick={exportCSV} className="flex items-center gap-xs px-md py-xs bg-surface-container border border-outline-variant rounded-full text-xs font-bold text-on-surface-variant hover:bg-surface-container-high transition-colors">
+                <span className="material-symbols-outlined text-sm">download</span>
+                Export CSV
+              </button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-md mb-lg">
+              <StatCard icon="group" label="Total Students" value={stats.totalStudents} color="primary" />
+              <StatCard icon="school" label="Faculty Mentors" value={stats.totalFaculty} color="secondary" />
+              <StatCard
+                icon="confirmation_number"
+                label="Open Tickets"
+                value={allTickets.filter(t => t.status === 'Open').length}
+                color="error"
+              />
+              <StatCard
+                icon="check_circle"
+                label="Resolved Tickets"
+                value={allTickets.filter(t => t.status === 'Resolved').length}
+                color="success"
+              />
+            </div>
+
+            {/* Second row: Needs Attention + Leaderboard + Category */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-md">
+              {/* Needs Attention: tickets open >48h with 0 replies */}
+              <div className="bg-white border border-outline-variant rounded-xl overflow-hidden shadow-sm">
+                <div className="px-md py-sm bg-error-container/30 border-b border-error/20 flex items-center gap-xs">
+                  <span className="material-symbols-outlined text-error text-sm">priority_high</span>
+                  <p className="font-label text-xs font-bold text-error uppercase tracking-wider">Needs Attention</p>
+                </div>
+                <div className="p-sm max-h-48 overflow-y-auto custom-scrollbar">
+                  {statsLoading ? <SkeletonLoader variant="table" rows={3} /> : (() => {
+                    const stale = allTickets.filter(t =>
+                      t.status === 'Open' &&
+                      (Date.now() - new Date(t.createdAt)) > 48 * 3600 * 1000 &&
+                      (t.messages?.length || 0) <= 1
+                    );
+                    return stale.length === 0
+                      ? <p className="text-xs text-on-surface-variant text-center py-4">All tickets have been acknowledged ✓</p>
+                      : stale.slice(0, 5).map(t => (
+                        <div key={t._id} className="flex items-center justify-between py-2 border-b border-outline-variant/50 last:border-0">
+                          <div>
+                            <p className="text-xs font-bold text-on-surface truncate max-w-[180px]">{t.subject}</p>
+                            <p className="text-[10px] text-on-surface-variant">{t.studentId?.name} · {t.ticketId}</p>
+                          </div>
+                          <StatusBadge status={t.status} />
+                        </div>
+                      ));
+                  })()}
+                </div>
+              </div>
+
+              {/* Faculty Leaderboard: top 3 by resolved count */}
+              <div className="bg-white border border-outline-variant rounded-xl overflow-hidden shadow-sm">
+                <div className="px-md py-sm bg-secondary-container/20 border-b border-outline-variant flex items-center gap-xs">
+                  <span className="material-symbols-outlined text-secondary text-sm">leaderboard</span>
+                  <p className="font-label text-xs font-bold text-secondary uppercase tracking-wider">Faculty Leaderboard</p>
+                </div>
+                <div className="p-sm">
+                  {statsLoading ? <SkeletonLoader variant="table" rows={3} /> : (() => {
+                    const leaderboard = facultyList.map(f => ({
+                      name: f.name,
+                      resolved: allTickets.filter(t => t.mentorId?._id === f._id && t.status === 'Resolved').length,
+                      total: allTickets.filter(t => t.mentorId?._id === f._id).length,
+                    })).sort((a, b) => b.resolved - a.resolved).slice(0, 3);
+                    return leaderboard.length === 0
+                      ? <p className="text-xs text-on-surface-variant text-center py-4">No data yet</p>
+                      : leaderboard.map((f, i) => (
+                        <div key={i} className="flex items-center gap-sm py-2 border-b border-outline-variant/50 last:border-0">
+                          <span className={`w-6 h-6 rounded-full text-xs font-extrabold flex items-center justify-center ${
+                            i === 0 ? 'bg-[#f47d45] text-white' :
+                            i === 1 ? 'bg-primary-container text-primary' :
+                            'bg-surface-container text-on-surface-variant'
+                          }`}>{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-on-surface truncate">{f.name}</p>
+                            <p className="text-[10px] text-on-surface-variant">{f.resolved}/{f.total} resolved</p>
+                          </div>
+                        </div>
+                      ));
+                  })()}
+                </div>
+              </div>
+
+              {/* Category Distribution */}
+              <div className="bg-white border border-outline-variant rounded-xl overflow-hidden shadow-sm">
+                <div className="px-md py-sm bg-primary-fixed/20 border-b border-outline-variant flex items-center gap-xs">
+                  <span className="material-symbols-outlined text-primary text-sm">donut_large</span>
+                  <p className="font-label text-xs font-bold text-primary uppercase tracking-wider">By Category</p>
+                </div>
+                <div className="p-md space-y-sm">
+                  {['Academic', 'ERP/Tech', 'Infrastructure'].map((cat, i) => {
+                    const count = allTickets.filter(t => t.category === cat).length;
+                    const pct = allTickets.length > 0 ? Math.round((count / allTickets.length) * 100) : 0;
+                    const colors = ['bg-primary', 'bg-secondary', 'bg-[#f47d45]'];
+                    return (
+                      <div key={cat}>
+                        <div className="flex justify-between mb-1">
+                          <span className="text-xs font-semibold text-on-surface">{cat}</span>
+                          <span className="text-xs font-bold text-on-surface-variant">{count} ({pct}%)</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${colors[i]} transition-all duration-700`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </section>
 
           {/* Workflow Stepper */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-base mb-xl">
@@ -404,11 +603,13 @@ const HODDashboard = () => {
                       </div>
                       <input 
                         type="file" 
-                        accept=".xlsx, .xls"
+                        accept=".xlsx,.csv"
                         onChange={(e) => {
                           const file = e.target.files[0];
-                          if (file && !file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-                            alert('Please select an Excel file (.xlsx or .xls) only. CSV files are not allowed.');
+                          const allowed = ['.xlsx', '.csv'];
+                          const ext = file?.name.substring(file.name.lastIndexOf('.'));
+                          if (file && !allowed.includes(ext)) {
+                            alert('Please select an .xlsx or .csv file. Legacy .xls format is not supported.');
                             e.target.value = null;
                             setFacultyFile(null);
                           } else {
@@ -464,11 +665,13 @@ const HODDashboard = () => {
                       </div>
                       <input 
                         type="file" 
-                        accept=".xlsx, .xls"
+                        accept=".xlsx,.csv"
                         onChange={(e) => {
                           const file = e.target.files[0];
-                          if (file && !file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-                            alert('Please select an Excel file (.xlsx or .xls) only. CSV files are not allowed.');
+                          const allowed = ['.xlsx', '.csv'];
+                          const ext = file?.name.substring(file.name.lastIndexOf('.'));
+                          if (file && !allowed.includes(ext)) {
+                            alert('Please select an .xlsx or .csv file. Legacy .xls format is not supported.');
                             e.target.value = null;
                             setStudentFile(null);
                           } else {

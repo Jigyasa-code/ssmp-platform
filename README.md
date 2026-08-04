@@ -66,8 +66,12 @@ college-project/
 │   │   ├── App.jsx       # App main component
 │   │   └── index.css     # Styling entries
 │   └── vite.config.js    # Vite builder configuration
-└── Frontend_UI_UX/       # Original design systems & static screens
+└── Frontend_UI_UX/       # Static Figma/UI reference mockups (Not deployed or built)
 ```
+
+> [!NOTE]
+> The `Frontend_UI_UX/` directory contains original design files, screens, and CSS/HTML layouts that serve as our design system blueprint. It is strictly for reference and is excluded from any production builds or application deployments.
+
 
 ---
 
