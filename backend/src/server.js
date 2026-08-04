@@ -1,12 +1,12 @@
 const dotenv = require('dotenv');
+// Load environment variables immediately
+dotenv.config();
+
 const app = require('./app');
 const connectDB = require('./config/db');
 const User = require('./models/User');
 const Ticket = require('./models/Ticket');
 const bcrypt = require('bcryptjs');
-
-// Load environment variables
-dotenv.config();
 
 // ============================================================
 // STARTUP VALIDATION — Fail fast on missing critical env vars

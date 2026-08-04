@@ -4,6 +4,7 @@ const User = require('../models/User');
 
 let mongoServer;
 let isConnected = false;
+let connectionPromise = null;
 
 const seedHodAccount = async () => {
   try {
@@ -33,16 +34,22 @@ const seedHodAccount = async () => {
 };
 
 const connectDB = async () => {
-  if (isConnected) {
-    console.log('MongoDB: Using cached database connection');
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+  if (mongoose.connection.readyState === 2) {
+    if (connectionPromise) {
+      await connectionPromise;
+    }
     return;
   }
 
   try {
     // Attempt standard connection with a 5-second timeout
-    const conn = await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ssmp', {
+    connectionPromise = mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ssmp', {
       serverSelectionTimeoutMS: 5000
     });
+    const conn = await connectionPromise;
     isConnected = conn.connection.readyState === 1;
     console.log(`MongoDB Connected: ${conn.connection.host}`);
     
