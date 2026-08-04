@@ -1,7 +1,8 @@
 import axios from 'axios';
 
+const isProd = import.meta.env.MODE === 'production';
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  baseURL: import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:5000/api'),
   withCredentials: true, // Crucial for reading and writing HttpOnly session cookies
   headers: {
     'Content-Type': 'application/json'
