@@ -34,8 +34,9 @@ const corsOptions = {
     // In development mode, allow any localport on localhost / 127.0.0.1 (e.g. port 5174, 5175, etc.)
     const isDev = process.env.NODE_ENV !== 'production';
     const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+    const isVercel = /\.vercel\.app$/.test(origin) || origin === 'https://ssmp-platform.vercel.app';
 
-    if (allowedOrigins.includes(origin) || (isDev && isLocal)) {
+    if (allowedOrigins.includes(origin) || (isDev && isLocal) || isVercel) {
       callback(null, true);
     } else {
       callback(new Error(`Origin '${origin}' is not allowed by CORS policy`));
