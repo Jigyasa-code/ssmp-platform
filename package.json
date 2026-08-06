@@ -1,11 +1,27 @@
 {
-  "name": "ssmp-platform-monorepo",
-  "version": "1.0.0",
+  "name": "ssmp-platform",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Student Support & Mentorship Portal (Academic Nexus) — Supabase + React + Vercel",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
-    "install-backend": "cd backend && npm install",
-    "install-frontend": "cd frontend && npm install",
-    "build-frontend": "cd frontend && npm run build",
-    "build": "npm run install-backend && npm run install-frontend && npm run build-frontend",
-    "start": "cd backend && npm start"
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview",
+    "lint": "npm --prefix frontend run lint",
+    "install:all": "npm install && npm --prefix frontend install",
+    "db:push": "supabase db push",
+    "db:reset": "supabase db reset",
+    "db:seed": "node supabase/scripts/seed-demo-accounts.mjs",
+    "verify:security": "node supabase/scripts/verify-security-policies.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.48.1",
+    "exceljs": "^4.4.0",
+    "pdf-lib": "^1.17.1",
+    "zod": "^3.24.1"
   }
 }

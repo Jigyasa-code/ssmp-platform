@@ -1,62 +1,47 @@
-import React, { useEffect, useRef, useState } from 'react';
-
-/**
- * StatCard — animated count-up metric card.
- * Animates from 0 to `value` over ~800ms on mount.
- */
-const StatCard = ({ icon, label, value, subtext, color = 'primary', trend = null }) => {
-  const [display, setDisplay] = useState(0);
-  const frameRef = useRef(null);
-
-  useEffect(() => {
-    const target = Number(value) || 0;
-    if (target === 0) { setDisplay(0); return; }
-
-    const duration = 800;
-    const start = performance.now();
-    const animate = (now) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      // Ease-out cubic
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplay(Math.round(eased * target));
-      if (progress < 1) frameRef.current = requestAnimationFrame(animate);
-    };
-    frameRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frameRef.current);
-  }, [value]);
-
-  const COLOR_MAP = {
-    primary:   { bg: 'bg-primary-fixed',    text: 'text-primary' },
-    secondary: { bg: 'bg-secondary-fixed',  text: 'text-secondary' },
-    error:     { bg: 'bg-error-container',  text: 'text-error' },
-    success:   { bg: 'bg-[#e6f4ee]',        text: 'text-[#0a6c44]' },
-    accent:    { bg: 'bg-[#fff2ec]',        text: 'text-[#f47d45]' },
-  };
-  const c = COLOR_MAP[color] || COLOR_MAP.primary;
-
-  return (
-    <div className="bg-white border border-outline-variant rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className={`w-10 h-10 rounded-lg ${c.bg} flex items-center justify-center`}>
-          <span className={`material-symbols-outlined ${c.text}`}>{icon}</span>
-        </div>
-        {trend !== null && (
-          <span className={`text-xs font-bold flex items-center gap-0.5 ${trend >= 0 ? 'text-[#0a6c44]' : 'text-error'}`}>
-            <span className="material-symbols-outlined text-xs">
-              {trend >= 0 ? 'trending_up' : 'trending_down'}
-            </span>
-            {Math.abs(trend)}%
-          </span>
-        )}
-      </div>
-      <div>
-        <p className="text-2xl font-extrabold text-on-surface font-headline">{display}</p>
-        <p className="text-label-sm text-on-surface-variant font-semibold uppercase tracking-wider text-[11px] mt-0.5">{label}</p>
-        {subtext && <p className="text-[10px] text-on-surface-variant mt-1">{subtext}</p>}
-      </div>
-    </div>
-  );
+const TONES = {
+  primary: { bar: 'bg-primary', icon: 'text-primary', chip: 'bg-primary-fixed text-on-primary-fixed' },
+  success: { bar: 'bg-success', icon: 'text-success', chip: 'bg-success-container text-on-success-container' },
+  warning: { bar: 'bg-warning', icon: 'text-warning', chip: 'bg-warning-container text-on-warning-container' },
+  error: { bar: 'bg-error', icon: 'text-error', chip: 'bg-error-container text-on-error-container' },
+  info: { bar: 'bg-info', icon: 'text-info', chip: 'bg-info-container text-on-info-container' },
+  slate: { bar: 'bg-tertiary', icon: 'text-tertiary', chip: 'bg-surface-container-high text-on-surface-variant' }
 };
 
-export default StatCard;
+export default function StatCard({ label, value, caption, icon, tone = 'primary', trend, onClick }) {
+  const style = TONES[tone] ?? TONES.primary;
+  const Element = onClick ? 'button' : 'div';
+
+  return (
+    <Element
+      {...(onClick ? { type: 'button', onClick } : {})}
+      className={`panel relative flex w-full items-start gap-3 overflow-hidden p-4 text-left ${
+        onClick ? 'transition-shadow hover:shadow-raised' : ''
+      }`}
+    >
+      <span className={`absolute inset-y-0 left-0 w-1 ${style.bar}`} aria-hidden="true" />
+      <div className="min-w-0 flex-1 pl-2">
+        <p className="truncate text-label-sm uppercase tracking-wide text-on-surface-variant">{label}</p>
+        <p className="mt-1 text-headline-md leading-tight text-on-surface">{value}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          {caption && <span className="text-label-sm text-tertiary">{caption}</span>}
+          {trend != null && trend !== 0 && (
+            <span
+              className={`chip ${trend > 0 ? 'bg-success-container text-on-success-container' : 'bg-error-container text-on-error-container'}`}
+            >
+              <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
+                {trend > 0 ? 'trending_up' : 'trending_down'}
+              </span>
+              {trend > 0 ? '+' : ''}
+              {trend}
+            </span>
+          )}
+        </div>
+      </div>
+      {icon && (
+        <span className={`material-symbols-outlined text-[26px] ${style.icon}`} aria-hidden="true">
+          {icon}
+        </span>
+      )}
+    </Element>
+  );
+}

@@ -1,0 +1,233 @@
+# SSMP Platform — Setup Guide
+
+Everything you need to fill in, and exactly how to run it. Follow the steps in order; the whole thing takes about 20 minutes.
+
+---
+
+## Part 1 — The placeholders you have to fill
+
+There are **six values** in total, and they all come from one place: your Supabase project dashboard. Nothing else in the codebase needs editing.
+
+### Where to find them in Supabase
+
+1. Go to [supabase.com](https://supabase.com) → create a free account → **New project**
+2. Name it `ssmp-platform`, pick a strong database password (save it somewhere), choose a region near Jaipur (e.g. `ap-south-1 / Mumbai`)
+3. Wait ~2 minutes for it to provision
+4. Open **Project Settings** (gear icon, bottom left)
+   - **Data API** → copy the **Project URL**
+   - **API Keys** → copy the **`anon` / `public`** key and the **`service_role`** key (click "Reveal")
+
+### The two files you create
+
+#### File 1 — `.env` in the repo root (server-side secrets)
+
+Copy `.env.example` to `.env`, then fill in:
+
+| Placeholder | Replace with | Where it comes from |
+|---|---|---|
+| `SUPABASE_URL` | `https://abcdefgh.supabase.co` | Project Settings → Data API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGci...` (very long) | Project Settings → API Keys → `service_role` |
+| `SUPABASE_ANON_KEY` | `eyJhbGci...` (very long) | Project Settings → API Keys → `anon` / `public` |
+| `ALLOWED_ORIGINS` | `http://localhost:5173,https://your-app.vercel.app` | Your own URLs — update after your first deploy |
+| `ALLOWED_EMAIL_DOMAINS` | `jaipur.manipal.edu,muj.manipal.edu` | Your university's email domains. Leave blank to allow any. |
+| `SEED_DEFAULT_PASSWORD` | anything strong, e.g. `SsmpDemo@2026` | You choose. Only used by the demo seed script. |
+
+> **The `service_role` key bypasses every security rule in the database.** Never commit it, never paste it into the frontend, never share it in a screenshot. `.gitignore` already excludes `.env`.
+
+#### File 2 — `frontend/.env.local` (browser-safe values)
+
+Copy `frontend/.env.example` to `frontend/.env.local`, then fill in:
+
+| Placeholder | Replace with |
+|---|---|
+| `VITE_SUPABASE_URL` | the same Project URL as above |
+| `VITE_SUPABASE_ANON_KEY` | the same `anon` key as above |
+| `VITE_API_BASE_URL` | leave as `/api` |
+| `VITE_INSTITUTION_NAME` | `Manipal University Jaipur` |
+| `VITE_DEPARTMENT_NAME` | `Department of IoT & Intelligent Systems` |
+
+The `anon` key is *designed* to be public — it can only do what your Row Level Security policies allow. The `service_role` key is the one that must stay secret.
+
+---
+
+## Part 2 — Set up the database
+
+You have two options. **Option A is easier** and needs no extra tools.
+
+### Option A — Paste the SQL into the Supabase dashboard
+
+1. In Supabase, open **SQL Editor** → **New query**
+2. Open each file in `supabase/migrations/` **in numerical order** and run them one at a time:
+
+   ```
+   0001_extensions_enums_and_shared_helpers.sql
+   0002_user_profiles_table.sql
+   0003_student_form_a_onboarding.sql
+   0004_support_tickets_and_messages.sql
+   0005_notifications_and_achievements.sql
+   0006_semester_setup_roster_and_audit.sql
+   0007_authorization_helper_functions.sql
+   0008_row_level_security_policies.sql
+   0009_ticket_workflow_functions.sql
+   0010_student_and_mentor_functions.sql
+   0011_cross_portal_notification_triggers.sql
+   0012_analytics_views.sql
+   0013_report_and_dashboard_functions.sql
+   0014_realtime_and_storage_buckets.sql
+   0015_rate_limiting_and_audit_helpers.sql
+   ```
+
+   Paste the whole file, click **Run**, wait for "Success", move to the next. Order matters — later files reference earlier ones.
+
+3. Turn off public signup: **Authentication → Sign In / Providers → Email** → switch **Allow new users to sign up** to **off**. Accounts are created by the HOD, not self-service.
+
+### Option B — Supabase CLI
+
+```bash
+npm install -g supabase
+supabase login
+supabase link --project-ref YOUR-PROJECT-REF     # the abcdefgh part of your URL
+supabase db push
+```
+
+---
+
+## Part 3 — Create the demo accounts
+
+```bash
+npm install                 # installs the serverless API dependencies
+npm run db:seed             # creates 1 HOD, 3 faculty, 4 students + sample tickets
+```
+
+The script prints every account it creates. All of them use the password from `SEED_DEFAULT_PASSWORD`:
+
+| Role | Email |
+|---|---|
+| HOD | `hod.iotis@jaipur.manipal.edu` |
+| Faculty | `alice.smith@jaipur.manipal.edu` |
+| Faculty | `bob.johnson@jaipur.manipal.edu` |
+| Faculty | `carol.williams@jaipur.manipal.edu` |
+| Student | `john.doe@muj.manipal.edu` |
+| Student | `jane.smith@muj.manipal.edu` |
+| Student | `mike.davis@muj.manipal.edu` |
+| Student | `emily.wilson@muj.manipal.edu` |
+
+It is safe to run more than once — existing accounts are reused, not duplicated.
+
+**For real use**, skip the demo accounts entirely: sign in as the HOD and use **Semester setup → Import roster** with a CSV or XLSX of your actual faculty and students. The portal creates the accounts and hands you a credentials file to distribute.
+
+---
+
+## Part 4 — Run it locally
+
+```bash
+npm install                   # root: serverless API dependencies
+npm --prefix frontend install # frontend dependencies
+npm run dev                   # → http://localhost:5173
+```
+
+`npm run dev` starts the frontend only. The three portals, live ticket updates, notifications, Form A, GPA, achievements and star mentee all work this way, because they talk to Supabase directly.
+
+**To also run the serverless API locally** (needed for roster import, PDF reports and faculty reassignment):
+
+```bash
+npm install -g vercel
+vercel dev                    # → http://localhost:3000, serves both frontend and /api
+```
+
+Use `vercel dev` when you want the complete system. Use `npm run dev` for faster frontend iteration.
+
+---
+
+## Part 5 — Deploy to Vercel
+
+1. Push the repo to GitHub
+2. [vercel.com](https://vercel.com) → **Add New → Project** → import the repo
+3. **Do not change the build settings** — `vercel.json` already configures everything
+4. Under **Environment Variables**, add all five of these (Production, Preview and Development):
+
+   ```
+   SUPABASE_URL                 = https://YOUR-PROJECT-REF.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY    = eyJhbGci...
+   SUPABASE_ANON_KEY            = eyJhbGci...
+   ALLOWED_ORIGINS              = https://your-app.vercel.app
+   ALLOWED_EMAIL_DOMAINS        = jaipur.manipal.edu,muj.manipal.edu
+   VITE_SUPABASE_URL            = https://YOUR-PROJECT-REF.supabase.co
+   VITE_SUPABASE_ANON_KEY       = eyJhbGci...
+   VITE_API_BASE_URL            = /api
+   ```
+
+   The `VITE_*` ones are needed at build time; the others at runtime.
+
+5. **Deploy**
+6. Back in Supabase → **Authentication → URL Configuration**:
+   - **Site URL** → `https://your-app.vercel.app`
+   - **Redirect URLs** → add `https://your-app.vercel.app/**`
+
+   Password resets will not work until you do this.
+
+7. Redeploy once so the build picks up the final `ALLOWED_ORIGINS`.
+
+---
+
+## Part 6 — Check it works end to end
+
+Sign in as each role in three different browser windows (or one normal + two private):
+
+| # | Do this | You should see |
+|---|---|---|
+| 1 | Sign in as a **student** for the first time | Redirected to **Form A** — you cannot reach anything else until it is submitted |
+| 2 | Submit Form A | Landed on the student dashboard, with your mentor's details in the top card |
+| 3 | Raise a ticket | It appears in the **faculty** window within a second, and the faculty bell shows a badge — no refresh |
+| 4 | Reply as faculty | The reply appears in the student window instantly; ticket flips to *In Progress* |
+| 5 | Faculty clicks **Mark resolved** | Student gets "Was your issue fixed?" with Yes / No |
+| 6 | Student clicks **No** + a comment | Ticket reopens, faculty is notified and sees the comment |
+| 7 | Student clicks **Yes** | Ticket closes, student can leave a 1–5 star rating |
+| 8 | Student → Academics → turn **GPA sharing off** | Faculty's mentee report now says "not shared" instead of the grades |
+| 9 | Faculty → My Mentees → click a **star** | That student becomes the representative; starring another replaces them after a confirmation |
+| 10 | Faculty → My Report → **Download PDF** | A branded PDF with KPI cards, bar chart, donut chart, weekly trend and tables |
+| 11 | Faculty → a mentee → **Generate report** | Per-student PDF with GPA trend, achievements, ticket history |
+| 12 | HOD → Faculty Roster → mark someone **departed** | Their mentee list opens; reassign to someone from the reserve pool |
+| 13 | Check the reassigned student's window | They are notified their mentor changed, and it is already updated on screen |
+
+---
+
+## Troubleshooting
+
+**"Missing VITE_SUPABASE_URL"** — `frontend/.env.local` does not exist or is missing a value. Restart `npm run dev` after creating it; Vite only reads env files at startup.
+
+**Login says "Invalid login credentials"** — the account does not exist yet. Run `npm run db:seed`, or create it from the HOD portal.
+
+**Login works but the page is blank / "No profile found"** — the migrations were not all applied, so the `user_profiles` trigger never ran. Re-run migration `0002`, then delete and recreate the account.
+
+**Realtime updates are not arriving** — check Supabase → **Database → Publications → `supabase_realtime`** lists `support_tickets`, `ticket_messages`, `notifications`, `user_profiles`, `student_achievements`. If not, re-run migration `0014`.
+
+**PDF download does nothing** — the serverless API is not running. Use `vercel dev` locally, or check the environment variables on Vercel in production.
+
+**Roster import fails with "No Email column found"** — your header row needs an `Email` and a `Name` column. Accepted spellings are listed on the import screen itself.
+
+**"Form A has been submitted and is now read-only"** — working as designed. The student taps **Request unlock**, then the HOD unlocks it from **Students → Unlock Form A**.
+
+---
+
+## What is where
+
+```
+ssmp-platform/
+├── supabase/migrations/     the entire database: tables, RLS, functions, triggers, views
+├── supabase/scripts/        demo seed + CI stubs
+├── api/                     Vercel serverless functions (privileged operations only)
+│   ├── _lib/                shared: auth guards, validation, PDF engine, spreadsheet parser
+│   ├── admin/               account provisioning, roster import, faculty roster
+│   └── reports/             Feature 4 and Feature 5 PDF endpoints
+├── frontend/src/
+│   ├── components/layout/   the SLCM shell — sidebar, top bar, notification bell
+│   ├── components/ui/       panels, stat cards, badges, tables, modals, form controls
+│   ├── components/charts/   themed Recharts wrappers
+│   ├── pages/student/       student portal
+│   ├── pages/faculty/       faculty portal
+│   └── pages/hod/           HOD portal
+├── docs/SECURITY.md         every security control, and the trade-offs taken
+├── sample-data/             example roster CSVs
+└── design-reference/        original mockups (excluded from the deploy)
+```

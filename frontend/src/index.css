@@ -3,100 +3,158 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   body {
-    font-family: 'Hanken Grotesk', sans-serif;
+    @apply bg-background text-on-surface font-body antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-headline;
+  }
+
+  /* Visible keyboard focus everywhere — accessibility, not decoration. */
+  :focus-visible {
+    outline: 2px solid theme('colors.primary');
+    outline-offset: 2px;
   }
 }
 
+@layer components {
+  /* ── SLCM-style card: white panel with a small tab label on top ───── */
+  .panel {
+    @apply bg-surface-container-lowest border border-topbar-border rounded-lg shadow-card;
+  }
+
+  .panel-tab {
+    @apply inline-flex items-center gap-2 px-sm py-2 text-label-md text-on-surface-variant
+           bg-surface-container-low border border-b-0 border-topbar-border rounded-t-lg;
+  }
+
+  .panel-tab-accent {
+    @apply border-t-[3px] border-t-primary-container;
+  }
+
+  /* ── Form controls ─────────────────────────────────────────────────── */
+  .field-label {
+    @apply block text-label-sm uppercase tracking-wide text-on-surface-variant mb-1.5;
+  }
+
+  .field-input {
+    @apply w-full rounded border border-outline-variant bg-surface-container-lowest
+           px-3 py-2 text-body-sm text-on-surface placeholder:text-tertiary
+           focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:bg-surface-container
+           disabled:text-tertiary disabled:cursor-not-allowed transition-colors;
+  }
+
+  .field-error {
+    @apply mt-1 text-label-sm text-error;
+  }
+
+  /* ── Buttons ───────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded px-4 py-2 text-label-md
+           transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+           focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary text-on-primary hover:bg-primary-container;
+  }
+
+  .btn-secondary {
+    @apply btn bg-surface-container-lowest text-primary border border-primary hover:bg-primary-fixed;
+  }
+
+  .btn-ghost {
+    @apply btn text-on-surface-variant hover:bg-surface-container;
+  }
+
+  .btn-danger {
+    @apply btn bg-error text-on-error hover:bg-on-error-container;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-label-sm;
+  }
+
+  /* ── Sidebar navigation ────────────────────────────────────────────── */
+  .sidebar-link {
+    @apply flex items-center gap-3 px-5 py-3 text-body-sm text-sidebar-text/95
+           border-l-4 border-transparent transition-colors hover:bg-sidebar-hover;
+  }
+
+  .sidebar-link-active {
+    @apply bg-sidebar-active border-l-4 border-white font-semibold text-white;
+  }
+
+  /* ── Tables ────────────────────────────────────────────────────────── */
+  .data-table {
+    @apply w-full text-body-sm border-collapse;
+  }
+
+  .data-table thead th {
+    @apply bg-surface-container-low text-label-sm uppercase tracking-wide text-on-surface-variant
+           text-left px-4 py-2.5 border-b border-topbar-border whitespace-nowrap;
+  }
+
+  .data-table tbody td {
+    @apply px-4 py-2.5 border-b border-surface-container align-middle;
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-surface-container-low/70;
+  }
+
+  /* ── Misc ──────────────────────────────────────────────────────────── */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-sm;
+  }
+
+  .skeleton {
+    @apply rounded bg-surface-container-high;
+    background-image: linear-gradient(
+      90deg,
+      theme('colors.surface-container-high') 0%,
+      theme('colors.surface-container-low') 50%,
+      theme('colors.surface-container-high') 100%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+}
+
+/* Material Symbols icon font, used throughout the shell. */
 .material-symbols-outlined {
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
   display: inline-block;
-  vertical-align: middle;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
 }
 
-.form-input-focus:focus {
-  outline: 2px solid #a43700;
-  outline-offset: -1px;
-  border-color: transparent;
-  box-shadow: none;
-}
+.custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #d8d8d8; border-radius: 8px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #8b7268; }
 
-.terracotta-overlay {
-  background-color: rgba(164, 55, 0, 0.15);
+@media print {
+  .no-print { display: none !important; }
 }
-
-.workflow-line {
-  height: 2px;
-  flex-grow: 1;
-  background-color: #e0e3e5;
-  margin: 0 12px;
-}
-
-.glass-card {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(8px);
-  border: 1px solid #dfc0b5;
-}
-
-/* Custom Scrollbars */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #e2e2e2;
-  border-radius: 10px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #8b7268;
-}
-
-.row-hover-action {
-  opacity: 0;
-  transition: opacity 0.2s ease-in-out;
-}
-tr:hover .row-hover-action {
-  opacity: 1;
-}
-
-/* Chart Animations */
-.chart-bar {
-  transition: height 1s ease-in-out;
-}
-
-@keyframes subtle-pulse {
-  0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.05); opacity: 0.8; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-.animate-status-dot {
-  animation: subtle-pulse 2s infinite ease-in-out;
-}
-
-@keyframes shimmer {
-  0%   { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
-}
-
-@keyframes scale-in {
-  0%   { opacity: 0; transform: scale(0.94) translateY(8px); }
-  100% { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-.animate-scale-in {
-  animation: scale-in 0.18s ease-out forwards;
-}
-
-@keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out forwards;
-}
-

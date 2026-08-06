@@ -1,41 +1,63 @@
-import React from 'react';
-
-/**
- * StatusBadge — shared status chip for ticket status.
- * Used across all three role dashboards for consistency.
- */
-const STATUS_CONFIG = {
-  'Open': {
-    icon: 'radio_button_unchecked',
-    classes: 'bg-error-container text-on-error-container border-error/20',
-  },
-  'In Progress': {
-    icon: 'autorenew',
-    classes: 'bg-secondary-container text-on-secondary-container border-secondary/20',
-  },
-  'Resolved': {
-    icon: 'check_circle',
-    classes: 'bg-[#e6f4ee] text-[#0a6c44] border-[#0a6c44]/20',
-  },
+const TICKET_STATUS_STYLES = {
+  Open: { className: 'bg-error-container text-on-error-container', icon: 'radio_button_checked' },
+  'In Progress': { className: 'bg-warning-container text-on-warning-container', icon: 'autorenew' },
+  Resolved: { className: 'bg-success-container text-on-success-container', icon: 'task_alt' }
 };
 
-const StatusBadge = ({ status, size = 'sm' }) => {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG['Open'];
-  const iconSize = size === 'lg' ? 'text-base' : 'text-xs';
-  const textSize = size === 'lg' ? 'text-sm' : 'text-[10px]';
+const RESOLUTION_STYLES = {
+  pending_confirmation: { label: 'Awaiting confirmation', className: 'bg-info-container text-on-info-container', icon: 'hourglass_top' },
+  confirmed: { label: 'Confirmed by student', className: 'bg-success-container text-on-success-container', icon: 'verified' },
+  reopened: { label: 'Reopened by student', className: 'bg-error-container text-on-error-container', icon: 'replay' }
+};
 
+const PRIORITY_STYLES = {
+  Low: 'bg-surface-container-high text-on-surface-variant',
+  Medium: 'bg-info-container text-on-info-container',
+  High: 'bg-warning-container text-on-warning-container',
+  Urgent: 'bg-error-container text-on-error-container'
+};
+
+const CATEGORY_STYLES = {
+  Academic: 'bg-primary-fixed text-on-primary-fixed',
+  'ERP/Tech': 'bg-[#ffe2d6] text-on-secondary-container',
+  Infrastructure: 'bg-surface-container-high text-on-surface-variant'
+};
+
+export function TicketStatusBadge({ status }) {
+  const style = TICKET_STATUS_STYLES[status] ?? TICKET_STATUS_STYLES.Open;
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border font-bold uppercase tracking-wide
-        ${config.classes} ${textSize}`}
-    >
-      <span className={`material-symbols-outlined ${iconSize} ${status === 'In Progress' ? 'animate-spin' : ''}`}
-        style={status === 'In Progress' ? { animationDuration: '2s' } : {}}>
-        {config.icon}
-      </span>
+    <span className={`chip ${style.className}`}>
+      <span className="material-symbols-outlined text-[14px]" aria-hidden="true">{style.icon}</span>
       {status}
     </span>
   );
-};
+}
 
-export default StatusBadge;
+export function ResolutionBadge({ resolutionStatus }) {
+  const style = RESOLUTION_STYLES[resolutionStatus];
+  if (!style) return null;
+  return (
+    <span className={`chip ${style.className}`}>
+      <span className="material-symbols-outlined text-[14px]" aria-hidden="true">{style.icon}</span>
+      {style.label}
+    </span>
+  );
+}
+
+export function PriorityBadge({ priority }) {
+  return <span className={`chip ${PRIORITY_STYLES[priority] ?? PRIORITY_STYLES.Medium}`}>{priority}</span>;
+}
+
+export function CategoryBadge({ category }) {
+  return <span className={`chip ${CATEGORY_STYLES[category] ?? CATEGORY_STYLES.Infrastructure}`}>{category}</span>;
+}
+
+export function EmploymentBadge({ status }) {
+  const map = {
+    active: 'bg-success-container text-on-success-container',
+    on_leave: 'bg-warning-container text-on-warning-container',
+    departed: 'bg-error-container text-on-error-container'
+  };
+  const labels = { active: 'Active', on_leave: 'On leave', departed: 'Departed' };
+  return <span className={`chip ${map[status] ?? map.active}`}>{labels[status] ?? status}</span>;
+}

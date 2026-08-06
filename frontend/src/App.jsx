@@ -1,19 +1,22 @@
-import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import { ToastProvider } from './context/ToastContext';
-import AppRoutes from './routes/AppRoutes';
+import { AuthProvider } from './context/AuthProvider.jsx';
+import { ToastProvider } from './context/ToastProvider.jsx';
+import { NotificationProvider } from './context/NotificationProvider.jsx';
+import AppRouter from './routes/AppRouter.jsx';
+import ErrorBoundary from './components/ui/ErrorBoundary.jsx';
 
-function App() {
+export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
+    <ErrorBoundary>
+      <BrowserRouter>
         <ToastProvider>
-          <AppRoutes />
+          <AuthProvider>
+            <NotificationProvider>
+              <AppRouter />
+            </NotificationProvider>
+          </AuthProvider>
         </ToastProvider>
-      </AuthProvider>
-    </BrowserRouter>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
-
-export default App;
