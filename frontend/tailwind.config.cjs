@@ -1,76 +1,86 @@
 /**
  * Tailwind theme for SSMP.
- * Palette is the Academic Nexus system from design-reference/, retuned to
- * match the MUJ SLCM portal: terracotta sidebar, white top bar, light grey
- * work surface.
+ *
+ * Retuned to the SSMP Nexus design: warm off-white canvas, WHITE sidebar
+ * with a solid-orange active pill, white cards with soft peach section
+ * headers, and generous rounding.
+ *
+ * The token NAMES are unchanged from the previous theme on purpose — every
+ * screen keeps working, only the values move.
  */
 module.exports = {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
       colors: {
-        // ── SLCM shell ────────────────────────────────────────────────
+        // ── Shell ─────────────────────────────────────────────────────
         sidebar: {
-          DEFAULT: '#bf4a1f',
-          hover: '#ab3f19',
-          active: '#a43700',
-          border: '#a83c14',
-          text: '#ffffff',
-          muted: '#f6d5c8'
+          DEFAULT: '#ffffff',       // the rail itself is white now
+          hover: '#fdf1ea',         // soft peach hover
+          active: '#c2410c',        // solid orange pill for the current page
+          border: '#f2e4dc',
+          text: '#57534e',          // stone-600 for inactive items
+          muted: '#a8a29e'
         },
         topbar: {
           DEFAULT: '#ffffff',
-          border: '#e2e2e2'
+          border: '#f2e4dc'
         },
-        // ── Academic Nexus core ───────────────────────────────────────
-        primary: '#a43700',
-        'primary-container': '#cd4800',
+
+        // ── Brand ─────────────────────────────────────────────────────
+        primary: '#c2410c',
+        'primary-container': '#ea580c',
         'on-primary': '#ffffff',
-        'on-primary-container': '#fffbff',
-        'primary-fixed': '#ffdbcf',
-        'primary-fixed-dim': '#ffb59a',
-        'on-primary-fixed': '#380d00',
-        'on-primary-fixed-variant': '#802a00',
-        secondary: '#a93700',
-        'secondary-container': '#fd7039',
+        'on-primary-container': '#ffffff',
+        'primary-fixed': '#fdece3',        // peach panel headers + icon chips
+        'primary-fixed-dim': '#fbd9c8',
+        'on-primary-fixed': '#9a3412',
+        'on-primary-fixed-variant': '#b4470e',
+        secondary: '#ea580c',
+        'secondary-container': '#fb923c',
         'on-secondary': '#ffffff',
-        'on-secondary-container': '#601c00',
-        tertiary: '#5b5c5c',
-        'tertiary-container': '#747575',
+        'on-secondary-container': '#9a3412',
+        tertiary: '#a8a29e',
+        'tertiary-container': '#d6d3d1',
         'on-tertiary': '#ffffff',
-        error: '#ba1a1a',
-        'error-container': '#ffdad6',
+
+        // ── Status ────────────────────────────────────────────────────
+        error: '#dc2626',
+        'error-container': '#fee2e2',
         'on-error': '#ffffff',
-        'on-error-container': '#93000a',
-        success: '#1b7340',
-        'success-container': '#d4f0df',
-        'on-success-container': '#0d4526',
-        warning: '#b47a00',
-        'warning-container': '#ffeecb',
-        'on-warning-container': '#5c3d00',
-        info: '#1b5e8f',
-        'info-container': '#d6e9f8',
-        'on-info-container': '#0d3352',
-        background: '#f0f1f2',
-        surface: '#f9f9f9',
+        'on-error-container': '#991b1b',
+        success: '#16a34a',
+        'success-container': '#dcfce7',
+        'on-success-container': '#166534',
+        warning: '#d97706',
+        'warning-container': '#fef3c7',
+        'on-warning-container': '#92400e',
+        info: '#2563eb',
+        'info-container': '#dbeafe',
+        'on-info-container': '#1e40af',
+
+        // ── Surfaces ──────────────────────────────────────────────────
+        background: '#fdfaf8',                 // warm canvas
+        surface: '#ffffff',
         'surface-container-lowest': '#ffffff',
-        'surface-container-low': '#f3f3f4',
-        'surface-container': '#eeeeee',
-        'surface-container-high': '#e8e8e8',
-        'surface-container-highest': '#e2e2e2',
-        'surface-variant': '#e2e2e2',
-        'on-surface': '#1a1c1c',
-        'on-surface-variant': '#574239',
-        'inverse-surface': '#2f3131',
-        'inverse-on-surface': '#f0f1f1',
-        outline: '#8b7268',
-        'outline-variant': '#dfc0b5'
+        'surface-container-low': '#fdf7f4',
+        'surface-container': '#faf1ec',
+        'surface-container-high': '#f5e9e2',
+        'surface-container-highest': '#efdfd6',
+        'surface-variant': '#f5e9e2',
+        'on-surface': '#1c1917',
+        'on-surface-variant': '#57534e',
+        'inverse-surface': '#292524',
+        'inverse-on-surface': '#fafaf9',
+        outline: '#a8a29e',
+        'outline-variant': '#e7ddd6'
       },
       borderRadius: {
-        DEFAULT: '0.25rem',
-        md: '0.375rem',
-        lg: '0.5rem',
-        xl: '0.75rem'
+        DEFAULT: '0.5rem',
+        md: '0.625rem',
+        lg: '0.75rem',
+        xl: '1rem',
+        '2xl': '1.25rem'
       },
       spacing: {
         base: '4px',
@@ -80,27 +90,27 @@ module.exports = {
         lg: '32px',
         xl: '48px',
         gutter: '20px',
-        sidebar: '260px'
+        sidebar: '264px'
       },
       fontFamily: {
         headline: ['Manrope', 'system-ui', 'sans-serif'],
         body: ['"Hanken Grotesk"', 'system-ui', 'sans-serif']
       },
       fontSize: {
-        'display-lg': ['48px', { lineHeight: '56px', letterSpacing: '-0.02em', fontWeight: '800' }],
+        'display-lg': ['44px', { lineHeight: '52px', letterSpacing: '-0.02em', fontWeight: '800' }],
         'headline-lg': ['32px', { lineHeight: '40px', fontWeight: '700' }],
-        'headline-md': ['24px', { lineHeight: '32px', fontWeight: '600' }],
-        'headline-sm': ['20px', { lineHeight: '28px', fontWeight: '600' }],
+        'headline-md': ['26px', { lineHeight: '34px', fontWeight: '700' }],
+        'headline-sm': ['19px', { lineHeight: '27px', fontWeight: '600' }],
         'body-lg': ['18px', { lineHeight: '28px' }],
         'body-md': ['16px', { lineHeight: '24px' }],
-        'body-sm': ['14px', { lineHeight: '20px' }],
+        'body-sm': ['14px', { lineHeight: '21px' }],
         'label-md': ['14px', { lineHeight: '20px', fontWeight: '600' }],
         'label-sm': ['12px', { lineHeight: '16px', fontWeight: '500' }]
       },
       boxShadow: {
-        card: '0 1px 2px rgba(26, 28, 28, 0.06)',
-        raised: '0 4px 12px rgba(0, 0, 0, 0.08)',
-        dropdown: '0 8px 24px rgba(26, 28, 28, 0.14)'
+        card: '0 1px 3px rgba(28, 25, 23, 0.05)',
+        raised: '0 6px 18px rgba(194, 65, 12, 0.10)',
+        dropdown: '0 12px 32px rgba(28, 25, 23, 0.14)'
       },
       keyframes: {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },

@@ -48,16 +48,16 @@ export const EMPLOYMENT_STATUS_LABELS = {
 };
 
 export const CHART_COLORS = {
-  academic: '#a43700',
-  erpTech: '#fd7039',
-  infrastructure: '#5b5c5c',
-  open: '#ba1a1a',
-  inProgress: '#b47a00',
-  resolved: '#1b7340',
-  primary: '#a43700',
-  secondary: '#fd7039',
-  slate: '#5b5c5c',
-  series: ['#a43700', '#fd7039', '#5b5c5c', '#cd4800', '#b47a00', '#1b7340']
+  academic: '#c2410c',
+  erpTech: '#f97316',
+  infrastructure: '#a8a29e',
+  open: '#dc2626',
+  inProgress: '#d97706',
+  resolved: '#16a34a',
+  primary: '#c2410c',
+  secondary: '#f97316',
+  slate: '#a8a29e',
+  series: ['#c2410c', '#f97316', '#a8a29e', '#ea580c', '#d97706', '#16a34a']
 };
 
 /**

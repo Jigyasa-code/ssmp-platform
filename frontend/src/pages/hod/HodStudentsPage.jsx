@@ -8,22 +8,18 @@ import EmptyState from '../../components/ui/EmptyState.jsx';
 import StatCard from '../../components/ui/StatCard.jsx';
 import { SkeletonTable } from '../../components/ui/Skeleton.jsx';
 import { FilterPills } from '../../components/ui/FormControls.jsx';
-import { ConfirmDialog } from '../../components/ui/Modal.jsx';
 import AddAccountModal from '../../components/hod/AddAccountModal.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
-import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { describeError } from '../../lib/formatters.js';
 
 export default function HodStudentsPage() {
   const toast = useToast();
-  const { run, pending } = useAsyncAction();
   const [students, setStudents] = useState([]);
   const [mentorNames, setMentorNames] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
-  const [unlockTarget, setUnlockTarget] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -41,21 +37,6 @@ export default function HodStudentsPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  const unlockFormA = () =>
-    run(
-      async () => {
-        const { error } = await supabase.rpc('unlock_student_form_a', { p_student_id: unlockTarget.student_id });
-        if (error) throw error;
-      },
-      {
-        successMessage: 'Form A unlocked. The student can edit and resubmit it.',
-        onSuccess: () => {
-          setUnlockTarget(null);
-          load();
-        }
-      }
-    );
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -157,18 +138,7 @@ export default function HodStudentsPage() {
                     <span className="chip bg-warning-container text-on-warning-container">Pending</span>
                   )
               },
-              { key: 'total_tickets', header: 'Tickets', align: 'right' },
-              {
-                key: 'actions',
-                header: '',
-                render: (row) =>
-                  row.form_a_completed ? (
-                    <button type="button" className="btn-ghost btn-sm" onClick={() => setUnlockTarget(row)}>
-                      <span className="material-symbols-outlined text-[16px]">lock_open</span>
-                      Unlock Form A
-                    </button>
-                  ) : null
-              }
+              { key: 'total_tickets', header: 'Tickets', align: 'right' }
             ]}
             rows={filtered}
             rowKey={(row) => row.student_id}
@@ -179,15 +149,6 @@ export default function HodStudentsPage() {
 
       <AddAccountModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={load} />
 
-      <ConfirmDialog
-        open={Boolean(unlockTarget)}
-        onClose={() => setUnlockTarget(null)}
-        onConfirm={unlockFormA}
-        pending={pending}
-        title="Unlock Form A?"
-        confirmLabel="Unlock"
-        message={`${unlockTarget?.student_name} will be able to edit and resubmit their Form A. They will be redirected to it on their next sign-in.`}
-      />
     </PortalShell>
   );
 }

@@ -20,7 +20,6 @@ import {
 } from '../../components/charts/Charts.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { apiClient } from '../../lib/apiClient.js';
-import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { CHART_COLORS } from '../../lib/constants.js';
 import { describeError, formatDate, formatHours } from '../../lib/formatters.js';
@@ -40,7 +39,6 @@ const PRESETS = [
 ];
 
 export default function FacultyActivityReportPage({ isHodView = false }) {
-  const { profile } = useAuth();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [range, setRange] = useState(defaultRange);
@@ -50,7 +48,11 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [facultyListLoaded, setFacultyListLoaded] = useState(!isHodView);
 
+  // The HOD is not a faculty member, so "my report" is meaningless for
+  // them. Load the faculty list first and pre-select someone, otherwise
+  // the report RPC is asked for a faculty_id that does not exist.
   useEffect(() => {
     if (!isHodView) return;
     supabase
@@ -58,12 +60,24 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
       .select('id, full_name')
       .eq('role', 'faculty')
       .order('full_name')
-      .then(({ data }) =>
-        setFacultyOptions((data ?? []).map((f) => ({ value: f.id, label: f.full_name })))
-      );
+      .then(({ data }) => {
+        const options = (data ?? []).map((f) => ({ value: f.id, label: f.full_name }));
+        setFacultyOptions(options);
+        setFacultyId((current) => current || options[0]?.value || '');
+        setFacultyListLoaded(true);
+      });
   }, [isHodView]);
 
   const load = useCallback(async () => {
+    // Wait for the faculty list before asking for a report, so the HOD
+    // never triggers a "Faculty member not found" on first paint.
+    if (isHodView && !facultyListLoaded) return;
+    if (isHodView && !facultyId) {
+      setReport(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     const { data, error } = await supabase.rpc('get_faculty_activity_report', {
       p_faculty_id: isHodView && facultyId ? facultyId : null,
@@ -73,7 +87,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
     if (error) toast.error(describeError(error));
     setReport(data ?? null);
     setLoading(false);
-  }, [range, facultyId, isHodView, toast]);
+  }, [range, facultyId, isHodView, facultyListLoaded, toast]);
 
   useEffect(() => {
     load();
@@ -135,7 +149,15 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
   if (!report) {
     return (
       <PortalShell>
-        <EmptyState icon="analytics" title="No report data" description="Try a different date range." />
+        <EmptyState
+          icon="analytics"
+          title={isHodView && !facultyOptions.length ? 'No faculty on record yet' : 'No report data'}
+          description={
+            isHodView && !facultyOptions.length
+              ? 'Import the faculty roster from Semester setup, then come back here.'
+              : 'Try a different date range.'
+          }
+        />
       </PortalShell>
     );
   }
@@ -162,7 +184,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
               label="Faculty member"
               className="w-64"
               value={facultyId}
-              placeholder={`${profile.full_name} (me)`}
+              placeholder="Select a faculty member"
               options={facultyOptions}
               onChange={(event) => {
                 setFacultyId(event.target.value);

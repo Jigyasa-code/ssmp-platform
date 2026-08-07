@@ -48,6 +48,13 @@ export default function HodSemesterSetupPage() {
   const [file, setFile] = useState(null);
   const [dryRun, setDryRun] = useState(true);
   const [result, setResult] = useState(null);
+  /**
+   * The server only bumps current_step once accounts have actually been
+   * created, which left the stepper looking frozen for the several seconds
+   * that takes. This advances the earlier steps the moment the HOD acts,
+   * and leaves only step 5 -- "accounts created" -- waiting on the server.
+   */
+  const [optimisticStep, setOptimisticStep] = useState(0);
 
   const load = useCallback(async () => {
     const [{ data: cycleRows }, { data: batchRows }] = await Promise.all([
@@ -84,14 +91,17 @@ export default function HodSemesterSetupPage() {
         onSuccess: async (created) => {
           setNewCycle({ academic_year: '', term: 'Odd' });
           setActiveCycle(created);
+          setOptimisticStep(2);
           await load();
         }
       }
     );
   };
 
-  const upload = () =>
-    run(
+  const upload = () => {
+    // Steps 2-4 are "the HOD has done their part" -- tick them now.
+    setOptimisticStep(importType === 'faculty' ? 3 : 4);
+    return run(
       async () => {
         if (!file) throw new Error('Choose a .csv or .xlsx file first.');
         const base64 = await fileToBase64(file);
@@ -106,6 +116,8 @@ export default function HodSemesterSetupPage() {
       {
         onSuccess: async (data) => {
           setResult({ ...data, dryRun });
+          // Step 5 only ticks once accounts really exist.
+          if (!dryRun && data.created.length) setOptimisticStep(5);
           toast.success(
             dryRun
               ? `Validation complete: ${data.created.length} ready, ${data.failed.length} with problems.`
@@ -113,9 +125,11 @@ export default function HodSemesterSetupPage() {
           );
           setFile(null);
           await load();
-        }
+        },
+        onError: () => setOptimisticStep(0)
       }
     );
+  };
 
   const finalize = () =>
     run(
@@ -145,7 +159,10 @@ export default function HodSemesterSetupPage() {
     setTimeout(() => URL.revokeObjectURL(url), 3000);
   };
 
-  const currentStep = activeCycle?.current_step ?? 1;
+  // Whichever is further along wins: the server's record, or what the HOD
+  // has already done in this session.
+  const currentStep = Math.max(activeCycle?.current_step ?? 1, optimisticStep);
+  const awaitingAccounts = pending && !dryRun;
 
   return (
     <PortalShell>
@@ -160,21 +177,24 @@ export default function HodSemesterSetupPage() {
           {STEPS.map((step, index) => {
             const done = currentStep > step.number || activeCycle?.is_initialized;
             const active = currentStep === step.number && !activeCycle?.is_initialized;
+            const busy = awaitingAccounts && step.number === 5;
             return (
               <li key={step.number} className="flex flex-1 items-center gap-2 min-w-[140px]">
                 <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-label-sm ${
-                    done ? 'bg-success text-white' : active ? 'bg-primary text-white' : 'bg-surface-container-high text-tertiary'
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-label-sm transition-colors ${
+                    done ? 'bg-success text-white' : active || busy ? 'bg-primary text-white' : 'bg-surface-container-high text-tertiary'
                   }`}
                 >
-                  {done ? (
+                  {busy ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  ) : done ? (
                     <span className="material-symbols-outlined text-[17px]">check</span>
                   ) : (
                     step.number
                   )}
                 </span>
-                <span className={`text-label-sm ${active ? 'text-primary' : 'text-on-surface-variant'}`}>
-                  {step.label}
+                <span className={`text-label-sm ${active || busy ? 'text-primary' : 'text-on-surface-variant'}`}>
+                  {busy ? 'Creating accounts...' : step.label}
                 </span>
                 {index < STEPS.length - 1 && <span className="hidden h-px flex-1 bg-outline-variant sm:block" />}
               </li>

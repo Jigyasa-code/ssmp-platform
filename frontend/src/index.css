@@ -29,18 +29,18 @@
 }
 
 @layer components {
-  /* ── SLCM-style card: white panel with a small tab label on top ───── */
+  /* ── Card: white, softly rounded, hairline warm border ─────────────── */
   .panel {
-    @apply bg-surface-container-lowest border border-topbar-border rounded-lg shadow-card;
+    @apply bg-surface-container-lowest border border-topbar-border rounded-xl shadow-card overflow-hidden;
   }
 
-  .panel-tab {
-    @apply inline-flex items-center gap-2 px-sm py-2 text-label-md text-on-surface-variant
-           bg-surface-container-low border border-b-0 border-topbar-border rounded-t-lg;
+  /* Section header strip: soft peach with an icon and an uppercase label */
+  .panel-header {
+    @apply flex flex-wrap items-center gap-2 bg-primary-fixed px-5 py-3 border-b border-topbar-border;
   }
 
-  .panel-tab-accent {
-    @apply border-t-[3px] border-t-primary-container;
+  .panel-header-title {
+    @apply text-label-md uppercase tracking-wide text-on-primary-fixed;
   }
 
   /* ── Form controls ─────────────────────────────────────────────────── */
@@ -48,11 +48,17 @@
     @apply block text-label-sm uppercase tracking-wide text-on-surface-variant mb-1.5;
   }
 
+  /* px-4 keeps text clear of the border on every input, select and
+     textarea — including selects, which also need room for the chevron. */
   .field-input {
-    @apply w-full rounded border border-outline-variant bg-surface-container-lowest
-           px-3 py-2 text-body-sm text-on-surface placeholder:text-tertiary
-           focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:bg-surface-container
+    @apply w-full rounded-lg border border-outline-variant bg-surface-container-lowest
+           px-4 py-2.5 text-body-sm text-on-surface placeholder:text-tertiary
+           focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-surface-container-low
            disabled:text-tertiary disabled:cursor-not-allowed transition-colors;
+  }
+
+  select.field-input {
+    @apply pr-10;
   }
 
   .field-error {
@@ -61,7 +67,7 @@
 
   /* ── Buttons ───────────────────────────────────────────────────────── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded px-4 py-2 text-label-md
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-label-md
            transition-colors disabled:opacity-50 disabled:cursor-not-allowed
            focus-visible:outline-2 focus-visible:outline-offset-2;
   }
@@ -71,7 +77,7 @@
   }
 
   .btn-secondary {
-    @apply btn bg-surface-container-lowest text-primary border border-primary hover:bg-primary-fixed;
+    @apply btn bg-surface-container-lowest text-primary border border-outline-variant hover:bg-primary-fixed;
   }
 
   .btn-ghost {
@@ -83,17 +89,17 @@
   }
 
   .btn-sm {
-    @apply px-3 py-1.5 text-label-sm;
+    @apply px-3.5 py-2 text-label-sm;
   }
 
-  /* ── Sidebar navigation ────────────────────────────────────────────── */
+  /* ── Sidebar: white rail, solid orange pill for the current page ───── */
   .sidebar-link {
-    @apply flex items-center gap-3 px-5 py-3 text-body-sm text-sidebar-text/95
-           border-l-4 border-transparent transition-colors hover:bg-sidebar-hover;
+    @apply flex items-center gap-3 rounded-lg px-4 py-2.5 text-body-sm text-sidebar-text
+           transition-colors hover:bg-sidebar-hover hover:text-primary;
   }
 
   .sidebar-link-active {
-    @apply bg-sidebar-active border-l-4 border-white font-semibold text-white;
+    @apply bg-sidebar-active text-white font-semibold shadow-sm hover:bg-sidebar-active hover:text-white;
   }
 
   /* ── Tables ────────────────────────────────────────────────────────── */
@@ -103,14 +109,18 @@
 
   /* No text-align here on purpose: DataTable sets it per column on BOTH
      the th and the td, so a right-aligned number always sits directly
-     under its own header. Baking text-left in here made the two fight. */
+     under its own header. px-5 keeps cells clear of the card edge. */
   .data-table thead th {
     @apply bg-surface-container-low text-label-sm uppercase tracking-wide text-on-surface-variant
-           px-4 py-2.5 border-b border-topbar-border whitespace-nowrap;
+           px-5 py-3 border-b border-topbar-border whitespace-nowrap;
   }
 
   .data-table tbody td {
-    @apply px-4 py-2.5 border-b border-surface-container align-middle;
+    @apply px-5 py-3 border-b border-surface-container align-middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
   }
 
   .data-table tbody tr:hover {
@@ -119,10 +129,10 @@
 
   /* ── Misc ──────────────────────────────────────────────────────────── */
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-sm;
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-label-sm;
   }
 
-  /* Long unbroken strings -- emails, addresses, file paths -- must wrap
+  /* Long unbroken strings — emails, addresses, file paths — must wrap
      inside their card instead of spilling past the edge. */
   .break-anywhere {
     overflow-wrap: anywhere;
@@ -130,7 +140,7 @@
   }
 
   .skeleton {
-    @apply rounded bg-surface-container-high;
+    @apply rounded-lg bg-surface-container-high;
     background-image: linear-gradient(
       90deg,
       theme('colors.surface-container-high') 0%,
@@ -162,8 +172,8 @@
 
 .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #d8d8d8; border-radius: 8px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #8b7268; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #e7ddd6; border-radius: 8px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #c2410c; }
 
 @media print {
   .no-print { display: none !important; }

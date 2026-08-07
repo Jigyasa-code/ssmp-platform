@@ -19,21 +19,21 @@ const { rgb } = pdfLib;
 
 /** Academic Nexus palette (hex -> pdf-lib rgb) */
 export const PALETTE = {
-  primary: rgb(0.643, 0.216, 0.0),        // #a43700 terracotta
-  primaryLight: rgb(0.804, 0.282, 0.0),   // #cd4800
-  primarySoft: rgb(1.0, 0.859, 0.812),    // #ffdbcf
-  secondary: rgb(0.992, 0.439, 0.224),    // #fd7039
-  slate: rgb(0.357, 0.361, 0.361),        // #5b5c5c
-  slateLight: rgb(0.784, 0.776, 0.776),   // #c7c6c6
-  ink: rgb(0.102, 0.110, 0.110),          // #1a1c1c
-  muted: rgb(0.341, 0.259, 0.224),        // #574239
-  outline: rgb(0.875, 0.753, 0.710),      // #dfc0b5
-  surface: rgb(0.976, 0.976, 0.976),      // #f9f9f9
-  surfaceAlt: rgb(0.933, 0.933, 0.933),   // #eeeeee
+  primary: rgb(0.761, 0.255, 0.047),      // #c2410c
+  primaryLight: rgb(0.918, 0.345, 0.047), // #ea580c
+  primarySoft: rgb(0.992, 0.925, 0.890),  // #fdece3
+  secondary: rgb(0.976, 0.451, 0.086),    // #f97316
+  slate: rgb(0.659, 0.635, 0.616),        // #a8a29e
+  slateLight: rgb(0.906, 0.867, 0.839),   // #e7ddd6
+  ink: rgb(0.110, 0.098, 0.090),          // #1c1917
+  muted: rgb(0.341, 0.325, 0.306),        // #57534e
+  outline: rgb(0.949, 0.894, 0.863),      // #f2e4dc
+  surface: rgb(0.992, 0.980, 0.973),      // #fdfaf8
+  surfaceAlt: rgb(0.980, 0.945, 0.925),   // #faf1ec
   white: rgb(1, 1, 1),
-  success: rgb(0.106, 0.451, 0.243),
-  warning: rgb(0.706, 0.478, 0.0),
-  error: rgb(0.729, 0.102, 0.102)         // #ba1a1a
+  success: rgb(0.086, 0.639, 0.290),      // #16a34a
+  warning: rgb(0.851, 0.467, 0.024),      // #d97706
+  error: rgb(0.863, 0.149, 0.149)         // #dc2626
 };
 
 /** Series colours, in the order charts consume them. */

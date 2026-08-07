@@ -55,7 +55,7 @@ export function ToastProvider({ children }) {
             <div
               key={toast.id}
               role="status"
-              className="animate-slide-in-right flex items-start gap-3 overflow-hidden rounded-lg border border-topbar-border bg-surface-container-lowest shadow-dropdown"
+              className="animate-slide-in-right flex items-start gap-3 overflow-hidden rounded-xl border border-topbar-border bg-surface-container-lowest shadow-dropdown"
             >
               <span className={`w-1 self-stretch ${style.bar}`} aria-hidden="true" />
               <span className={`material-symbols-outlined mt-3 text-[20px] ${style.text}`} aria-hidden="true">

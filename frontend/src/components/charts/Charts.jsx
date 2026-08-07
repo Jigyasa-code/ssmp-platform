@@ -10,18 +10,18 @@ import {
 } from 'recharts';
 import { CHART_COLORS } from '../../lib/constants.js';
 
-const AXIS = { stroke: '#8b7268', fontSize: 11, tickLine: false };
-const GRID = { stroke: '#e2e2e2', strokeDasharray: '3 3', vertical: false };
+const AXIS = { stroke: '#a8a29e', fontSize: 11, tickLine: false };
+const GRID = { stroke: '#f0e4dc', strokeDasharray: '3 3', vertical: false };
 
 const TOOLTIP_STYLE = {
   contentStyle: {
-    borderRadius: 8,
-    border: '1px solid #dfc0b5',
-    boxShadow: '0 8px 24px rgba(26,28,28,0.12)',
+    borderRadius: 12,
+    border: '1px solid #f2e4dc',
+    boxShadow: '0 12px 32px rgba(28,25,23,0.12)',
     fontSize: 12,
     fontFamily: 'Hanken Grotesk, sans-serif'
   },
-  labelStyle: { fontWeight: 600, color: '#1a1c1c' }
+  labelStyle: { fontWeight: 600, color: '#1c1917' }
 };
 
 function ChartFrame({ title, subtitle, height = 260, isEmpty, emptyLabel, children, actions }) {
@@ -62,7 +62,7 @@ export function CategoryBarChart({ data, title, subtitle, height = 260, dataKey 
         <CartesianGrid {...GRID} />
         <XAxis dataKey={nameKey} {...AXIS} axisLine={false} />
         <YAxis {...AXIS} axisLine={false} allowDecimals={false} />
-        <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'rgba(164,55,0,0.06)' }} />
+        <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'rgba(194,65,12,0.06)' }} />
         <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={56}>
           {data.map((entry, index) => (
             <Cell key={entry[nameKey]} fill={entry.color ?? CHART_COLORS.series[index % CHART_COLORS.series.length]} />
@@ -81,7 +81,7 @@ export function GroupedBarChart({ data, series, title, subtitle, height = 280, x
         <CartesianGrid {...GRID} />
         <XAxis dataKey={xKey} {...AXIS} axisLine={false} />
         <YAxis {...AXIS} axisLine={false} allowDecimals={false} />
-        <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'rgba(164,55,0,0.06)' }} />
+        <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'rgba(194,65,12,0.06)' }} />
         <Legend iconType="square" wrapperStyle={{ fontSize: 12, paddingTop: 6 }} />
         {series.map((s) => (
           <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={26} />
@@ -166,10 +166,10 @@ export function DonutChart({ data, title, subtitle, height = 260, centerLabel, c
         </Pie>
         <Tooltip {...TOOLTIP_STYLE} />
         <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-        <text x="50%" y="44%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 22, fontWeight: 700, fill: '#1a1c1c' }}>
+        <text x="50%" y="44%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 22, fontWeight: 700, fill: '#1c1917' }}>
           {centerValue ?? total}
         </text>
-        <text x="50%" y="53%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 11, fill: '#8b7268' }}>
+        <text x="50%" y="53%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 11, fill: '#a8a29e' }}>
           {centerLabel ?? 'total'}
         </text>
       </PieChart>
@@ -189,12 +189,12 @@ export function GaugeChart({ value, max = 100, title, subtitle, label, color = C
         endAngle={-30}
       >
         <PolarAngleAxis type="number" domain={[0, max]} angleAxisId={0} tick={false} />
-        <RadialBar background={{ fill: '#e8e8e8' }} dataKey="value" cornerRadius={8} />
-        <text x="50%" y="52%" textAnchor="middle" style={{ fontSize: 24, fontWeight: 700, fill: '#1a1c1c' }}>
+        <RadialBar background={{ fill: '#f5e9e2' }} dataKey="value" cornerRadius={8} />
+        <text x="50%" y="52%" textAnchor="middle" style={{ fontSize: 24, fontWeight: 700, fill: '#1c1917' }}>
           {clamped}
           {max === 100 ? '%' : ''}
         </text>
-        <text x="50%" y="65%" textAnchor="middle" style={{ fontSize: 11, fill: '#8b7268' }}>
+        <text x="50%" y="65%" textAnchor="middle" style={{ fontSize: 11, fill: '#a8a29e' }}>
           {label}
         </text>
       </RadialBarChart>

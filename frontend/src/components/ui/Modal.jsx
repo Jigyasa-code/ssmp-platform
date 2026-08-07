@@ -51,7 +51,7 @@ export default function Modal({ open, onClose, title, description, children, foo
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`animate-scale-in relative z-10 my-auto w-full ${widths[size]} overflow-hidden rounded-lg bg-surface-container-lowest shadow-dropdown`}
+        className={`animate-scale-in relative z-10 my-auto w-full ${widths[size]} overflow-hidden rounded-xl bg-surface-container-lowest shadow-dropdown`}
       >
         <header className="flex items-start justify-between gap-4 border-b border-topbar-border px-5 py-4">
           <div>

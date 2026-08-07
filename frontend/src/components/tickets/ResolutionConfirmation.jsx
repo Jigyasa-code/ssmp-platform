@@ -5,6 +5,9 @@
  */
 
 import { useState } from 'react';
+
+/** Must match max_resolution_rejections() in migration 0018. */
+const MAX_REJECTIONS = 3;
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 
@@ -14,6 +17,13 @@ export default function ResolutionConfirmation({ ticket, onDone }) {
   const [choice, setChoice] = useState(null);
 
   if (ticket.resolution_status !== 'pending_confirmation') return null;
+
+  // Feature 3 gives the student the final word, but not an unlimited one.
+  // After MAX_REJECTIONS rejections the database refuses another, so the
+  // button is withdrawn here too rather than letting them hit an error.
+  const rejectionsUsed = ticket.reopen_count ?? 0;
+  const rejectionsLeft = Math.max(MAX_REJECTIONS - rejectionsUsed, 0);
+  const canReject = rejectionsLeft > 0;
 
   const respond = (response) =>
     run(
@@ -47,6 +57,22 @@ export default function ResolutionConfirmation({ ticket, onDone }) {
             close it — or tell us it is still open and we will reopen it.
           </p>
 
+          {rejectionsUsed > 0 && canReject && (
+            <p className="mt-2 text-label-sm text-on-warning-container">
+              You have reopened this ticket {rejectionsUsed} time{rejectionsUsed > 1 ? 's' : ''}. You can do
+              so {rejectionsLeft} more time{rejectionsLeft > 1 ? 's' : ''} before it has to be discussed with
+              your mentor directly.
+            </p>
+          )}
+
+          {!canReject && (
+            <p className="mt-2 rounded bg-warning-container/60 px-3 py-2 text-body-sm text-on-warning-container">
+              You have already reopened this ticket {MAX_REJECTIONS} times, which is the maximum. If it is
+              still not resolved, please speak to your mentor directly — they can refer it to the Head of
+              Department for you.
+            </p>
+          )}
+
           {choice && (
             <div className="mt-3">
               <label htmlFor="confirm-comment" className="field-label">
@@ -78,7 +104,7 @@ export default function ResolutionConfirmation({ ticket, onDone }) {
                 {choice === 'yes' ? 'Confirm & close' : 'Yes, it is fixed'}
               </button>
             )}
-            {choice !== 'yes' && (
+            {choice !== 'yes' && canReject && (
               <button
                 type="button"
                 className="btn-danger btn-sm"

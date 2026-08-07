@@ -1,30 +1,28 @@
 /**
- * Panel — the white card with a small tab label on top, matching the
- * "Class Coordinator Information" block in the SLCM portal.
+ * Panel — the white card used for every block in all three portals.
+ *
+ * The `tab` / `tabIcon` props are unchanged from the previous design so no
+ * page needed editing; they now render as the soft-peach section header
+ * strip from the SSMP Nexus design rather than a folder tab.
  */
 export default function Panel({ tab, tabIcon, title, actions, children, className = '', bodyClassName = '' }) {
+  const heading = tab || title;
+
   return (
     <section className={className}>
-      {tab && (
-        <div className="flex items-end">
-          <div className="panel-tab panel-tab-accent">
+      <div className="panel">
+        {heading && (
+          <header className="panel-header">
             {tabIcon && (
-              <span className="material-symbols-outlined text-[17px] text-primary" aria-hidden="true">
+              <span className="material-symbols-outlined text-[19px] text-primary" aria-hidden="true">
                 {tabIcon}
               </span>
             )}
-            {tab}
-          </div>
-        </div>
-      )}
-      <div className={`panel ${tab ? 'rounded-tl-none' : ''}`}>
-        {(title || actions) && (
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-topbar-border px-4 py-3">
-            {title && <h2 className="text-headline-sm text-on-surface">{title}</h2>}
-            {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+            <h2 className="panel-header-title">{heading}</h2>
+            {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
           </header>
         )}
-        <div className={bodyClassName ?? 'p-4'}>{children}</div>
+        <div className={bodyClassName ?? 'p-5'}>{children}</div>
       </div>
     </section>
   );

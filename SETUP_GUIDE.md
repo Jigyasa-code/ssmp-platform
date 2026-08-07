@@ -79,6 +79,7 @@ You have two options. **Option A is easier** and needs no extra tools.
    0015_rate_limiting_and_audit_helpers.sql
    0016_fix_user_profiles_policy_recursion.sql
    0017_form_a_editable_and_star_mentee_group_view.sql
+   0018_reopen_limit_and_hod_escalation.sql
    ```
 
    Paste the whole file, click **Run**, wait for "Success", move to the next. Order matters — later files reference earlier ones.
@@ -222,7 +223,9 @@ Everything under `/api` — roster import, both PDF reports, faculty reassignmen
 
 **Roster import fails with "No Email column found"** — your header row needs an `Email` and a `Name` column. Accepted spellings are listed on the import screen itself.
 
-**"Form A has been submitted and is now read-only"** — working as designed. The student taps **Request unlock**, then the HOD unlocks it from **Students → Unlock Form A**.
+**"... is an invalid header value"** — one of your Supabase keys has a space or line break inside it, usually from the value wrapping when it was pasted. Copy it again from Project Settings → API Keys as a single unbroken line, in both `.env` and the Vercel environment variables. Check with `https://your-app.vercel.app/api/health`, which reports each variable as `ok`, `missing` or `malformed` without ever printing the value.
+
+**Student cannot reject a resolution any more** — working as designed. A student may answer "No" at most **3 times** on one ticket. After that the mentor gets a **Report to HOD** button on the ticket, which notifies every HOD with the mentor's note.
 
 ---
 

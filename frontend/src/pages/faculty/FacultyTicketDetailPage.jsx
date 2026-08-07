@@ -5,8 +5,8 @@ import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import { PageLoader } from '../../components/ui/Skeleton.jsx';
-import { ConfirmDialog } from '../../components/ui/Modal.jsx';
-import { SelectField } from '../../components/ui/FormControls.jsx';
+import Modal, { ConfirmDialog } from '../../components/ui/Modal.jsx';
+import { SelectField, TextAreaField } from '../../components/ui/FormControls.jsx';
 import { TicketStatusBadge, CategoryBadge, PriorityBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
 import TicketConversation from '../../components/tickets/TicketConversation.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
@@ -15,11 +15,16 @@ import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { formatDateTime, formatHours } from '../../lib/formatters.js';
 import { TICKET_PRIORITIES } from '../../lib/constants.js';
 
+/** Must match max_resolution_rejections() in migration 0018. */
+const MAX_REJECTIONS = 3;
+
 export default function FacultyTicketDetailPage({ isHodView = false }) {
   const { ticketId } = useParams();
   const { ticket, messages, loading, error, reload, appendMessage } = useTicketThread(ticketId);
   const { run, pending } = useAsyncAction();
   const [resolveOpen, setResolveOpen] = useState(false);
+  const [escalateOpen, setEscalateOpen] = useState(false);
+  const [escalationNote, setEscalationNote] = useState('');
   const [cannedReplies, setCannedReplies] = useState([]);
 
   const loadCanned = useCallback(async () => {
@@ -44,6 +49,29 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
         successMessage: 'Marked resolved. The student has been asked to confirm.',
         onSuccess: () => {
           setResolveOpen(false);
+          reload();
+        }
+      }
+    );
+
+  /**
+   * After 3 rejections the mentor can hand the disagreement to the HOD
+   * rather than keep re-resolving a ticket the student will not accept.
+   */
+  const escalate = () =>
+    run(
+      async () => {
+        const { error: rpcError } = await supabase.rpc('escalate_ticket_to_hod', {
+          p_ticket_id: ticket.id,
+          p_note: escalationNote.trim() || null
+        });
+        if (rpcError) throw rpcError;
+      },
+      {
+        successMessage: 'Referred to the HOD. The student has been told too.',
+        onSuccess: () => {
+          setEscalateOpen(false);
+          setEscalationNote('');
           reload();
         }
       }
@@ -111,9 +139,38 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
 
       {ticket.resolution_status === 'reopened' && (
         <div className="mb-4 rounded-lg border-l-4 border-error bg-error-container/50 p-4">
-          <p className="text-label-md text-on-surface">The student reopened this ticket</p>
+          <p className="text-label-md text-on-surface">
+            The student reopened this ticket
+            {ticket.reopen_count > 1 ? ` (${ticket.reopen_count} times)` : ''}
+          </p>
           <p className="mt-1 text-body-sm text-on-surface-variant">
             {ticket.student_confirmation_comment || 'They reported the issue is not resolved.'}
+          </p>
+        </div>
+      )}
+
+      {ticket.reopen_count >= MAX_REJECTIONS && !ticket.escalated_to_hod && (
+        <div className="mb-4 rounded-lg border-l-4 border-warning bg-warning-container/50 p-4">
+          <p className="text-label-md text-on-surface">
+            This ticket has been rejected {ticket.reopen_count} times
+          </p>
+          <p className="mt-1 text-body-sm text-on-surface-variant">
+            The student cannot reject it again. If you believe the issue is resolved, refer it to the Head of
+            Department — they will review the thread and decide.
+          </p>
+          <button type="button" className="btn-primary btn-sm mt-3" onClick={() => setEscalateOpen(true)}>
+            <span className="material-symbols-outlined text-[17px]">flag</span>
+            Report to HOD
+          </button>
+        </div>
+      )}
+
+      {ticket.escalated_to_hod && (
+        <div className="mb-4 rounded-lg border-l-4 border-info bg-info-container/50 p-4">
+          <p className="text-label-md text-on-surface">Referred to the Head of Department</p>
+          <p className="mt-1 text-body-sm text-on-surface-variant">
+            Sent on {formatDateTime(ticket.escalated_at)}.
+            {ticket.escalation_note ? ` Note: ${ticket.escalation_note}` : ''}
           </p>
         </div>
       )}
@@ -194,6 +251,34 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
           </Panel>
         </div>
       </div>
+
+      <Modal
+        open={escalateOpen}
+        onClose={() => setEscalateOpen(false)}
+        size="sm"
+        title="Refer this ticket to the HOD?"
+        description={`${ticket.student?.full_name} has rejected the resolution ${ticket.reopen_count} times.`}
+        footer={
+          <>
+            <button type="button" className="btn-ghost" onClick={() => setEscalateOpen(false)} disabled={pending}>
+              Cancel
+            </button>
+            <button type="button" className="btn-primary" onClick={escalate} disabled={pending}>
+              {pending ? 'Sending...' : 'Refer to HOD'}
+            </button>
+          </>
+        }
+      >
+        <TextAreaField
+          label="What should the HOD know?"
+          rows={4}
+          maxLength={1000}
+          value={escalationNote}
+          onChange={(event) => setEscalationNote(event.target.value)}
+          placeholder="e.g. The ERP password was reset and verified working on 6 August; the student still reports it is broken."
+          hint="This is sent to every HOD along with the ticket. The student is told the ticket was referred, but not shown this note."
+        />
+      </Modal>
 
       <ConfirmDialog
         open={resolveOpen}

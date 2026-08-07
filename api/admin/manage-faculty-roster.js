@@ -15,6 +15,24 @@ import { withApiDefaults, sendSuccess, ApiError } from '../_lib/http-response.js
 import { requireAuthenticatedUser, requireRole, enforceRateLimit, recordAuditEntry } from '../_lib/request-guards.js';
 import { parseOrThrow, facultyStatusSchema, reassignmentSchema } from '../_lib/input-validation.js';
 
+/**
+ * Supabase surfaces transport-level problems (a malformed API key, DNS
+ * failure) as an ordinary { error } object. Forwarding those verbatim
+ * dumped a raw JWT and an undici stack message into the user's screen, so
+ * they are logged and replaced with something actionable instead.
+ */
+function toClientError(error, fallback) {
+  const message = String(error?.message ?? '');
+  if (/invalid header value|fetch failed|ENOTFOUND|ECONNREFUSED/i.test(message)) {
+    console.error('[api] Supabase transport failure:', message);
+    return new ApiError(
+      'The server could not reach Supabase. Check SUPABASE_URL and the API keys in the Vercel environment variables.',
+      502
+    );
+  }
+  return new ApiError(message || fallback, 400);
+}
+
 export default withApiDefaults(['GET', 'POST'], async (req, res) => {
   const context = await requireAuthenticatedUser(req);
   requireRole(context, 'hod');
@@ -31,7 +49,7 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
         .from('faculty_reserve_pool')
         .select('*')
         .order('full_name');
-      if (error) throw new ApiError(error.message, 400);
+      if (error) throw toClientError(error, 'Could not load the faculty roster');
       return sendSuccess(res, 'Faculty roster retrieved', { faculty: data });
     }
 
@@ -45,7 +63,7 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
         .eq('assigned_mentor_id', facultyId)
         .eq('role', 'student')
         .order('full_name');
-      if (error) throw new ApiError(error.message, 400);
+      if (error) throw toClientError(error, 'Could not load the mentee list');
 
       const { data: openTickets } = await asUser
         .from('support_tickets')
@@ -69,7 +87,7 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
         .eq('employment_status', 'active')
         .eq('available_for_reassignment', true)
         .order('remaining_capacity', { ascending: false });
-      if (error) throw new ApiError(error.message, 400);
+      if (error) throw toClientError(error, 'Could not load the reserve pool');
       return sendSuccess(res, 'Reserve pool retrieved', { faculty: data });
     }
 
@@ -87,7 +105,7 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
       p_status: payload.employment_status,
       p_available: payload.available_for_reassignment ?? null
     });
-    if (error) throw new ApiError(error.message, 400);
+    if (error) throw toClientError(error, 'Could not update the status');
 
     await recordAuditEntry(context, req, 'hod.set_faculty_status', {
       type: 'user_profiles', id: payload.faculty_id,
@@ -115,7 +133,7 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
       p_to_mentor_id: payload.to_faculty_id,
       p_reason: payload.reason ?? null
     });
-    if (error) throw new ApiError(error.message, 400);
+    if (error) throw toClientError(error, 'Could not reassign the mentees');
 
     // Open tickets keep pointing at the departing mentor unless we move
     // them too, which would silently orphan the conversation. Move only

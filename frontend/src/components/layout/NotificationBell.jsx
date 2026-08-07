@@ -48,7 +48,7 @@ export default function NotificationBell() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="relative rounded-full p-2 text-on-surface-variant transition-colors hover:bg-surface-container"
+        className="relative rounded-lg p-2.5 text-on-surface-variant transition-colors hover:bg-surface-container"
         aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
         aria-expanded={open}
       >
@@ -61,7 +61,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="animate-scale-in absolute right-0 z-50 mt-2 w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-topbar-border bg-surface-container-lowest shadow-dropdown">
+        <div className="animate-scale-in absolute right-0 z-50 mt-2 w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-topbar-border bg-surface-container-lowest shadow-dropdown">
           <div className="flex items-center justify-between border-b border-topbar-border px-4 py-3">
             <h2 className="text-label-md text-on-surface">Notifications</h2>
             {unreadCount > 0 && (

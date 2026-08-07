@@ -38,11 +38,11 @@ export default function TopBar({ onToggleSidebar, searchPlaceholder, onSearch })
   const profilePath = `${HOME_PATH[profile?.role] ?? ''}/profile`;
 
   return (
-    <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-topbar-border bg-topbar px-4 lg:px-6">
+    <header className="sticky top-0 z-20 flex h-[68px] items-center gap-3 border-b border-topbar-border bg-topbar px-4 lg:px-6">
       <button
         type="button"
         onClick={onToggleSidebar}
-        className="rounded p-2 text-primary hover:bg-surface-container lg:hidden"
+        className="rounded-lg p-2 text-primary hover:bg-surface-container lg:hidden"
         aria-label="Open menu"
       >
         <span className="material-symbols-outlined">menu</span>
@@ -51,7 +51,7 @@ export default function TopBar({ onToggleSidebar, searchPlaceholder, onSearch })
       {onSearch && (
         <div className="relative hidden max-w-xl flex-1 md:block">
           <span
-            className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[20px] text-primary"
+            className="material-symbols-outlined pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[20px] text-tertiary"
             aria-hidden="true"
           >
             search
@@ -62,7 +62,7 @@ export default function TopBar({ onToggleSidebar, searchPlaceholder, onSearch })
             onChange={(event) => setTerm(event.target.value)}
             placeholder={searchPlaceholder ?? 'Search...'}
             aria-label={searchPlaceholder ?? 'Search'}
-            className="w-full rounded-full border-2 border-primary/70 bg-white py-2 pl-10 pr-4 text-body-sm placeholder:text-tertiary focus:border-primary focus:ring-0"
+            className="w-full rounded-full border border-outline-variant bg-surface-container-low py-2.5 pl-11 pr-5 text-body-sm placeholder:text-tertiary focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15"
           />
         </div>
       )}

@@ -54,7 +54,7 @@ export default function LoginPage() {
     <div className="grid min-h-screen lg:grid-cols-2">
       {/* Brand panel */}
       <div className="relative hidden flex-col justify-between bg-primary p-10 text-white lg:flex">
-        <div className="rounded bg-white p-4 shadow-card w-fit">
+        <div className="w-fit rounded-xl bg-white p-4 shadow-card">
           <img src={mujLogo} alt="Manipal University Jaipur" className="h-14 w-auto object-contain" />
         </div>
         <div>
@@ -91,7 +91,7 @@ export default function LoginPage() {
             <img src={mujLogo} alt="Manipal University Jaipur" className="h-12 w-auto object-contain" />
           </div>
 
-          <div className="panel p-7">
+          <div className="panel p-8">
             <h2 className="text-headline-md text-on-surface">Sign in</h2>
             <p className="mt-1 text-body-sm text-on-surface-variant">
               Use the university email address issued to you.

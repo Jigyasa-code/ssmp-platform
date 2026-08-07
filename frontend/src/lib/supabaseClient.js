@@ -25,8 +25,14 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Strip ALL whitespace, not just the ends: neither a project URL nor a JWT
+// ever contains one, but pasting a 900-character key into an env file very
+// often wraps it. The result is an "invalid header value" error on a screen
+// that has nothing to do with configuration.
+const clean = (value) => String(value ?? '').replace(/\s+/g, '');
+
+const supabaseUrl = clean(import.meta.env.VITE_SUPABASE_URL).replace(/\/+$/, '');
+const supabaseAnonKey = clean(import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 // Fail loudly at boot rather than throwing a confusing error on first login.
 if (!supabaseUrl || !supabaseAnonKey) {
