@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import PortalShell from '../../components/layout/PortalShell.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
@@ -8,6 +9,7 @@ import { SkeletonTable } from '../../components/ui/Skeleton.jsx';
 import { EmploymentBadge } from '../../components/ui/StatusBadge.jsx';
 import { GroupedBarChart, CategoryBarChart } from '../../components/charts/Charts.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
+import { apiClient } from '../../lib/apiClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { CHART_COLORS } from '../../lib/constants.js';
 import { describeError, formatHours } from '../../lib/formatters.js';
@@ -27,6 +29,27 @@ export default function HodFacultyPerformancePage() {
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState('resolved_tickets');
   const [search, setSearch] = useState('');
+  const [downloading, setDownloading] = useState(null);
+
+  /**
+   * Feature 4 from the HOD's side: the same analytical report a faculty
+   * member can pull for themselves, generated for any of them.
+   */
+  const downloadReport = async (row) => {
+    setDownloading(row.faculty_id);
+    try {
+      await apiClient.downloadFile(
+        '/reports/faculty-activity-report',
+        { faculty_id: row.faculty_id, format: 'pdf' },
+        `faculty-activity-report-${row.faculty_id}.pdf`
+      );
+      toast.success('Report downloaded.');
+    } catch (error) {
+      toast.error(describeError(error));
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -166,6 +189,27 @@ export default function HodFacultyPerformancePage() {
                 header: 'Rating',
                 align: 'right',
                 render: (row) => (row.avg_satisfaction ? `${row.avg_satisfaction}/5` : '—')
+              },
+              {
+                key: 'report',
+                header: 'Report',
+                render: (row) => (
+                  <span className="flex flex-nowrap gap-1">
+                    <NavLink to={`/hod/reports?faculty_id=${row.faculty_id}`} className="btn-ghost btn-sm">
+                      <span className="material-symbols-outlined text-[16px]">analytics</span>
+                      View
+                    </NavLink>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={() => downloadReport(row)}
+                      disabled={downloading === row.faculty_id}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+                      {downloading === row.faculty_id ? '...' : 'PDF'}
+                    </button>
+                  </span>
+                )
               }
             ]}
             rows={sorted}

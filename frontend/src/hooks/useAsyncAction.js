@@ -11,7 +11,7 @@ export function useAsyncAction() {
   const [pending, setPending] = useState(false);
 
   const run = useCallback(
-    async (action, { successMessage, onSuccess, errorMessage } = {}) => {
+    async (action, { successMessage, onSuccess, onError, errorMessage } = {}) => {
       setPending(true);
       try {
         const result = await action();
@@ -20,6 +20,7 @@ export function useAsyncAction() {
         return result;
       } catch (error) {
         toast.error(errorMessage ?? describeError(error));
+        onError?.(error);
         return undefined;
       } finally {
         setPending(false);

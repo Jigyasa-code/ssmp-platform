@@ -101,9 +101,12 @@
     @apply w-full text-body-sm border-collapse;
   }
 
+  /* No text-align here on purpose: DataTable sets it per column on BOTH
+     the th and the td, so a right-aligned number always sits directly
+     under its own header. Baking text-left in here made the two fight. */
   .data-table thead th {
     @apply bg-surface-container-low text-label-sm uppercase tracking-wide text-on-surface-variant
-           text-left px-4 py-2.5 border-b border-topbar-border whitespace-nowrap;
+           px-4 py-2.5 border-b border-topbar-border whitespace-nowrap;
   }
 
   .data-table tbody td {
@@ -117,6 +120,13 @@
   /* ── Misc ──────────────────────────────────────────────────────────── */
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-sm;
+  }
+
+  /* Long unbroken strings -- emails, addresses, file paths -- must wrap
+     inside their card instead of spilling past the edge. */
+  .break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .skeleton {

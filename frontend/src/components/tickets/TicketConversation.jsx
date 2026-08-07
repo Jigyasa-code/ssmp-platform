@@ -11,7 +11,7 @@ import { useAuth } from '../../context/AuthProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { formatDateTime, formatRelativeTime, initialsOf } from '../../lib/formatters.js';
 
-export default function TicketConversation({ ticket, messages, onPosted, cannedReplies = [], readOnly }) {
+export default function TicketConversation({ ticket, messages, onPosted, onOptimisticMessage, cannedReplies = [], readOnly }) {
   const { profile } = useAuth();
   const { run, pending } = useAsyncAction();
   const [draft, setDraft] = useState('');
@@ -27,19 +27,28 @@ export default function TicketConversation({ ticket, messages, onPosted, cannedR
     const body = draft.trim();
     if (!body) return;
 
+    // Clear the box immediately -- if the send fails we put the text back,
+    // which feels far better than a disabled textarea while we wait.
+    setDraft('');
+
     await run(
       async () => {
-        const { error } = await supabase.rpc('post_ticket_message', {
+        const { data, error } = await supabase.rpc('post_ticket_message', {
           p_ticket_id: ticket.id,
           p_body: body
         });
         if (error) throw error;
+        return data;
       },
       {
-        onSuccess: () => {
-          setDraft('');
+        onSuccess: (posted) => {
+          // Show it straight away. The Realtime subscription will deliver
+          // the authoritative row a moment later; the id de-dupe below
+          // keeps it from appearing twice.
+          if (posted?.id) onOptimisticMessage?.({ ...posted, sender: { id: profile?.id, full_name: profile?.full_name, role: profile?.role } });
           onPosted?.();
-        }
+        },
+        onError: () => setDraft(body)
       }
     );
   };

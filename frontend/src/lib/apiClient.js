@@ -7,7 +7,28 @@
 
 import { getAccessToken } from './supabaseClient.js';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+/**
+ * Normalises whatever VITE_API_BASE_URL is set to into a URL that actually
+ * reaches the serverless functions.
+ *
+ * All of these end up identical:
+ *     /api
+ *     /api/
+ *     https://your-app.vercel.app
+ *     https://your-app.vercel.app/api
+ *
+ * Getting this wrong is the single most common deploy mistake: pointing at
+ * a bare domain drops the /api segment, every request 404s, and the browser
+ * surfaces it as an unhelpful "Failed to fetch".
+ */
+function resolveApiBase() {
+  const configured = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+  const withoutTrailingSlash = configured.replace(/\/+$/, '');
+  if (!withoutTrailingSlash) return '/api';
+  return /\/api$/i.test(withoutTrailingSlash) ? withoutTrailingSlash : `${withoutTrailingSlash}/api`;
+}
+
+const BASE_URL = resolveApiBase();
 
 async function authorizedHeaders(extra = {}) {
   const token = await getAccessToken();
@@ -27,6 +48,22 @@ function buildUrl(path, query) {
   return url.toString();
 }
 
+/**
+ * fetch() rejects with a bare "Failed to fetch" for CORS failures, DNS
+ * problems and blocked requests alike. Replace it with something that
+ * points at the actual cause.
+ */
+async function request(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch {
+    throw new Error(
+      `Could not reach the API at ${BASE_URL}. ` +
+        'Check that VITE_API_BASE_URL is set to "/api" and that the serverless functions are deployed.'
+    );
+  }
+}
+
 async function unwrap(response) {
   const contentType = response.headers.get('content-type') ?? '';
   if (!contentType.includes('application/json')) {
@@ -42,15 +79,12 @@ async function unwrap(response) {
 
 export const apiClient = {
   async get(path, query) {
-    const response = await fetch(buildUrl(path, query), {
-      method: 'GET',
-      headers: await authorizedHeaders()
-    });
+    const response = await request(buildUrl(path, query), { method: 'GET', headers: await authorizedHeaders() });
     return unwrap(response);
   },
 
   async post(path, body) {
-    const response = await fetch(buildUrl(path), {
+    const response = await request(buildUrl(path), {
       method: 'POST',
       headers: await authorizedHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body ?? {})
@@ -60,7 +94,7 @@ export const apiClient = {
 
   /** Downloads a binary response (used for PDF reports) and saves it. */
   async downloadFile(path, query, fallbackFilename) {
-    const response = await fetch(buildUrl(path, query), {
+    const response = await request(buildUrl(path, query), {
       method: 'GET',
       headers: await authorizedHeaders()
     });

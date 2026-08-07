@@ -60,14 +60,25 @@ export const CHART_COLORS = {
   series: ['#a43700', '#fd7039', '#5b5c5c', '#cd4800', '#b47a00', '#1b7340']
 };
 
-/** Sidebar menu per role — the SLCM "MENU" list. */
+/**
+ * Sidebar menu per role — the SLCM "MENU" list.
+ * An item may carry a `when` predicate; it is only rendered if that returns
+ * true for the signed-in profile. Form A is deliberately absent: it is a
+ * one-time full-screen step before the portal opens, and afterwards it
+ * lives inside My Profile rather than as a menu entry of its own.
+ */
 export const NAVIGATION = {
   student: [
     { to: '/student', label: 'Home', icon: 'home', end: true },
     { to: '/student/tickets', label: 'My Tickets', icon: 'confirmation_number' },
+    {
+      to: '/student/group-tickets',
+      label: 'Group Tickets',
+      icon: 'groups',
+      when: (profile) => Boolean(profile?.is_star_mentee)
+    },
     { to: '/student/academics', label: 'Academics', icon: 'school' },
     { to: '/student/achievements', label: 'Achievements', icon: 'military_tech' },
-    { to: '/student/onboarding', label: 'Form A', icon: 'assignment' },
     { to: '/student/profile', label: 'My Profile', icon: 'account_circle' }
   ],
   faculty: [
@@ -81,6 +92,7 @@ export const NAVIGATION = {
     { to: '/hod', label: 'Home', icon: 'home', end: true },
     { to: '/hod/tickets', label: 'All Tickets', icon: 'inbox' },
     { to: '/hod/performance', label: 'Faculty Performance', icon: 'leaderboard' },
+    { to: '/hod/reports', label: 'Faculty Reports', icon: 'analytics' },
     { to: '/hod/roster', label: 'Faculty Roster', icon: 'badge' },
     { to: '/hod/semester', label: 'Semester Setup', icon: 'event_note' },
     { to: '/hod/students', label: 'Students', icon: 'school' },

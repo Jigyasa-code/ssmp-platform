@@ -17,7 +17,7 @@ import { TICKET_PRIORITIES } from '../../lib/constants.js';
 
 export default function FacultyTicketDetailPage({ isHodView = false }) {
   const { ticketId } = useParams();
-  const { ticket, messages, loading, error, reload } = useTicketThread(ticketId);
+  const { ticket, messages, loading, error, reload, appendMessage } = useTicketThread(ticketId);
   const { run, pending } = useAsyncAction();
   const [resolveOpen, setResolveOpen] = useState(false);
   const [cannedReplies, setCannedReplies] = useState([]);
@@ -133,6 +133,7 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
               ticket={ticket}
               messages={messages}
               onPosted={reload}
+              onOptimisticMessage={appendMessage}
               cannedReplies={cannedReplies}
               readOnly={ticket.resolution_status === 'confirmed'}
             />
@@ -152,7 +153,7 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
-                  <dd className="mt-0.5 break-words text-on-surface">{value ?? '—'}</dd>
+                  <dd className="mt-0.5 break-anywhere text-on-surface">{value ?? '—'}</dd>
                 </div>
               ))}
             </dl>

@@ -42,9 +42,11 @@ Copy `frontend/.env.example` to `frontend/.env.local`, then fill in:
 |---|---|
 | `VITE_SUPABASE_URL` | the same Project URL as above |
 | `VITE_SUPABASE_ANON_KEY` | the same `anon` key as above |
-| `VITE_API_BASE_URL` | leave as `/api` |
+| `VITE_API_BASE_URL` | **leave as exactly `/api`** — see the warning below |
 | `VITE_INSTITUTION_NAME` | `Manipal University Jaipur` |
 | `VITE_DEPARTMENT_NAME` | `Department of IoT & Intelligent Systems` |
+
+> **`VITE_API_BASE_URL` must be `/api`, not your site URL.** Setting it to a bare domain like `https://your-app.vercel.app` drops the `/api` segment, so every report download and roster import 404s and the browser reports it as an unhelpful "Failed to fetch". The frontend and the API are served from the same domain, so a relative `/api` is all that is needed. (The app now repairs a bare domain automatically, but setting it correctly avoids cross-origin requests entirely.)
 
 The `anon` key is *designed* to be public — it can only do what your Row Level Security policies allow. The `service_role` key is the one that must stay secret.
 
@@ -75,6 +77,8 @@ You have two options. **Option A is easier** and needs no extra tools.
    0013_report_and_dashboard_functions.sql
    0014_realtime_and_storage_buckets.sql
    0015_rate_limiting_and_audit_helpers.sql
+   0016_fix_user_profiles_policy_recursion.sql
+   0017_form_a_editable_and_star_mentee_group_view.sql
    ```
 
    Paste the whole file, click **Run**, wait for "Success", move to the next. Order matters — later files reference earlier ones.
@@ -176,8 +180,8 @@ Sign in as each role in three different browser windows (or one normal + two pri
 
 | # | Do this | You should see |
 |---|---|---|
-| 1 | Sign in as a **student** for the first time | Redirected to **Form A** — you cannot reach anything else until it is submitted |
-| 2 | Submit Form A | Landed on the student dashboard, with your mentor's details in the top card |
+| 1 | Sign in as a **student** for the first time | A full-screen Form A with **no sidebar and no menu** — there is nothing else to click until it is submitted |
+| 2 | Submit Form A | Landed on the student dashboard. Form A is no longer a menu item; it now lives under **My Profile**, editable by the student with no HOD approval |
 | 3 | Raise a ticket | It appears in the **faculty** window within a second, and the faculty bell shows a badge — no refresh |
 | 4 | Reply as faculty | The reply appears in the student window instantly; ticket flips to *In Progress* |
 | 5 | Faculty clicks **Mark resolved** | Student gets "Was your issue fixed?" with Yes / No |
@@ -185,10 +189,22 @@ Sign in as each role in three different browser windows (or one normal + two pri
 | 7 | Student clicks **Yes** | Ticket closes, student can leave a 1–5 star rating |
 | 8 | Student → Academics → turn **GPA sharing off** | Faculty's mentee report now says "not shared" instead of the grades |
 | 9 | Faculty → My Mentees → click a **star** | That student becomes the representative; starring another replaces them after a confirmation |
+| 9b | Check that student's window | Notification explains the role, and a new **Group Tickets** menu item appears — a read-only list of the whole mentor group's tickets, with no way to open, reply or resolve |
 | 10 | Faculty → My Report → **Download PDF** | A branded PDF with KPI cards, bar chart, donut chart, weekly trend and tables |
 | 11 | Faculty → a mentee → **Generate report** | Per-student PDF with GPA trend, achievements, ticket history |
 | 12 | HOD → Faculty Roster → mark someone **departed** | Their mentee list opens; reassign to someone from the reserve pool |
 | 13 | Check the reassigned student's window | They are notified their mentor changed, and it is already updated on screen |
+| 14 | HOD → Faculty Reports, or **PDF** on any row of Faculty Performance | The same analytical report a faculty member gets for themselves, for any faculty member |
+
+---
+
+## Troubleshooting: "Failed to fetch"
+
+Everything under `/api` — roster import, both PDF reports, faculty reassignment — goes through the Vercel serverless functions. If those requests fail while the rest of the portal works, it is almost always one of three things, in this order:
+
+1. **`VITE_API_BASE_URL` is not `/api`.** Open DevTools → Network and look at the failing request URL. If it is missing `/api/`, or points at a different `*.vercel.app` domain than the page you are on, this is it. Set it to `/api` and redeploy.
+2. **You are running `npm run dev`.** That serves the frontend only; there is no `/api` locally. Use `vercel dev` instead.
+3. **The functions did not deploy.** Visit `https://your-app.vercel.app/api/health` directly. A JSON response means they are live; a 404 means Vercel is not picking up the `api/` directory — check that the Root Directory in the project settings is the repo root, not `frontend`.
 
 ---
 

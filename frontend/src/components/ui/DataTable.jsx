@@ -1,5 +1,12 @@
 import EmptyState from './EmptyState.jsx';
 
+/** Header and body cell must always get the SAME alignment class. */
+function alignmentClass(align) {
+  if (align === 'right') return 'text-right';
+  if (align === 'center') return 'text-center';
+  return 'text-left';
+}
+
 /**
  * Simple, accessible data table. Columns declare a render function so
  * cells stay presentational and the table itself stays generic.
@@ -16,7 +23,7 @@ export default function DataTable({ columns, rows, rowKey, emptyState, onRowClic
           <thead>
             <tr>
               {columns.map((column) => (
-                <th key={column.key} scope="col" className={column.align === 'right' ? 'text-right' : ''}>
+                <th key={column.key} scope="col" className={alignmentClass(column.align)}>
                   {column.header}
                 </th>
               ))}
@@ -30,7 +37,7 @@ export default function DataTable({ columns, rows, rowKey, emptyState, onRowClic
                 className={`${onRowClick ? 'cursor-pointer' : ''} ${dense ? '[&>td]:py-1.5' : ''}`}
               >
                 {columns.map((column) => (
-                  <td key={column.key} className={column.align === 'right' ? 'text-right' : ''}>
+                  <td key={column.key} className={alignmentClass(column.align)}>
                     {column.render ? column.render(row) : (row[column.key] ?? '—')}
                   </td>
                 ))}

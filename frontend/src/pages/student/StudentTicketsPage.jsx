@@ -6,7 +6,7 @@ import Panel from '../../components/ui/Panel.jsx';
 import DataTable from '../../components/ui/DataTable.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import { SkeletonTable } from '../../components/ui/Skeleton.jsx';
-import { FilterPills, Pagination } from '../../components/ui/FormControls.jsx';
+import { SelectField, Pagination } from '../../components/ui/FormControls.jsx';
 import { TicketStatusBadge, CategoryBadge, PriorityBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
 import CreateTicketModal from '../../components/tickets/CreateTicketModal.jsx';
 import { useRealtimeTickets } from '../../hooks/useRealtimeTickets.js';
@@ -73,25 +73,34 @@ export default function StudentTicketsPage() {
       />
 
       <Panel tab="Filters" tabIcon="filter_alt" className="mb-4">
-        <div className="flex flex-wrap gap-6">
-          <div>
-            <p className="field-label">Status</p>
-            <FilterPills
-              ariaLabel="Filter by status"
-              options={['All', ...TICKET_STATUSES]}
-              value={status}
-              onChange={setStatus}
-            />
-          </div>
-          <div>
-            <p className="field-label">Category</p>
-            <FilterPills
-              ariaLabel="Filter by category"
-              options={['All', ...TICKET_CATEGORIES]}
-              value={category}
-              onChange={setCategory}
-            />
-          </div>
+        <div className="flex flex-wrap items-end gap-4">
+          <SelectField
+            label="Status"
+            className="w-full sm:w-56"
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+            options={['All', ...TICKET_STATUSES]}
+          />
+          <SelectField
+            label="Category"
+            className="w-full sm:w-56"
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            options={['All', ...TICKET_CATEGORIES]}
+          />
+          {(status !== 'All' || category !== 'All') && (
+            <button
+              type="button"
+              className="btn-ghost btn-sm mb-0.5"
+              onClick={() => {
+                setStatus('All');
+                setCategory('All');
+              }}
+            >
+              <span className="material-symbols-outlined text-[17px]">filter_alt_off</span>
+              Clear filters
+            </button>
+          )}
         </div>
       </Panel>
 

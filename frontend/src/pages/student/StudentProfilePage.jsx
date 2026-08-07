@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import PortalShell from '../../components/layout/PortalShell.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
 import { PageLoader } from '../../components/ui/Skeleton.jsx';
 import { TextField } from '../../components/ui/FormControls.jsx';
+import FormAFields, { useFormAState } from '../../components/student/FormAFields.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
@@ -13,24 +14,28 @@ import { formatDate, formatDateTime, initialsOf } from '../../lib/formatters.js'
 export default function StudentProfilePage() {
   const { profile, refreshProfile } = useAuth();
   const { run, pending } = useAsyncAction();
-  const [formA, setFormA] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const formA = useFormAState(profile);
   const [phone, setPhone] = useState(profile?.phone ?? '');
+  const [editingFormA, setEditingFormA] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const { data } = await supabase
-      .from('student_form_a_profiles')
-      .select('*')
-      .eq('student_id', profile.id)
-      .maybeSingle();
-    setFormA(data);
-    setLoading(false);
-  }, [profile.id]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const saveFormA = (event) => {
+    event.preventDefault();
+    const payload = formA.validate();
+    if (!payload) return;
+    run(
+      async () => {
+        const { error } = await supabase.rpc('submit_student_form_a', { p_payload: payload });
+        if (error) throw error;
+      },
+      {
+        successMessage: 'Your Form A record has been updated.',
+        onSuccess: async () => {
+          setEditingFormA(false);
+          await Promise.all([formA.reload(), refreshProfile()]);
+        }
+      }
+    );
+  };
 
   const saveContact = (event) => {
     event.preventDefault();
@@ -47,7 +52,7 @@ export default function StudentProfilePage() {
     );
   };
 
-  if (loading) return <PortalShell><PageLoader /></PortalShell>;
+  if (formA.loading) return <PortalShell><PageLoader /></PortalShell>;
 
   return (
     <PortalShell>
@@ -99,7 +104,7 @@ export default function StudentProfilePage() {
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
-                  <dd className="mt-0.5 break-words text-on-surface">{value}</dd>
+                  <dd className="mt-0.5 break-anywhere text-on-surface">{value}</dd>
                 </div>
               ))}
             </dl>
@@ -132,47 +137,54 @@ export default function StudentProfilePage() {
         </Panel>
       </div>
 
-      <Panel tab="Form A — Mentor-Mentee record" tabIcon="assignment" className="mt-4">
-        {formA?.is_submitted ? (
-          <>
-            <div className="mb-4 flex flex-wrap items-center gap-3">
-              <span className="chip bg-success-container text-on-success-container">
-                <span className="material-symbols-outlined text-[14px]">verified</span>
-                Submitted {formatDateTime(formA.submitted_at)}
-              </span>
-              <Link to="/student/onboarding" className="btn-ghost btn-sm">
-                View full form
-              </Link>
-            </div>
-            <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                ['Date of birth', formatDate(formA.date_of_birth)],
-                ['Blood group', formA.blood_group ?? '—'],
-                ['Hostel', formA.is_day_scholar ? 'Day scholar' : `${formA.hostel_block ?? '—'} / ${formA.room_no ?? '—'}`],
-                ['Mobile', formA.mobile_no],
-                ["Father's name", formA.father_name],
-                ["Mother's name", formA.mother_name],
-                ['Pin code', formA.communication_pin_code],
-                ['GPA sharing', formA.gpa_sharing_enabled ? 'Enabled' : 'Hidden from faculty']
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
-                  <dd className="mt-0.5 break-words text-body-sm text-on-surface">{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </>
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
+      <section className="mt-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-headline-sm text-on-surface">Form A — Mentor-Mentee record</h2>
             <p className="text-body-sm text-on-surface-variant">
-              You have not submitted Form A yet. It is a one-time departmental record.
+              {formA.record?.submitted_at
+                ? `First submitted on ${formatDateTime(formA.record.submitted_at)}. You can update it yourself at any time.`
+                : 'Your departmental mentorship record.'}
             </p>
-            <Link to="/student/onboarding" className="btn-primary">
-              Fill Form A
-            </Link>
           </div>
-        )}
-      </Panel>
+          {editingFormA ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setEditingFormA(false);
+                  formA.reload();
+                }}
+                disabled={pending}
+              >
+                Cancel
+              </button>
+              <button type="submit" form="profile-form-a" className="btn-primary" disabled={pending || formA.uploading !== null}>
+                {pending ? 'Saving...' : 'Save changes'}
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn-secondary" onClick={() => setEditingFormA(true)}>
+              <span className="material-symbols-outlined text-[18px]">edit</span>
+              Edit my details
+            </button>
+          )}
+        </div>
+
+        <form id="profile-form-a" onSubmit={saveFormA}>
+          <FormAFields
+            form={formA.form}
+            errors={formA.errors}
+            setField={formA.setField}
+            uploads={formA.uploads}
+            uploading={formA.uploading}
+            onUpload={formA.upload}
+            disabled={!editingFormA}
+          />
+        </form>
+      </section>
+
     </PortalShell>
   );
 }

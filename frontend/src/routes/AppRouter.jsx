@@ -24,6 +24,7 @@ const StudentOnboardingFormPage = lazy(() => import('../pages/student/StudentOnb
 const StudentAcademicsPage = lazy(() => import('../pages/student/StudentAcademicsPage.jsx'));
 const StudentAchievementsPage = lazy(() => import('../pages/student/StudentAchievementsPage.jsx'));
 const StudentProfilePage = lazy(() => import('../pages/student/StudentProfilePage.jsx'));
+const StudentGroupTicketsPage = lazy(() => import('../pages/student/StudentGroupTicketsPage.jsx'));
 
 const FacultyDashboardPage = lazy(() => import('../pages/faculty/FacultyDashboardPage.jsx'));
 const FacultyTicketQueuePage = lazy(() => import('../pages/faculty/FacultyTicketQueuePage.jsx'));
@@ -108,6 +109,16 @@ export default function AppRouter() {
             <Protected role="student">
               <RequireOnboarding>
                 <StudentTicketDetailPage />
+              </RequireOnboarding>
+            </Protected>
+          }
+        />
+        <Route
+          path="/student/group-tickets"
+          element={
+            <Protected role="student">
+              <RequireOnboarding>
+                <StudentGroupTicketsPage />
               </RequireOnboarding>
             </Protected>
           }

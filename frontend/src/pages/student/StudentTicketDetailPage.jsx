@@ -13,7 +13,7 @@ import { formatDateTime } from '../../lib/formatters.js';
 
 export default function StudentTicketDetailPage() {
   const { ticketId } = useParams();
-  const { ticket, messages, loading, error, reload } = useTicketThread(ticketId);
+  const { ticket, messages, loading, error, reload, appendMessage } = useTicketThread(ticketId);
 
   if (loading) return <PortalShell><PageLoader label="Loading ticket..." /></PortalShell>;
 
@@ -60,6 +60,7 @@ export default function StudentTicketDetailPage() {
               ticket={ticket}
               messages={messages}
               onPosted={reload}
+              onOptimisticMessage={appendMessage}
               readOnly={ticket.resolution_status === 'confirmed'}
             />
           </div>
@@ -78,7 +79,7 @@ export default function StudentTicketDetailPage() {
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
-                  <dd className="mt-0.5 break-words text-on-surface">{value}</dd>
+                  <dd className="mt-0.5 break-anywhere text-on-surface">{value}</dd>
                 </div>
               ))}
             </dl>

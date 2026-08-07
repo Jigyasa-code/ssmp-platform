@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import PortalShell from '../../components/layout/PortalShell.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
@@ -41,8 +42,10 @@ const PRESETS = [
 export default function FacultyActivityReportPage({ isHodView = false }) {
   const { profile } = useAuth();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [range, setRange] = useState(defaultRange);
-  const [facultyId, setFacultyId] = useState('');
+  // Deep-linked from the HOD leaderboard: /hod/reports?faculty_id=...
+  const [facultyId, setFacultyId] = useState(() => (isHodView ? (searchParams.get('faculty_id') ?? '') : ''));
   const [facultyOptions, setFacultyOptions] = useState([]);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -161,7 +164,10 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
               value={facultyId}
               placeholder={`${profile.full_name} (me)`}
               options={facultyOptions}
-              onChange={(event) => setFacultyId(event.target.value)}
+              onChange={(event) => {
+                setFacultyId(event.target.value);
+                setSearchParams(event.target.value ? { faculty_id: event.target.value } : {}, { replace: true });
+              }}
             />
           )}
           <TextField

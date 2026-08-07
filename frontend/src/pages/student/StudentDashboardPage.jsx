@@ -67,7 +67,7 @@ export default function StudentDashboardPage() {
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
-                <dd className="mt-0.5 break-words text-body-sm font-semibold text-primary">{value}</dd>
+                <dd className="mt-0.5 break-anywhere text-body-sm font-semibold text-primary">{value}</dd>
               </div>
             ))}
           </dl>

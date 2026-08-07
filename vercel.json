@@ -6,7 +6,6 @@
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/**/*.js": {
-      "runtime": "@vercel/node@5.1.7",
       "memory": 1024,
       "maxDuration": 30
     }
@@ -28,15 +27,11 @@
     },
     {
       "source": "/assets/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
     },
     {
       "source": "/api/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store, max-age=0" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0" }]
     }
   ]
 }

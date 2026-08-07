@@ -9,8 +9,10 @@ import { NavLink } from 'react-router-dom';
 import mujLogo from '../../assets/manipal-university-jaipur-logo.png';
 import { NAVIGATION, ROLE_LABELS } from '../../lib/constants.js';
 
-export default function SidebarNavigation({ role, isOpen, onToggle, onNavigate }) {
-  const items = NAVIGATION[role] ?? [];
+export default function SidebarNavigation({ role, profile, isOpen, onToggle, onNavigate }) {
+  // `when` lets an item appear only for some users — e.g. Group Tickets,
+  // which only the star mentee can see.
+  const items = (NAVIGATION[role] ?? []).filter((item) => (item.when ? item.when(profile) : true));
 
   return (
     <>

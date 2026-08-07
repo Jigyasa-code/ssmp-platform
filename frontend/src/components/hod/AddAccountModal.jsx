@@ -96,7 +96,7 @@ export default function AddAccountModal({ open, onClose, onCreated }) {
           ].map(([label, value]) => (
             <div key={label}>
               <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
-              <dd className="mt-0.5 break-all rounded bg-surface-container-low px-3 py-2 font-mono text-body-sm text-on-surface">
+              <dd className="mt-0.5 break-anywhere rounded bg-surface-container-low px-3 py-2 font-mono text-body-sm text-on-surface">
                 {value}
               </dd>
             </div>

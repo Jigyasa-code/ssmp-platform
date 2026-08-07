@@ -18,6 +18,7 @@ export default function PortalShell({ children, searchPlaceholder, onSearch }) {
     <div className="min-h-screen bg-background">
       <SidebarNavigation
         role={profile?.role}
+        profile={profile}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen((value) => !value)}
         onNavigate={() => setSidebarOpen(false)}

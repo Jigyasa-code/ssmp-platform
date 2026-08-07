@@ -216,7 +216,7 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
-                <dd className="mt-0.5 break-words text-body-sm text-on-surface">{value || '—'}</dd>
+                <dd className="mt-0.5 break-anywhere text-body-sm text-on-surface">{value || '—'}</dd>
               </div>
             ))}
           </dl>

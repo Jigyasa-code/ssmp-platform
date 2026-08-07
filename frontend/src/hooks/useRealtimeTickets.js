@@ -8,7 +8,7 @@
  * the SELECT policy on support_tickets already scopes the query.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabaseClient.js';
 import { describeError } from '../lib/formatters.js';
 
@@ -75,16 +75,24 @@ export function useRealtimeTickets({ status, category, search, pageSize = 25 } =
   return { tickets, loading, error, page, setPage, pageCount, total, reload: load };
 }
 
-/** A single ticket plus its live message thread. */
+/**
+ * A single ticket plus its live message thread.
+ *
+ * `loading` is true only for the very first fetch. Every later refresh --
+ * a new message arriving over Realtime, the ticket being resolved -- swaps
+ * the data underneath without unmounting the page, so sending a message no
+ * longer blanks the screen with "Loading ticket...".
+ */
 export function useTicketThread(ticketId) {
   const [ticket, setTicket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const hasLoadedOnce = useRef(false);
 
   const load = useCallback(async () => {
     if (!ticketId) return;
-    setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
 
     const [{ data: ticketRow, error: ticketError }, { data: messageRows, error: messageError }] =
       await Promise.all([
@@ -97,13 +105,21 @@ export function useTicketThread(ticketId) {
       ]);
 
     if (ticketError || messageError) {
-      setError(describeError(ticketError ?? messageError));
+      // A failed background refresh must not wipe a thread that is on screen.
+      if (!hasLoadedOnce.current) setError(describeError(ticketError ?? messageError));
+      else console.warn('[ticket] refresh failed:', (ticketError ?? messageError).message);
     } else {
       setTicket(ticketRow);
       setMessages(messageRows ?? []);
       setError(null);
     }
+    hasLoadedOnce.current = true;
     setLoading(false);
+  }, [ticketId]);
+
+  // A different ticket is a fresh page, so the loader is appropriate again.
+  useEffect(() => {
+    hasLoadedOnce.current = false;
   }, [ticketId]);
 
   useEffect(() => {
@@ -130,5 +146,13 @@ export function useTicketThread(ticketId) {
     };
   }, [ticketId, load]);
 
-  return { ticket, messages, loading, error, reload: load };
+  /** Appends a just-sent message, ignoring it if Realtime already did. */
+  const appendMessage = useCallback((message) => {
+    if (!message?.id) return;
+    setMessages((current) =>
+      current.some((existing) => existing.id === message.id) ? current : [...current, message]
+    );
+  }, []);
+
+  return { ticket, messages, loading, error, reload: load, appendMessage };
 }
