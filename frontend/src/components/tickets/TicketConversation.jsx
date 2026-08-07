@@ -9,7 +9,8 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
-import { formatDateTime, formatRelativeTime, initialsOf } from '../../lib/formatters.js';
+import Avatar from '../ui/Avatar.jsx';
+import { formatDateTime, formatRelativeTime } from '../../lib/formatters.js';
 
 export default function TicketConversation({ ticket, messages, onPosted, onOptimisticMessage, cannedReplies = [], readOnly }) {
   const { profile } = useAuth();
@@ -70,14 +71,11 @@ export default function TicketConversation({ ticket, messages, onPosted, onOptim
           }
           return (
             <div key={message.id} className={`flex gap-2.5 ${mine ? 'flex-row-reverse' : ''}`}>
-              <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-label-sm ${
-                  mine ? 'bg-primary text-white' : 'bg-surface-container-highest text-on-surface-variant'
-                }`}
-                aria-hidden="true"
-              >
-                {initialsOf(message.sender?.full_name)}
-              </span>
+              <Avatar
+                path={message.sender?.avatar_url}
+                name={message.sender?.full_name}
+                size={32}
+              />
               <div className={`max-w-[78%] ${mine ? 'text-right' : ''}`}>
                 <p className="mb-0.5 text-label-sm text-tertiary">
                   {mine ? 'You' : message.sender?.full_name ?? 'Unknown'}

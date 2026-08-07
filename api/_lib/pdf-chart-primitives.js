@@ -439,7 +439,7 @@ export function drawHorizontalBars(page, fonts, { x, y, width, rows, title, labe
     });
     cursorY -= 16;
   });
-  return cursorY - 4;
+  return cursorY - 14;
 }
 
 /**

@@ -12,6 +12,7 @@ import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
 import StatCard from '../../components/ui/StatCard.jsx';
 import DataTable from '../../components/ui/DataTable.jsx';
+import { EmploymentBadge } from '../../components/ui/StatusBadge.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import { PageLoader } from '../../components/ui/Skeleton.jsx';
 import { TextField, SelectField } from '../../components/ui/FormControls.jsx';
@@ -23,6 +24,9 @@ import { apiClient } from '../../lib/apiClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { CHART_COLORS } from '../../lib/constants.js';
 import { describeError, formatDate, formatHours } from '../../lib/formatters.js';
+
+/** Sentinel for the consolidated department-wide report. */
+const ALL_FACULTY = 'all';
 
 function defaultRange() {
   const to = new Date();
@@ -61,9 +65,12 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
       .eq('role', 'faculty')
       .order('full_name')
       .then(({ data }) => {
-        const options = (data ?? []).map((f) => ({ value: f.id, label: f.full_name }));
+        const options = [
+          { value: ALL_FACULTY, label: 'All faculty members (consolidated)' },
+          ...(data ?? []).map((f) => ({ value: f.id, label: f.full_name }))
+        ];
         setFacultyOptions(options);
-        setFacultyId((current) => current || options[0]?.value || '');
+        setFacultyId((current) => current || ALL_FACULTY);
         setFacultyListLoaded(true);
       });
   }, [isHodView]);
@@ -79,11 +86,16 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
     }
 
     setLoading(true);
-    const { data, error } = await supabase.rpc('get_faculty_activity_report', {
-      p_faculty_id: isHodView && facultyId ? facultyId : null,
-      p_from: range.from,
-      p_to: range.to
-    });
+    const wantsDepartment = isHodView && facultyId === ALL_FACULTY;
+
+    const { data, error } = wantsDepartment
+      ? await supabase.rpc('get_department_faculty_report', { p_from: range.from, p_to: range.to })
+      : await supabase.rpc('get_faculty_activity_report', {
+          p_faculty_id: isHodView && facultyId ? facultyId : null,
+          p_from: range.from,
+          p_to: range.to
+        });
+
     if (error) toast.error(describeError(error));
     setReport(data ?? null);
     setLoading(false);
@@ -106,7 +118,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
       await apiClient.downloadFile(
         '/reports/faculty-activity-report',
         { faculty_id: isHodView && facultyId ? facultyId : undefined, from: range.from, to: range.to, format: 'pdf' },
-        'faculty-activity-report.pdf'
+        isDepartmentView ? 'department-faculty-report.pdf' : 'faculty-activity-report.pdf'
       );
       toast.success('Report downloaded.');
     } catch (error) {
@@ -116,8 +128,10 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
     }
   };
 
+  const isDepartmentView = isHodView && facultyId === ALL_FACULTY;
+
   const charts = useMemo(() => {
-    if (!report) return null;
+    if (!report || report.scope === 'department') return null;
     const confirmation = report.resolution_confirmation ?? {};
     return {
       category: (report.by_category ?? []).map((c, index) => ({
@@ -167,8 +181,8 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
   return (
     <PortalShell>
       <PageHeader
-        title={isHodView ? 'Faculty activity report' : 'My activity report'}
-        subtitle={`${report.faculty.name} · ${formatDate(report.period.from)} to ${formatDate(report.period.to)}`}
+        title={isDepartmentView ? 'Department faculty report' : isHodView ? 'Faculty activity report' : 'My activity report'}
+        subtitle={`${isDepartmentView ? `All faculty · ${report.department}` : report.faculty.name} · ${formatDate(report.period.from)} to ${formatDate(report.period.to)}`}
         actions={
           <button type="button" className="btn-primary" onClick={download} disabled={downloading}>
             <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
@@ -219,6 +233,10 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
         </div>
       </Panel>
 
+      {isDepartmentView ? (
+        <DepartmentReportBody report={report} />
+      ) : (
+        <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Tickets handled" value={summary.total_tickets} icon="confirmation_number" tone="primary"
           caption={`${summary.resolved_tickets} resolved`} />
@@ -324,6 +342,145 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
           />
         </Panel>
       </div>
+        </>
+      )}
     </PortalShell>
+  );
+}
+
+/**
+ * The HOD's consolidated view. Mixed on purpose: charts carry the story,
+ * then one compact row per faculty member — the same shape as the PDF, so
+ * the printed report never disagrees with the screen.
+ */
+function DepartmentReportBody({ report }) {
+  const { summary } = report;
+
+  const categoryData = (report.by_category ?? []).map((c, index) => ({
+    name: c.category,
+    value: c.total,
+    color: CHART_COLORS.series[index % CHART_COLORS.series.length]
+  }));
+
+  const statusData = [
+    { name: 'Resolved', value: report.by_status?.resolved ?? 0, color: CHART_COLORS.resolved },
+    { name: 'In Progress', value: report.by_status?.in_progress ?? 0, color: CHART_COLORS.inProgress },
+    { name: 'Open', value: report.by_status?.open ?? 0, color: CHART_COLORS.open }
+  ];
+
+  const monthly = (report.monthly_trend ?? []).map((m) => ({
+    name: m.month, created: m.created, resolved: m.resolved
+  }));
+
+  const loadByFaculty = [...(report.faculty ?? [])]
+    .sort((a, b) => b.total_tickets - a.total_tickets)
+    .slice(0, 8)
+    .map((f) => ({
+      name: f.name.split(' ').slice(-1)[0],
+      resolved: f.resolved_tickets,
+      active: f.open_tickets + f.in_progress_tickets
+    }));
+
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Tickets raised" value={summary.total_tickets} icon="confirmation_number" tone="primary"
+          caption={`${summary.resolved_tickets} resolved`} />
+        <StatCard label="Resolution rate" value={`${summary.resolution_rate_percent}%`} icon="task_alt" tone="success"
+          caption={`${summary.open_tickets + summary.in_progress_tickets} still active`} />
+        <StatCard label="Avg first response" value={formatHours(summary.avg_first_response_hours)} icon="bolt" tone="warning" />
+        <StatCard label="Avg resolution" value={formatHours(summary.avg_resolution_hours)} icon="timer" tone="info" />
+        <StatCard label="Faculty" value={summary.faculty_count} icon="badge" tone="secondary"
+          caption={`${summary.active_faculty} active`} />
+        <StatCard label="Students" value={summary.student_count} icon="school" tone="primary"
+          caption={`${summary.unassigned_students} unassigned`} />
+        <StatCard label="Satisfaction" value={summary.avg_satisfaction ? `${summary.avg_satisfaction}/5` : '—'}
+          icon="grade" tone="warning" />
+        <StatCard label="Referred to HOD" value={summary.escalated_tickets} icon="flag"
+          tone={summary.escalated_tickets ? 'error' : 'slate'} />
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Panel tab="Tickets by category" tabIcon="bar_chart">
+          <CategoryBarChart data={categoryData} height={250} />
+        </Panel>
+        <Panel tab="Status mix" tabIcon="donut_small">
+          <DonutChart data={statusData} height={250} centerLabel="tickets" />
+        </Panel>
+      </div>
+
+      <Panel tab="Monthly volume — raised vs resolved" tabIcon="stacked_bar_chart" className="mt-4">
+        <GroupedBarChart
+          data={monthly}
+          height={280}
+          series={[
+            { key: 'created', label: 'Raised', color: CHART_COLORS.primary },
+            { key: 'resolved', label: 'Resolved', color: CHART_COLORS.resolved }
+          ]}
+        />
+      </Panel>
+
+      <Panel tab="Load by faculty member" tabIcon="leaderboard" className="mt-4">
+        <GroupedBarChart
+          data={loadByFaculty}
+          height={280}
+          series={[
+            { key: 'resolved', label: 'Resolved', color: CHART_COLORS.resolved },
+            { key: 'active', label: 'Still active', color: CHART_COLORS.inProgress }
+          ]}
+        />
+      </Panel>
+
+      <Panel tab={`All faculty (${report.faculty?.length ?? 0})`} tabIcon="table_chart" className="mt-4" bodyClassName="">
+        <DataTable
+          dense
+          columns={[
+            {
+              key: 'name',
+              header: 'Faculty',
+              render: (row) => (
+                <span>
+                  <span className="block text-on-surface">{row.name}</span>
+                  <span className="text-label-sm text-tertiary">{row.login_id ?? '—'}</span>
+                </span>
+              )
+            },
+            { key: 'branch', header: 'Branch' },
+            { key: 'employment_status', header: 'Status', render: (row) => <EmploymentBadge status={row.employment_status} /> },
+            { key: 'mentee_count', header: 'Mentees', align: 'right' },
+            { key: 'total_tickets', header: 'Tickets', align: 'right' },
+            { key: 'resolved_tickets', header: 'Resolved', align: 'right' },
+            { key: 'reopened', header: 'Reopened', align: 'right' },
+            {
+              key: 'avg_first_response_hours',
+              header: 'Avg 1st response',
+              align: 'right',
+              render: (row) => formatHours(row.avg_first_response_hours)
+            },
+            {
+              key: 'avg_resolution_hours',
+              header: 'Avg resolution',
+              align: 'right',
+              render: (row) => formatHours(row.avg_resolution_hours)
+            },
+            {
+              key: 'resolution_rate_percent',
+              header: 'Rate',
+              align: 'right',
+              render: (row) => `${row.resolution_rate_percent}%`
+            },
+            {
+              key: 'avg_satisfaction',
+              header: 'Rating',
+              align: 'right',
+              render: (row) => (row.avg_satisfaction ? `${row.avg_satisfaction}/5` : '—')
+            }
+          ]}
+          rows={report.faculty ?? []}
+          rowKey={(row) => row.id}
+          emptyState={<EmptyState icon="badge" title="No faculty on record" description="Import the faculty roster first." />}
+        />
+      </Panel>
+    </>
   );
 }

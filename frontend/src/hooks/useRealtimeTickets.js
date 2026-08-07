@@ -99,7 +99,7 @@ export function useTicketThread(ticketId) {
         supabase.from('support_tickets').select(SELECT).eq('id', ticketId).single(),
         supabase
           .from('ticket_messages')
-          .select('*, sender:sender_id (id, full_name, role)')
+          .select('*, sender:sender_id (id, full_name, role, avatar_url)')
           .eq('ticket_id', ticketId)
           .order('created_at', { ascending: true })
       ]);

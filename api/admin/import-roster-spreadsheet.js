@@ -16,7 +16,7 @@
 import { withApiDefaults, sendSuccess, ApiError } from '../_lib/http-response.js';
 import { requireAuthenticatedUser, requireRole, enforceRateLimit, recordAuditEntry } from '../_lib/request-guards.js';
 import { parseOrThrow, rosterImportSchema, emailSchema, generateTemporaryPassword, assertBodySize, sanitizeSingleLine } from '../_lib/input-validation.js';
-import { parseRosterFile } from '../_lib/spreadsheet-parser.js';
+import { parseRosterFile, classifyRole } from '../_lib/spreadsheet-parser.js';
 
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
 
@@ -41,6 +41,35 @@ export default withApiDefaults(['POST'], async (req, res) => {
 
   const records = await parseRosterFile(buffer, body.filename);
 
+  /**
+   * A combined file holds both faculty and students, told apart by a Role
+   * column. Faculty are processed FIRST so that a student's "Mentor Email"
+   * can resolve against a colleague created moments earlier in the same
+   * upload — otherwise the order of rows in the spreadsheet would silently
+   * decide whether mentors got assigned.
+   */
+  const isCombined = body.import_type === 'combined';
+  let orderedRecords = records;
+
+  if (isCombined) {
+    const unclassified = [];
+    for (const record of records) {
+      record.resolvedRole = classifyRole(record.role);
+      if (!record.resolvedRole) unclassified.push(record.rowNumber);
+    }
+    if (unclassified.length) {
+      throw new ApiError(
+        `A combined import needs a "Role" column saying Faculty or Student on every row. ` +
+          `${unclassified.length} row(s) are missing or unrecognised, starting at row ${unclassified[0]}.`,
+        400
+      );
+    }
+    orderedRecords = [
+      ...records.filter((r) => r.resolvedRole === 'faculty'),
+      ...records.filter((r) => r.resolvedRole === 'student')
+    ];
+  }
+
   // Pre-load faculty so we can resolve "Mentor Email" without N queries.
   const { data: facultyRows } = await admin
     .from('user_profiles')
@@ -55,8 +84,9 @@ export default withApiDefaults(['POST'], async (req, res) => {
   const skipped = [];
   const failed = [];
 
-  for (const record of records) {
+  for (const record of orderedRecords) {
     const rowLabel = `Row ${record.rowNumber}`;
+    const rowRole = isCombined ? record.resolvedRole : body.import_type;
     try {
       const emailResult = emailSchema.safeParse(record.email ?? '');
       if (!emailResult.success) {
@@ -75,7 +105,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
       }
 
       let mentorId = null;
-      if (body.import_type === 'student') {
+      if (rowRole === 'student') {
         if (record.mentor_email) {
           const mentor = facultyByEmail.get(record.mentor_email.toLowerCase());
           if (!mentor) {
@@ -93,8 +123,13 @@ export default withApiDefaults(['POST'], async (req, res) => {
       }
 
       if (!body.create_accounts) {
-        created.push({ row: record.rowNumber, email, full_name: record.full_name, dry_run: true });
+        created.push({ row: record.rowNumber, email, full_name: record.full_name, role: rowRole, dry_run: true });
         existingEmails.add(email);
+        // In a dry run a faculty row is not really created, but a later
+        // student row should still be able to point at it.
+        if (isCombined && rowRole === 'faculty' && !facultyByEmail.has(email)) {
+          facultyByEmail.set(email, { id: null, email, full_name: record.full_name, employment_status: 'active' });
+        }
         continue;
       }
 
@@ -104,7 +139,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
         password: temporaryPassword,
         email_confirm: true,
         user_metadata: {
-          role: body.import_type,
+          role: rowRole,
           full_name: sanitizeSingleLine(record.full_name, 120),
           login_id: record.login_id ? sanitizeSingleLine(record.login_id, 40) : null,
           branch: record.branch ? sanitizeSingleLine(record.branch, 60) : null,
@@ -114,7 +149,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
           department: 'IoT & IS',
           must_change_password: true
         },
-        app_metadata: { role: body.import_type }
+        app_metadata: { role: rowRole }
       });
 
       if (error) {
@@ -125,7 +160,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
       if (mentorId) {
         await admin.from('user_profiles').update({ assigned_mentor_id: mentorId }).eq('id', data.user.id);
       }
-      if (body.import_type === 'faculty') {
+      if (rowRole === 'faculty') {
         facultyByEmail.set(email, { id: data.user.id, email, full_name: record.full_name, employment_status: 'active' });
       }
 
@@ -135,6 +170,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
         id: data.user.id,
         email,
         full_name: record.full_name,
+        role: rowRole,
         login_id: record.login_id ?? null,
         temporary_password: temporaryPassword
       });
@@ -160,15 +196,19 @@ export default withApiDefaults(['POST'], async (req, res) => {
     .single();
 
   if (body.semester_cycle_id && body.create_accounts) {
-    const column = body.import_type === 'faculty' ? 'faculty_imported_count' : 'student_imported_count';
+    const facultyCreated = created.filter((c) => (c.role ?? body.import_type) === 'faculty').length;
+    const studentCreated = created.filter((c) => (c.role ?? body.import_type) === 'student').length;
+
     const { data: cycle } = await admin
       .from('semester_cycles').select('*').eq('id', body.semester_cycle_id).maybeSingle();
     if (cycle) {
       await admin
         .from('semester_cycles')
         .update({
-          [column]: (cycle[column] ?? 0) + created.length,
-          current_step: Math.max(cycle.current_step, body.import_type === 'faculty' ? 3 : 4)
+          faculty_imported_count: (cycle.faculty_imported_count ?? 0) + facultyCreated,
+          student_imported_count: (cycle.student_imported_count ?? 0) + studentCreated,
+          // A combined upload completes the whole upload phase in one go.
+          current_step: Math.max(cycle.current_step, isCombined ? 5 : body.import_type === 'faculty' ? 3 : 4)
         })
         .eq('id', body.semester_cycle_id);
     }
@@ -180,12 +220,23 @@ export default withApiDefaults(['POST'], async (req, res) => {
     metadata: { filename: body.filename, total: records.length, created: created.length, failed: failed.length, dry_run: !body.create_accounts }
   });
 
+  const facultyCreated = created.filter((c) => (c.role ?? body.import_type) === 'faculty').length;
+  const studentCreated = created.filter((c) => (c.role ?? body.import_type) === 'student').length;
+
   sendSuccess(
     res,
     body.create_accounts
-      ? `Imported ${created.length} of ${records.length} rows. ${skipped.length} already existed, ${failed.length} failed.`
+      ? `Imported ${created.length} of ${records.length} rows` +
+        (isCombined ? ` (${facultyCreated} faculty, ${studentCreated} students)` : '') +
+        `. ${skipped.length} already existed, ${failed.length} failed.`
       : `Validated ${records.length} rows. ${created.length} ready to import, ${skipped.length} already exist, ${failed.length} have problems.`,
-    { batch_id: batch?.id ?? null, total_rows: records.length, created, skipped, failed },
+    {
+      batch_id: batch?.id ?? null,
+      total_rows: records.length,
+      faculty_created: facultyCreated,
+      student_created: studentCreated,
+      created, skipped, failed
+    },
     201
   );
 });

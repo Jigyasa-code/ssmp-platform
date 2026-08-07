@@ -57,5 +57,16 @@ export async function createSignedUrl(bucket, objectPath, expiresInSeconds = 300
 export const BUCKETS = {
   FORM_A: 'form-a-uploads',
   ACHIEVEMENTS: 'achievement-proofs',
-  ROSTERS: 'roster-imports'
+  ROSTERS: 'roster-imports',
+  PROFILE_PHOTOS: 'profile-photos'
 };
+
+/** Profile photos are images only, and smaller than the document buckets. */
+export function validateProfilePhoto(file) {
+  if (!file) return 'Please choose an image.';
+  if (file.size > 3 * 1024 * 1024) return 'The photo must be 3 MB or smaller.';
+  if (!['image/png', 'image/jpeg', 'image/jpg', 'image/webp'].includes(file.type)) {
+    return 'Use a PNG, JPG or WEBP image.';
+  }
+  return null;
+}

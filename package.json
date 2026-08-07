@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Student Support & Mentorship Portal (Academic Nexus) — Supabase + React + Vercel",
+  "description": "Student Support & Mentorship Portal (Academic Nexus) \u2014 Supabase + React + Vercel",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -16,7 +16,8 @@
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
     "db:seed": "node supabase/scripts/seed-demo-accounts.mjs",
-    "verify:security": "node supabase/scripts/verify-security-policies.mjs"
+    "verify:security": "node supabase/scripts/verify-security-policies.mjs",
+    "test": "npm --prefix frontend run test:ui"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.1",

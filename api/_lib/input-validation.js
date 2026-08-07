@@ -55,7 +55,7 @@ export const provisionBatchSchema = z.object({
 });
 
 export const rosterImportSchema = z.object({
-  import_type: z.enum(['faculty', 'student']),
+  import_type: z.enum(['faculty', 'student', 'combined']),
   filename: z.string().trim().min(1).max(255),
   /** base64 of the .csv / .xlsx file, capped well under the Vercel body limit */
   file_base64: z.string().min(1).max(8_000_000),
@@ -78,7 +78,8 @@ export const reassignmentSchema = z.object({
 });
 
 export const facultyReportQuerySchema = z.object({
-  faculty_id: uuid.optional().nullable(),
+  /** 'all' asks for the consolidated department report (HOD only). */
+  faculty_id: z.union([uuid, z.literal('all')]).optional().nullable(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional().nullable(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional().nullable(),
   format: z.enum(['json', 'pdf']).optional().default('json')

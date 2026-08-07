@@ -8,8 +8,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NotificationBell from './NotificationBell.jsx';
+import Avatar from '../ui/Avatar.jsx';
 import { useAuth } from '../../context/AuthProvider.jsx';
-import { initialsOf } from '../../lib/formatters.js';
 import { HOME_PATH, ROLE_LABELS } from '../../lib/constants.js';
 
 export default function TopBar({ onToggleSidebar, searchPlaceholder, onSearch }) {
@@ -87,9 +87,7 @@ export default function TopBar({ onToggleSidebar, searchPlaceholder, onSearch })
                 {ROLE_LABELS[profile?.role]}
               </span>
             </span>
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-label-md text-white">
-              {initialsOf(profile?.full_name)}
-            </span>
+            <Avatar path={profile?.avatar_url} name={profile?.full_name} size={38} />
           </button>
 
           {menuOpen && (

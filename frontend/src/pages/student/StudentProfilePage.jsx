@@ -9,7 +9,9 @@ import FormAFields, { useFormAState } from '../../components/student/FormAFields
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
-import { formatDate, formatDateTime, initialsOf } from '../../lib/formatters.js';
+import Avatar from '../../components/ui/Avatar.jsx';
+import ProfilePhotoUploader from '../../components/ui/ProfilePhotoUploader.jsx';
+import { formatDate, formatDateTime } from '../../lib/formatters.js';
 
 export default function StudentProfilePage() {
   const { profile, refreshProfile } = useAuth();
@@ -61,9 +63,7 @@ export default function StudentProfilePage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Panel tab="Identity" tabIcon="badge">
           <div className="flex items-center gap-4">
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-headline-sm text-white">
-              {initialsOf(profile.full_name)}
-            </span>
+            <Avatar path={profile.avatar_url} name={profile.full_name} size={68} />
             <div className="min-w-0">
               <h2 className="truncate text-headline-sm text-on-surface">{profile.full_name}</h2>
               <p className="truncate text-body-sm text-on-surface-variant">{profile.email}</p>
@@ -136,6 +136,10 @@ export default function StudentProfilePage() {
           </form>
         </Panel>
       </div>
+
+      <Panel tab="Profile photo" tabIcon="photo_camera" className="mt-4">
+        <ProfilePhotoUploader />
+      </Panel>
 
       <section className="mt-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

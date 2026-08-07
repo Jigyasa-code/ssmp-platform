@@ -1,0 +1,6 @@
+Role,Name,Email,Reg No,Branch,Section,Semester,Mentor Email
+Faculty,Dr. Nikhil Sharma,nikhil.sharma@jaipur.manipal.edu,FAC2001,CSE,,,
+Faculty,Dr. Priya Menon,priya.menon@jaipur.manipal.edu,FAC2002,ECE,,,
+Student,Aarav Gupta,aarav.gupta@muj.manipal.edu,2428020301,CSE,A,3rd Semester,nikhil.sharma@jaipur.manipal.edu
+Student,Diya Nair,diya.nair@muj.manipal.edu,2428020302,CSE,A,3rd Semester,nikhil.sharma@jaipur.manipal.edu
+Student,Kabir Singh,kabir.singh@muj.manipal.edu,2428020303,ECE,B,3rd Semester,priya.menon@jaipur.manipal.edu

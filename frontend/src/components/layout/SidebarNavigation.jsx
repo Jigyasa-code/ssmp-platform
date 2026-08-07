@@ -11,7 +11,7 @@
 import { NavLink } from 'react-router-dom';
 import mujLogo from '../../assets/manipal-university-jaipur-logo.png';
 import { NAVIGATION, ROLE_LABELS } from '../../lib/constants.js';
-import { initialsOf } from '../../lib/formatters.js';
+import Avatar from '../ui/Avatar.jsx';
 import { useAuth } from '../../context/AuthProvider.jsx';
 
 const ROLE_SUBTITLE = {
@@ -90,9 +90,7 @@ export default function SidebarNavigation({ role, profile, isOpen, onToggle, onN
         <div className="border-t border-sidebar-border p-3">
           <div className="rounded-xl bg-surface-container-low p-3">
             <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-label-sm text-white">
-                {initialsOf(profile?.full_name)}
-              </span>
+              <Avatar path={profile?.avatar_url} name={profile?.full_name} size={38} />
               <span className="min-w-0">
                 <span className="block truncate text-label-md text-on-surface">{profile?.full_name}</span>
                 <span className="block truncate text-label-sm uppercase tracking-wide text-tertiary">

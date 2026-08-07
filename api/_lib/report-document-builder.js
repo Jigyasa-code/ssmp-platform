@@ -8,6 +8,7 @@
  */
 
 import pdfLib from 'pdf-lib';
+import { UNIVERSITY_LOGO_PNG_BASE64, UNIVERSITY_LOGO_ASPECT } from './university-logo-asset.js';
 
 const { PDFDocument, StandardFonts } = pdfLib;
 import {
@@ -44,10 +45,11 @@ function hoursLabel(value) {
 }
 
 class ReportDocument {
-  constructor(pdf, fonts, meta) {
+  constructor(pdf, fonts, meta, logoImage) {
     this.pdf = pdf;
     this.fonts = fonts;
     this.meta = meta;
+    this.logoImage = logoImage;
     this.pages = [];
     this.page = null;
     this.y = 0;
@@ -61,9 +63,15 @@ class ReportDocument {
     return this.page;
   }
 
-  /** Branded header band. Drawn as vector so no image asset is bundled. */
+  /**
+   * Branded header band with the university wordmark.
+   *
+   * The logo sits on a white plate rather than directly on the orange
+   * band: the source artwork is flattened onto white, so placing it on a
+   * coloured background would show a white rectangle around it.
+   */
   drawHeader() {
-    const bandHeight = 62;
+    const bandHeight = 70;
     const top = A4.height;
 
     this.page.drawRectangle({
@@ -73,24 +81,33 @@ class ReportDocument {
       x: 0, y: top - bandHeight - 3, width: A4.width, height: 3, color: PALETTE.secondary
     });
 
-    // simple vector monogram in place of a bitmap logo
-    this.page.drawCircle({ x: MARGIN + 13, y: top - 31, size: 13, color: PALETTE.white });
-    this.page.drawText('MUJ', {
-      x: MARGIN + 13 - this.fonts.bold.widthOfTextAtSize('MUJ', 8) / 2,
-      y: top - 34, size: 8, font: this.fonts.bold, color: PALETTE.primary
-    });
+    const logoWidth = 132;
+    const logoHeight = logoWidth / UNIVERSITY_LOGO_ASPECT;
+    const plateX = MARGIN;
+    const plateY = top - bandHeight / 2 - logoHeight / 2 - 5;
 
+    this.page.drawRectangle({
+      x: plateX - 6, y: plateY - 5, width: logoWidth + 12, height: logoHeight + 10,
+      color: PALETTE.white
+    });
+    if (this.logoImage) {
+      this.page.drawImage(this.logoImage, {
+        x: plateX, y: plateY, width: logoWidth, height: logoHeight
+      });
+    }
+
+    const textX = plateX + logoWidth + 18;
     this.page.drawText(UNIVERSITY, {
-      x: MARGIN + 34, y: top - 27, size: 13, font: this.fonts.bold, color: PALETTE.white
+      x: textX, y: top - 30, size: 12, font: this.fonts.bold, color: PALETTE.white
     });
     this.page.drawText(SUBTITLE, {
-      x: MARGIN + 34, y: top - 41, size: 7.5, font: this.fonts.regular, color: PALETTE.primarySoft
+      x: textX, y: top - 44, size: 7.5, font: this.fonts.regular, color: PALETTE.primarySoft
     });
 
     const stamp = `Generated ${formatDateTime(this.meta.generatedAt)}`;
     this.page.drawText(stamp, {
       x: A4.width - MARGIN - this.fonts.regular.widthOfTextAtSize(stamp, 7),
-      y: top - 41, size: 7, font: this.fonts.regular, color: PALETTE.primarySoft
+      y: top - 44, size: 7, font: this.fonts.regular, color: PALETTE.primarySoft
     });
 
     return top - bandHeight - 26;
@@ -102,8 +119,13 @@ class ReportDocument {
     return this.y;
   }
 
-  heading(text) {
-    this.reserve(34);
+  /**
+   * @param {number} [blockHeight] height of the content that follows.
+   * Passing it keeps the heading and its block on the same page instead of
+   * leaving an orphaned title at the bottom.
+   */
+  heading(text, blockHeight = 0) {
+    this.reserve(34 + blockHeight);
     this.y = drawSectionHeading(this.page, this.fonts, {
       x: MARGIN, y: this.y, text, width: CONTENT_WIDTH
     });
@@ -192,12 +214,21 @@ async function createDocument(meta) {
     bold: await pdf.embedFont(StandardFonts.HelveticaBold),
     italic: await pdf.embedFont(StandardFonts.HelveticaOblique)
   };
+
+  // A broken logo must never take a report down with it.
+  let logoImage = null;
+  try {
+    logoImage = await pdf.embedPng(Buffer.from(UNIVERSITY_LOGO_PNG_BASE64, 'base64'));
+  } catch (error) {
+    console.error('[pdf] university logo could not be embedded:', error.message);
+  }
+
   pdf.setTitle(meta.title);
   pdf.setAuthor('SSMP — Manipal University Jaipur');
   pdf.setSubject(meta.subject ?? meta.title);
   pdf.setProducer('SSMP Platform');
   pdf.setCreationDate(new Date());
-  return { pdf, fonts, doc: new ReportDocument(pdf, fonts, meta) };
+  return { pdf, fonts, doc: new ReportDocument(pdf, fonts, meta, logoImage) };
 }
 
 /* ====================================================================
@@ -243,8 +274,7 @@ export async function buildFacultyActivityPdf(report) {
   });
 
   // ── Category + confirmation charts side by side ────────────────────
-  doc.heading('Ticket mix and resolution quality');
-  doc.reserve(190);
+  doc.heading('Ticket mix and resolution quality', 190);
 
   const categoryData = ['Academic', 'ERP/Tech', 'Infrastructure'].map((category, index) => {
     const found = (report.by_category ?? []).find((c) => c.category === category);
@@ -280,8 +310,7 @@ export async function buildFacultyActivityPdf(report) {
   doc.y = chartTop - 186;
 
   // ── Weekly trend ───────────────────────────────────────────────────
-  doc.heading('Weekly volume — raised vs resolved');
-  doc.reserve(150);
+  doc.heading('Weekly volume — raised vs resolved', 150);
   const weekly = (report.weekly_trend ?? []).slice(-12);
   drawGroupedBarChart(doc.page, doc.fonts, {
     x: MARGIN, y: doc.y - 8, width: CONTENT_WIDTH, height: 122,
@@ -297,8 +326,7 @@ export async function buildFacultyActivityPdf(report) {
   doc.y -= 140;
 
   // ── Satisfaction distribution ──────────────────────────────────────
-  doc.heading('Satisfaction ratings received');
-  doc.reserve(110);
+  doc.heading('Satisfaction ratings received', 110);
   const distribution = report.rating_distribution ?? {};
   drawHorizontalBars(doc.page, doc.fonts, {
     x: MARGIN, y: doc.y, width: CONTENT_WIDTH,
@@ -423,8 +451,7 @@ export async function buildStudentDossierPdf(report) {
   }
 
   // ── Support activity ───────────────────────────────────────────────
-  doc.heading('Support activity');
-  doc.reserve(190);
+  doc.heading('Support activity', 190);
   const activityTop = doc.y;
   const halfWidth = (CONTENT_WIDTH - 24) / 2;
 
@@ -552,5 +579,159 @@ export async function buildStudentDossierPdf(report) {
   }
 
   doc.finalizeFooters(`Student Mentorship Report — ${student.name}`);
+  return Buffer.from(await pdf.save());
+}
+
+/* ====================================================================
+ * DEPARTMENT-WIDE consolidated report (HOD → "All faculty members")
+ *
+ * Deliberately mixed: charts and KPI cards carry the story, then one
+ * compact table row per faculty member. Running the full per-faculty
+ * report for everyone would produce dozens of pages nobody reads.
+ * ==================================================================== */
+export async function buildDepartmentReportPdf(report) {
+  const { summary, period } = report;
+  const { pdf, doc } = await createDocument({
+    title: `Department Faculty Report — ${report.department}`,
+    generatedAt: report.generated_at
+  });
+
+  doc.titleBlock(
+    'Department Faculty Report',
+    `All faculty members · ${report.department}`,
+    [
+      `Period: ${formatDate(period.from)} – ${formatDate(period.to)}`,
+      `${summary.faculty_count} faculty (${summary.active_faculty} active)`,
+      `${summary.student_count} students`
+    ]
+  );
+
+  // ── Department KPIs ────────────────────────────────────────────────
+  doc.y = drawStatCards(doc.page, doc.fonts, {
+    x: MARGIN, y: doc.y, width: CONTENT_WIDTH, perRow: 4,
+    cards: [
+      { label: 'Tickets raised', value: summary.total_tickets, accent: PALETTE.primary,
+        caption: `${summary.resolved_tickets} resolved` },
+      { label: 'Resolution rate', value: `${summary.resolution_rate_percent}%`, accent: PALETTE.success,
+        caption: `${summary.open_tickets + summary.in_progress_tickets} still active` },
+      { label: 'Avg first response', value: hoursLabel(summary.avg_first_response_hours), accent: PALETTE.secondary },
+      { label: 'Avg resolution', value: hoursLabel(summary.avg_resolution_hours), accent: PALETTE.slate },
+      { label: 'Satisfaction', value: summary.avg_satisfaction ? `${summary.avg_satisfaction}/5` : '—',
+        accent: PALETTE.warning },
+      { label: 'Faculty', value: summary.faculty_count, accent: PALETTE.primaryLight,
+        caption: `${summary.active_faculty} active` },
+      { label: 'Unassigned students', value: summary.unassigned_students,
+        accent: summary.unassigned_students ? PALETTE.error : PALETTE.success },
+      { label: 'Referred to HOD', value: summary.escalated_tickets,
+        accent: summary.escalated_tickets ? PALETTE.error : PALETTE.slate }
+    ]
+  });
+
+  // ── Category and status mix side by side ───────────────────────────
+  doc.heading('Department ticket mix', 190);
+  const chartTop = doc.y;
+  const halfWidth = (CONTENT_WIDTH - 24) / 2;
+
+  drawBarChart(doc.page, doc.fonts, {
+    x: MARGIN, y: chartTop - 12, width: halfWidth, height: 132,
+    title: 'Tickets by category',
+    data: ['Academic', 'ERP/Tech', 'Infrastructure'].map((category, index) => {
+      const found = (report.by_category ?? []).find((c) => c.category === category);
+      return { label: category, value: found ? found.total : 0, color: SERIES_COLORS[index] };
+    })
+  });
+
+  const status = report.by_status ?? {};
+  const statusSlices = [
+    { label: 'Resolved', value: status.resolved ?? 0, color: PALETTE.success },
+    { label: 'In progress', value: status.in_progress ?? 0, color: PALETTE.warning },
+    { label: 'Open', value: status.open ?? 0, color: PALETTE.error }
+  ];
+  drawDonutChart(doc.page, doc.fonts, {
+    centerX: MARGIN + halfWidth + 24 + halfWidth / 2, centerY: chartTop - 84,
+    radius: 46, thickness: 20, slices: statusSlices,
+    title: 'Current status mix', titleY: chartTop - 6
+  });
+  drawLegend(doc.page, doc.fonts, {
+    x: MARGIN + halfWidth + 24, y: chartTop - 152, maxWidth: halfWidth,
+    items: statusSlices.map((s) => ({ label: `${s.label} (${s.value})`, color: s.color })), gap: 8
+  });
+  doc.y = chartTop - 186;
+
+  // ── Monthly volume ─────────────────────────────────────────────────
+  doc.heading('Monthly volume — raised vs resolved', 150);
+  drawGroupedBarChart(doc.page, doc.fonts, {
+    x: MARGIN, y: doc.y - 8, width: CONTENT_WIDTH, height: 122,
+    data: (report.monthly_trend ?? []).slice(-12).map((m) => ({
+      label: m.month, values: [m.created, m.resolved]
+    })),
+    series: [
+      { name: 'Raised', color: PALETTE.primary },
+      { name: 'Resolved', color: PALETTE.success }
+    ]
+  });
+  doc.y -= 140;
+
+  // ── Who is carrying the load ───────────────────────────────────────
+  const faculty = report.faculty ?? [];
+  const topByVolume = [...faculty].sort((a, b) => b.total_tickets - a.total_tickets).slice(0, 8);
+
+  doc.heading('Ticket load by faculty member', topByVolume.length * 16 + 20);
+  doc.y = drawHorizontalBars(doc.page, doc.fonts, {
+    x: MARGIN, y: doc.y, width: CONTENT_WIDTH, labelWidth: 130,
+    rows: topByVolume.map((f) => ({
+      label: f.name,
+      value: f.total_tickets,
+      display: `${f.total_tickets} (${f.resolved_tickets} resolved)`
+    }))
+  });
+
+  const responders = faculty
+    .filter((f) => Number(f.avg_first_response_hours) > 0)
+    .sort((a, b) => a.avg_first_response_hours - b.avg_first_response_hours)
+    .slice(0, 8);
+
+  if (responders.length) {
+    doc.heading('Fastest first response', responders.length * 16 + 20);
+    doc.y = drawHorizontalBars(doc.page, doc.fonts, {
+      x: MARGIN, y: doc.y, width: CONTENT_WIDTH, labelWidth: 130,
+      rows: responders.map((f) => ({
+        label: f.name,
+        value: Number(f.avg_first_response_hours),
+        display: hoursLabel(f.avg_first_response_hours),
+        color: PALETTE.secondary
+      }))
+    });
+  }
+
+  // ── The tabular half: one row per faculty member ───────────────────
+  doc.heading(`All faculty (${faculty.length})`);
+  doc.y = drawTable(doc.page, doc.fonts, {
+    x: MARGIN, y: doc.y, width: CONTENT_WIDTH,
+    columns: [
+      { header: 'Faculty', key: 'name', width: 2.5 },
+      { header: 'Branch', key: 'branch', width: 0.85 },
+      { header: 'Status', key: 'employment_status', width: 1 },
+      { header: 'Mentees', key: 'mentee_count', width: 1.05, align: 'right' },
+      { header: 'Tickets', key: 'total_tickets', width: 1, align: 'right' },
+      { header: 'Resolved', key: 'resolved_tickets', width: 1.1, align: 'right' },
+      { header: 'Reopened', key: 'reopened', width: 1.15, align: 'right' },
+      { header: '1st resp.', key: 'first_response_label', width: 1.05, align: 'right' },
+      { header: 'Resol.', key: 'resolution_label', width: 0.95, align: 'right' },
+      { header: 'Rate', key: 'rate_label', width: 0.8, align: 'right' },
+      { header: 'Rating', key: 'rating_label', width: 0.9, align: 'right' }
+    ],
+    rows: faculty.map((f) => ({
+      ...f,
+      first_response_label: hoursLabel(f.avg_first_response_hours),
+      resolution_label: hoursLabel(f.avg_resolution_hours),
+      rate_label: `${f.resolution_rate_percent}%`,
+      rating_label: f.avg_satisfaction ? `${f.avg_satisfaction}/5` : '—'
+    })),
+    maxRows: 80,
+    emptyMessage: 'No faculty on record'
+  });
+
+  doc.finalizeFooters(`Department Faculty Report — ${report.department}`);
   return Buffer.from(await pdf.save());
 }

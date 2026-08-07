@@ -14,7 +14,7 @@
 import { withApiDefaults, sendSuccess, ApiError } from '../_lib/http-response.js';
 import { requireAuthenticatedUser, requireRole, enforceRateLimit, recordAuditEntry } from '../_lib/request-guards.js';
 import { parseOrThrow, facultyReportQuerySchema } from '../_lib/input-validation.js';
-import { buildFacultyActivityPdf } from '../_lib/report-document-builder.js';
+import { buildFacultyActivityPdf, buildDepartmentReportPdf } from '../_lib/report-document-builder.js';
 
 export default withApiDefaults(['GET'], async (req, res) => {
   const context = await requireAuthenticatedUser(req);
@@ -28,11 +28,19 @@ export default withApiDefaults(['GET'], async (req, res) => {
     format: req.query.format || 'json'
   });
 
-  const { data: report, error } = await context.asUser.rpc('get_faculty_activity_report', {
-    p_faculty_id: query.faculty_id ?? null,
-    p_from: query.from ?? null,
-    p_to: query.to ?? null
-  });
+  const isDepartmentWide = query.faculty_id === 'all';
+
+  const { data: report, error } = isDepartmentWide
+    ? await context.asUser.rpc('get_department_faculty_report', {
+        p_from: query.from ?? null,
+        p_to: query.to ?? null
+      })
+    : await context.asUser.rpc('get_faculty_activity_report', {
+        p_faculty_id: query.faculty_id ?? null,
+        p_from: query.from ?? null,
+        p_to: query.to ?? null
+      });
+
   if (error) throw new ApiError(error.message, error.code === '42501' ? 403 : 400);
   if (!report) throw new ApiError('No report data was returned', 404);
 
@@ -40,13 +48,18 @@ export default withApiDefaults(['GET'], async (req, res) => {
     return sendSuccess(res, 'Faculty activity report generated', { report });
   }
 
-  const pdfBytes = await buildFacultyActivityPdf(report);
-  const safeName = String(report.faculty.name).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-  const filename = `faculty-activity-report-${safeName}-${report.period.from}-to-${report.period.to}.pdf`;
+  const pdfBytes = isDepartmentWide
+    ? await buildDepartmentReportPdf(report)
+    : await buildFacultyActivityPdf(report);
 
-  await recordAuditEntry(context, req, 'report.faculty_activity_pdf', {
-    type: 'user_profiles', id: report.faculty.id,
-    metadata: { from: report.period.from, to: report.period.to }
+  const safeName = isDepartmentWide
+    ? 'all-faculty'
+    : String(report.faculty.name).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  const filename = `${isDepartmentWide ? 'department' : 'faculty'}-activity-report-${safeName}-${report.period.from}-to-${report.period.to}.pdf`;
+
+  await recordAuditEntry(context, req, isDepartmentWide ? 'report.department_pdf' : 'report.faculty_activity_pdf', {
+    type: 'user_profiles', id: isDepartmentWide ? null : report.faculty.id,
+    metadata: { from: report.period.from, to: report.period.to, scope: isDepartmentWide ? 'department' : 'faculty' }
   });
 
   res.setHeader('Content-Type', 'application/pdf');

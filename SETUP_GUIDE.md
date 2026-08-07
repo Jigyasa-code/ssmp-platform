@@ -80,6 +80,7 @@ You have two options. **Option A is easier** and needs no extra tools.
    0016_fix_user_profiles_policy_recursion.sql
    0017_form_a_editable_and_star_mentee_group_view.sql
    0018_reopen_limit_and_hod_escalation.sql
+   0019_profile_photos_combined_roster_and_department_report.sql
    ```
 
    Paste the whole file, click **Run**, wait for "Success", move to the next. Order matters — later files reference earlier ones.
@@ -182,7 +183,8 @@ Sign in as each role in three different browser windows (or one normal + two pri
 | # | Do this | You should see |
 |---|---|---|
 | 1 | Sign in as a **student** for the first time | A full-screen Form A with **no sidebar and no menu** — there is nothing else to click until it is submitted |
-| 2 | Submit Form A | Landed on the student dashboard. Form A is no longer a menu item; it now lives under **My Profile**, editable by the student with no HOD approval |
+| 2 | Submit Form A | Step 2 appears: a **profile photo, which is compulsory**. Still no menu until it is uploaded |
+| 2b | Upload the photo | Landed on the student dashboard. Form A is no longer a menu item; it now lives under **My Profile**, editable with no HOD approval |
 | 3 | Raise a ticket | It appears in the **faculty** window within a second, and the faculty bell shows a badge — no refresh |
 | 4 | Reply as faculty | The reply appears in the student window instantly; ticket flips to *In Progress* |
 | 5 | Faculty clicks **Mark resolved** | Student gets "Was your issue fixed?" with Yes / No |
@@ -196,6 +198,9 @@ Sign in as each role in three different browser windows (or one normal + two pri
 | 12 | HOD → Faculty Roster → mark someone **departed** | Their mentee list opens; reassign to someone from the reserve pool |
 | 13 | Check the reassigned student's window | They are notified their mentor changed, and it is already updated on screen |
 | 14 | HOD → Faculty Reports, or **PDF** on any row of Faculty Performance | The same analytical report a faculty member gets for themselves, for any faculty member |
+| 15 | HOD → Faculty Reports → **All faculty members (consolidated)** | Department-wide charts plus one row per faculty member, on screen and as a single PDF |
+| 16 | HOD → Semester Setup → **Both together** + `sample-data/combined-roster-sample.csv` | Faculty and students created from one file, mentors matched from the same upload |
+| 17 | Any portal → My Profile → **Upload photo** | The photo replaces the grey silhouette in the sidebar, top bar and every ticket message |
 
 ---
 

@@ -25,8 +25,22 @@ const HEADER_ALIASES = {
   section: ['section', 'sec'],
   semester_label: ['semester', 'sem', 'semester label'],
   phone: ['phone', 'mobile', 'mobile no', 'contact', 'contact no'],
-  mentor_email: ['mentor email', 'faculty email', 'assigned mentor', 'mentor']
+  mentor_email: ['mentor email', 'faculty email', 'assigned mentor', 'mentor'],
+  /** Only used by a combined import: says whether the row is staff or a student. */
+  role: ['role', 'type', 'user type', 'category', 'designation type']
 };
+
+/** Free-text role values the combined importer understands. */
+const FACULTY_ROLE_WORDS = ['faculty', 'mentor', 'staff', 'teacher', 'professor', 'prof', 'teaching'];
+const STUDENT_ROLE_WORDS = ['student', 'mentee', 'learner'];
+
+export function classifyRole(value) {
+  const cleaned = String(value ?? '').trim().toLowerCase();
+  if (!cleaned) return null;
+  if (FACULTY_ROLE_WORDS.some((word) => cleaned.includes(word))) return 'faculty';
+  if (STUDENT_ROLE_WORDS.some((word) => cleaned.includes(word))) return 'student';
+  return null;
+}
 
 function normaliseHeader(raw) {
   const cleaned = String(raw ?? '').trim().toLowerCase().replace(/[._]/g, ' ').replace(/\s+/g, ' ');
@@ -78,7 +92,7 @@ function rowsToRecords(rows) {
   const headerMap = rows[0].map(normaliseHeader);
   if (!headerMap.includes('email')) {
     throw new ApiError(
-      'No "Email" column found. Required columns: Email, Name. Optional: Reg No / Faculty ID, Branch, Section, Semester, Phone, Mentor Email.',
+      'No "Email" column found. Required columns: Email, Name. Optional: Reg No / Faculty ID, Branch, Section, Semester, Phone, Mentor Email, Role.',
       400
     );
   }

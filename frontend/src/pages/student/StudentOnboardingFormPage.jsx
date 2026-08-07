@@ -47,7 +47,8 @@ export default function StudentOnboardingFormPage() {
         onSuccess: async () => {
           setConfirmOpen(false);
           await refreshProfile();
-          navigate('/student', { replace: true });
+          // Step 2 of onboarding: the mandatory profile photo.
+          navigate('/student/profile-photo', { replace: true });
         }
       }
     );
@@ -72,7 +73,7 @@ export default function StudentOnboardingFormPage() {
       <main className="mx-auto max-w-5xl px-4 py-8">
         <div className="mb-6 rounded-lg border-l-4 border-primary bg-primary-fixed/40 p-5">
           <p className="text-label-sm uppercase tracking-wide text-on-primary-fixed-variant">
-            Step 1 of 1 · One-time setup
+            Step 1 of 2 · One-time setup
           </p>
           <h1 className="mt-1 text-headline-md text-on-surface">Form A — Mentor-Mentee Scheme</h1>
           <p className="mt-2 max-w-3xl text-body-sm text-on-surface-variant">
@@ -96,7 +97,7 @@ export default function StudentOnboardingFormPage() {
               Fields marked <span className="text-error">*</span> are required.
             </p>
             <button type="submit" className="btn-primary" disabled={pending || formA.uploading !== null}>
-              {pending ? 'Submitting...' : 'Submit and enter the portal'}
+              {pending ? 'Submitting...' : 'Submit and continue'}
             </button>
           </div>
         </form>
@@ -109,7 +110,7 @@ export default function StudentOnboardingFormPage() {
         pending={pending}
         title="Submit Form A?"
         confirmLabel="Yes, submit"
-        message="You will be taken straight into the portal. If anything needs correcting later, you can edit this record yourself from your profile page."
+        message="Next you will be asked for a profile photo, then the portal opens. If anything here needs correcting later, you can edit it yourself from your profile page."
       />
     </div>
   );

@@ -101,6 +101,7 @@ export default function HodSemesterSetupPage() {
   const upload = () => {
     // Steps 2-4 are "the HOD has done their part" -- tick them now.
     setOptimisticStep(importType === 'faculty' ? 3 : 4);
+    if (importType === 'combined') setOptimisticStep(4);
     return run(
       async () => {
         if (!file) throw new Error('Choose a .csv or .xlsx file first.');
@@ -268,19 +269,26 @@ export default function HodSemesterSetupPage() {
               onChange={(event) => setImportType(event.target.value)}
               options={[
                 { value: 'faculty', label: 'Faculty roster' },
-                { value: 'student', label: 'Student roster' }
+                { value: 'student', label: 'Student roster' },
+                { value: 'combined', label: 'Both together (one file with faculty and students)' }
               ]}
               hint={
                 importType === 'student'
                   ? 'Import the faculty roster first so the "Mentor Email" column can be matched.'
-                  : undefined
+                  : importType === 'combined'
+                    ? 'The file needs a "Role" column saying Faculty or Student on every row. Faculty are created first, so "Mentor Email" resolves even for colleagues in the same file.'
+                    : undefined
               }
             />
 
             <FileField
               label="Roster file"
               accept=".csv,.xlsx"
-              hint="CSV or XLSX. Columns: Email, Name (required); Reg No / Faculty ID, Branch, Section, Semester, Phone, Mentor Email (optional)."
+              hint={
+                importType === 'combined'
+                  ? 'CSV or XLSX. Columns: Role, Email, Name (required); Reg No / Faculty ID, Branch, Section, Semester, Phone, Mentor Email (optional).'
+                  : 'CSV or XLSX. Columns: Email, Name (required); Reg No / Faculty ID, Branch, Section, Semester, Phone, Mentor Email (optional).'
+              }
               currentName={file?.name}
               onFileSelected={setFile}
               disabled={pending}
@@ -302,7 +310,8 @@ export default function HodSemesterSetupPage() {
               <p className="font-semibold">Accepted column headings (any of these spellings)</p>
               <p className="mt-1">
                 Email · Name / Full Name / Student Name · Reg No / Registration No / Roll No / Faculty ID ·
-                Branch / Dept · Section · Semester · Mobile / Phone · Mentor Email / Faculty Email
+                Branch / Dept · Section · Semester · Mobile / Phone · Mentor Email / Faculty Email ·
+                Role / Type <span className="text-tertiary">(combined imports only)</span>
               </p>
             </div>
           </div>
@@ -377,6 +386,11 @@ export default function HodSemesterSetupPage() {
           <div className="rounded bg-success-container/60 p-3">
             <p className="text-label-sm text-on-success-container">{result?.dryRun ? 'Ready to import' : 'Created'}</p>
             <p className="text-headline-sm text-on-success-container">{result?.created?.length ?? 0}</p>
+            {(result?.faculty_created > 0 || result?.student_created > 0) && (
+              <p className="text-label-sm text-on-success-container">
+                {result.faculty_created} faculty · {result.student_created} students
+              </p>
+            )}
           </div>
           <div className="rounded bg-surface-container p-3">
             <p className="text-label-sm text-on-surface-variant">Already existed</p>

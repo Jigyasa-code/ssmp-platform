@@ -28,9 +28,11 @@ export function RequireRole({ role, children }) {
 }
 
 /**
- * FEATURE 1 gate — a student who has not submitted Form A is redirected to
- * it before any other student route. Kept here in the routing layer rather
- * than scattered through the pages.
+ * FEATURE 1 gate — student onboarding, in two compulsory steps:
+ *   1. Form A          -> /student/onboarding
+ *   2. Profile photo   -> /student/profile-photo
+ * Neither is skippable, and both are checked here in the routing layer
+ * rather than scattered through the pages.
  */
 export function RequireOnboarding({ children }) {
   const { profile, loading } = useAuth();
@@ -38,13 +40,14 @@ export function RequireOnboarding({ children }) {
 
   if (loading) return <PageLoader />;
   if (!profile) return <Navigate to="/login" replace />;
+  if (profile.role !== 'student') return children;
 
-  const needsOnboarding =
-    profile.role === 'student' &&
-    !profile.form_a_completed &&
-    !location.pathname.startsWith('/student/onboarding');
-
-  if (needsOnboarding) return <Navigate to="/student/onboarding" replace />;
+  if (!profile.form_a_completed && !location.pathname.startsWith('/student/onboarding')) {
+    return <Navigate to="/student/onboarding" replace />;
+  }
+  if (profile.form_a_completed && !profile.avatar_url && location.pathname !== '/student/profile-photo') {
+    return <Navigate to="/student/profile-photo" replace />;
+  }
   return children;
 }
 

@@ -5,6 +5,15 @@ import { createPortal } from 'react-dom';
 export default function Modal({ open, onClose, title, description, children, footer, size = 'md' }) {
   const panelRef = useRef(null);
 
+  // Callers pass an inline arrow for onClose, so its identity changes on
+  // every render. Keeping it in a ref lets the effect below depend on
+  // `open` alone — otherwise every keystroke in the dialog re-ran the
+  // whole setup and stole focus back to the first focusable element.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return undefined;
     const previousFocus = document.activeElement;
@@ -12,7 +21,7 @@ export default function Modal({ open, onClose, title, description, children, foo
     document.body.style.overflow = 'hidden';
 
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
       if (event.key !== 'Tab' || !panelRef.current) return;
       const focusable = panelRef.current.querySelectorAll(
         'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -30,14 +39,25 @@ export default function Modal({ open, onClose, title, description, children, foo
     };
 
     document.addEventListener('keydown', onKeyDown);
-    setTimeout(() => panelRef.current?.querySelector('input, textarea, select, button')?.focus(), 30);
+
+    // Land on the first real form field. A plain
+    // querySelector('input, textarea, select, button') matches whichever
+    // comes first in the DOM, which is the header's close button — so the
+    // cursor landed on the ✕ instead of the first input.
+    const focusTimer = setTimeout(() => {
+      const field = panelRef.current?.querySelector(
+        'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])'
+      );
+      (field ?? panelRef.current?.querySelector('button:not([disabled])'))?.focus();
+    }, 30);
 
     return () => {
+      clearTimeout(focusTimer);
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

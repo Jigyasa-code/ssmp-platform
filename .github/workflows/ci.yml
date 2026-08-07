@@ -26,6 +26,9 @@ jobs:
       - name: Lint frontend
         run: npm --prefix frontend run lint
 
+      - name: UI regression tests (panel padding, modal focus)
+        run: npm --prefix frontend run test:ui
+
       - name: Build frontend
         env:
           VITE_SUPABASE_URL: https://placeholder.supabase.co
