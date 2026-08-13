@@ -1,4 +1,4 @@
-# SSMP — Student Support & Mentorship Portal
+# SMP — Student Mentorship Portal
 
 **Academic Nexus** · Department of IoT & Intelligent Systems · Manipal University Jaipur
 
