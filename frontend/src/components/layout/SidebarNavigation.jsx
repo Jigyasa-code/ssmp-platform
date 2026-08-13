@@ -61,7 +61,7 @@ export default function SidebarNavigation({ role, profile, isOpen, onToggle, onN
               <span className="material-symbols-outlined">close</span>
             </button>
           </div>
-          <p className="mt-4 text-headline-sm leading-tight text-primary">SSMP Portal</p>
+          <p className="mt-4 text-headline-sm leading-tight text-primary">SMP Portal</p>
           <p className="text-label-sm uppercase tracking-[0.12em] text-tertiary">
             {ROLE_SUBTITLE[role] ?? 'Portal'}
           </p>

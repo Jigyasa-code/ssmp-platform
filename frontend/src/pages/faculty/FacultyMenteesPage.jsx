@@ -108,13 +108,23 @@ export default function FacultyMenteesPage() {
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return mentees;
-    return mentees.filter(
-      (m) =>
-        m.student_name?.toLowerCase().includes(term) ||
-        m.registration_no?.toLowerCase().includes(term) ||
-        m.email?.toLowerCase().includes(term)
-    );
+    const matches = !term
+      ? mentees
+      : mentees.filter(
+          (m) =>
+            m.student_name?.toLowerCase().includes(term) ||
+            m.registration_no?.toLowerCase().includes(term) ||
+            m.email?.toLowerCase().includes(term)
+        );
+
+    // The group representative is pinned to the top regardless of the
+    // alphabetical order the query returned, and regardless of the search
+    // term — they are the one person a mentor most often needs to reach.
+    // Sorted on a copy: the query result is state and must not be mutated.
+    return [...matches].sort((a, b) => {
+      if (a.is_star_mentee === b.is_star_mentee) return 0;
+      return a.is_star_mentee ? -1 : 1;
+    });
   }, [mentees, search]);
 
   const columns = [

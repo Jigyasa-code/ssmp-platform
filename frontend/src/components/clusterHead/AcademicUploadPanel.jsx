@@ -69,6 +69,7 @@ export default function AcademicUploadPanel({
           <FileField
             label="Data file"
             accept=".csv,.xlsx"
+            placeholder="Choose a file (CSV or XLSX)"
             hint={hint}
             currentName={file?.name}
             onFileSelected={setFile}

@@ -177,7 +177,7 @@ export default function StudentAchievementsPage() {
   return (
     <PortalShell>
       <PageHeader
-        title="Non-academic achievements"
+        title="Achievements"
         subtitle="Sports, clubs, hackathons, volunteering, certifications — everything outside the classroom that your mentor should know about."
         actions={
           <button type="button" className="btn-primary" onClick={openCreate}>

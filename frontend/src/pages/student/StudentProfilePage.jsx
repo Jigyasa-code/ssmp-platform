@@ -10,7 +10,6 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import Avatar from '../../components/ui/Avatar.jsx';
-import ProfilePhotoUploader from '../../components/ui/ProfilePhotoUploader.jsx';
 import { formatDate, formatDateTime } from '../../lib/formatters.js';
 
 export default function StudentProfilePage() {
@@ -137,10 +136,6 @@ export default function StudentProfilePage() {
         </Panel>
       </div>
 
-      <Panel tab="Profile photo" tabIcon="photo_camera" className="mt-4">
-        <ProfilePhotoUploader />
-      </Panel>
-
       <section className="mt-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -189,6 +184,21 @@ export default function StudentProfilePage() {
         </form>
       </section>
 
+      {/* Sits BELOW Form A, and is read-only. The photo is captured once
+          during onboarding (StudentProfilePhotoPage) and is part of the
+          departmental record from then on — a student changing or removing
+          it afterwards would break the thing it exists for, which is a
+          mentor recognising their mentee. Staff who need it changed go
+          through the HOD office. */}
+      <Panel tab="Profile photo" tabIcon="photo_camera" className="mt-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <Avatar path={profile.avatar_url} name={profile.full_name} size={96} />
+          <p className="max-w-md text-body-sm text-on-surface-variant">
+            Submitted during onboarding and kept on your departmental record. Contact the HOD office if it
+            needs to be replaced.
+          </p>
+        </div>
+      </Panel>
     </PortalShell>
   );
 }

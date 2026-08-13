@@ -144,17 +144,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
         { name: 'Reopened', value: confirmation.reopened_no ?? 0, color: CHART_COLORS.open },
         { name: 'Awaiting reply', value: confirmation.awaiting_response ?? 0, color: CHART_COLORS.inProgress },
         { name: 'Unresolved', value: confirmation.never_resolved ?? 0, color: '#c7c6c6' }
-      ],
-      weekly: (report.weekly_trend ?? []).map((w) => ({
-        name: formatDate(w.week_start).replace(/ \d{4}$/, ''),
-        created: w.created,
-        resolved: w.resolved
-      })),
-      ratings: [5, 4, 3, 2, 1].map((star) => ({
-        name: `${star}★`,
-        value: Number(report.rating_distribution?.[String(star)] ?? 0),
-        color: star >= 4 ? CHART_COLORS.resolved : star === 3 ? CHART_COLORS.inProgress : CHART_COLORS.open
-      }))
+      ]
     };
   }, [report]);
 
@@ -262,21 +252,14 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
         </Panel>
       </div>
 
-      <Panel tab="Weekly volume — raised vs resolved" tabIcon="stacked_bar_chart" className="mt-4">
-        <GroupedBarChart
-          data={charts.weekly}
-          height={280}
-          series={[
-            { key: 'created', label: 'Raised', color: CHART_COLORS.primary },
-            { key: 'resolved', label: 'Resolved', color: CHART_COLORS.resolved }
-          ]}
-        />
-      </Panel>
+      {/* "Weekly volume" and "Satisfaction ratings" used to sit here. Both
+          were removed: the weekly bars are a thinner slice of the same data
+          the category and confirmation charts already carry, and the rating
+          distribution duplicated the Average rating gauge beside it. The
+          underlying RPC still returns weekly_trend and rating_distribution,
+          so the PDF and any future screen can use them without a migration. */}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Panel tab="Satisfaction ratings" tabIcon="star">
-          <CategoryBarChart data={charts.ratings} height={230} />
-        </Panel>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Panel tab="Average rating" tabIcon="grade">
           <GaugeChart
             value={Number(summary.avg_satisfaction) || 0}

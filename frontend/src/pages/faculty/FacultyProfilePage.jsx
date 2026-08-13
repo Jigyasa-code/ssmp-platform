@@ -9,7 +9,6 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import Avatar from '../../components/ui/Avatar.jsx';
-import ProfilePhotoUploader from '../../components/ui/ProfilePhotoUploader.jsx';
 import { formatDate } from '../../lib/formatters.js';
 import { ROLE_LABELS } from '../../lib/constants.js';
 
@@ -94,10 +93,10 @@ export default function FacultyProfilePage() {
           </form>
         </Panel>
       </div>
-      <Panel tab="Profile photo" tabIcon="photo_camera" className="mt-4">
-        <ProfilePhotoUploader />
-      </Panel>
-
+      {/* The Profile photo panel was removed from this page. The avatar is
+          already shown in the Identity card above, in the sidebar and in the
+          top bar, so a dedicated panel was three copies of the same face on
+          one screen. Shared by faculty, HOD and cluster head. */}
     </PortalShell>
   );
 }

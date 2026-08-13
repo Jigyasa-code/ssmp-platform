@@ -5,14 +5,14 @@
  * privileged key.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import PortalShell from '../../components/layout/PortalShell.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
 import DataTable from '../../components/ui/DataTable.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import Modal from '../../components/ui/Modal.jsx';
-import { TextField, SelectField, FileField, CheckboxField } from '../../components/ui/FormControls.jsx';
+import { TextField, SelectField, FileField } from '../../components/ui/FormControls.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { apiClient } from '../../lib/apiClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
@@ -40,29 +40,55 @@ export default function HodSemesterSetupPage() {
   const toast = useToast();
   const { run, pending } = useAsyncAction();
 
-  const [cycles, setCycles] = useState([]);
   const [batches, setBatches] = useState([]);
   const [activeCycle, setActiveCycle] = useState(null);
   const [newCycle, setNewCycle] = useState({ academic_year: '', term: 'Odd' });
   const [importType, setImportType] = useState('faculty');
   const [file, setFile] = useState(null);
-  const [dryRun, setDryRun] = useState(true);
   const [result, setResult] = useState(null);
+
   /**
-   * The server only bumps current_step once accounts have actually been
-   * created, which left the stepper looking frozen for the several seconds
-   * that takes. This advances the earlier steps the moment the HOD acts,
-   * and leaves only step 5 -- "accounts created" -- waiting on the server.
+   * THE STEPPER IS A LIVE INDICATOR FOR THE IMPORT HAPPENING RIGHT NOW —
+   * not a permanent record of the semester's state.
+   *
+   * It used to read current_step off the semester row, which meant that
+   * after the very first successful upload every tick stayed green
+   * forever: the next import gave no feedback at all, because the steps
+   * were already "done". Now it starts empty (grey), fills in as the
+   * import actually progresses, and clears itself a couple of seconds
+   * after it finishes, ready for the next one.
+   *
+   * `doneSteps` is a Set rather than a high-water number because step 2
+   * (faculty) and step 3 (students) are alternatives: a faculty-only
+   * import must not light up "Upload students".
    */
-  const [optimisticStep, setOptimisticStep] = useState(0);
+  const [doneSteps, setDoneSteps] = useState(() => new Set());
+  const [busyStep, setBusyStep] = useState(null);
+  const resetTimer = useRef(null);
+
+  const markStep = (...numbers) =>
+    setDoneSteps((current) => {
+      const next = new Set(current);
+      for (const number of numbers) next.add(number);
+      return next;
+    });
+
+  const resetStepper = () => {
+    setDoneSteps(new Set());
+    setBusyStep(null);
+  };
+
+  // A pending reset must not fire after the component is gone, or after a
+  // second import has already started.
+  useEffect(() => () => clearTimeout(resetTimer.current), []);
 
   const load = useCallback(async () => {
     const [{ data: cycleRows }, { data: batchRows }] = await Promise.all([
       supabase.from('semester_cycles').select('*').order('created_at', { ascending: false }),
       supabase.from('roster_import_batches').select('*').order('created_at', { ascending: false }).limit(20)
     ]);
-    setCycles(cycleRows ?? []);
     setBatches(batchRows ?? []);
+    // Always the most recently created semester — there is no picker now.
     setActiveCycle((current) => current ?? cycleRows?.[0] ?? null);
   }, []);
 
@@ -91,7 +117,6 @@ export default function HodSemesterSetupPage() {
         onSuccess: async (created) => {
           setNewCycle({ academic_year: '', term: 'Odd' });
           setActiveCycle(created);
-          setOptimisticStep(2);
           await load();
         }
       }
@@ -99,35 +124,49 @@ export default function HodSemesterSetupPage() {
   };
 
   const upload = () => {
-    // Steps 2-4 are "the HOD has done their part" -- tick them now.
-    setOptimisticStep(importType === 'faculty' ? 3 : 4);
-    if (importType === 'combined') setOptimisticStep(4);
+    // Cancel any pending "fade back to grey" from the previous import, or
+    // it would wipe the ticks halfway through this one.
+    clearTimeout(resetTimer.current);
+    setDoneSteps(new Set([1]));   // the semester exists — step 1 is done
+    setBusyStep(2);
+
     return run(
       async () => {
         if (!file) throw new Error('Choose a .csv or .xlsx file first.');
+
         const base64 = await fileToBase64(file);
-        return apiClient.post('/admin/import-roster-spreadsheet', {
+        // File is read and on its way. Tick whichever roster step this
+        // import actually is — a combined file covers both.
+        const ROSTER_STEPS = { faculty: [2], student: [3], combined: [2, 3] };
+        markStep(...ROSTER_STEPS[importType]);
+        setBusyStep(4);
+
+        const data = await apiClient.post('/admin/import-roster-spreadsheet', {
           import_type: importType,
           filename: file.name,
           file_base64: base64,
           semester_cycle_id: activeCycle?.id ?? null,
-          create_accounts: !dryRun
+          create_accounts: true
         });
+
+        // Validation came back — the remaining work is account creation,
+        // which the endpoint has already finished by the time it responds.
+        markStep(4);
+        setBusyStep(5);
+        return data;
       },
       {
         onSuccess: async (data) => {
-          setResult({ ...data, dryRun });
-          // Step 5 only ticks once accounts really exist.
-          if (!dryRun && data.created.length) setOptimisticStep(5);
-          toast.success(
-            dryRun
-              ? `Validation complete: ${data.created.length} ready, ${data.failed.length} with problems.`
-              : `${data.created.length} account(s) created.`
-          );
+          markStep(5);
+          setBusyStep(null);
+          setResult(data);
+          toast.success(`${data.created.length} account(s) created.`);
           setFile(null);
           await load();
+          // Back to grey, ready for the next upload.
+          resetTimer.current = setTimeout(resetStepper, 2500);
         },
-        onError: () => setOptimisticStep(0)
+        onError: resetStepper
       }
     );
   };
@@ -155,15 +194,15 @@ export default function HodSemesterSetupPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ssmp-${importType}-credentials-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `smp-${importType}-credentials-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 3000);
   };
 
-  // Whichever is further along wins: the server's record, or what the HOD
-  // has already done in this session.
-  const currentStep = Math.max(activeCycle?.current_step ?? 1, optimisticStep);
-  const awaitingAccounts = pending && !dryRun;
+  // Show the "finish" panel once something has actually been imported for
+  // this semester. Previously keyed off the stepper, which is now transient.
+  const hasImports =
+    (activeCycle?.faculty_imported_count ?? 0) > 0 || (activeCycle?.student_imported_count ?? 0) > 0;
 
   return (
     <PortalShell>
@@ -176,14 +215,13 @@ export default function HodSemesterSetupPage() {
       <Panel tab="Progress" tabIcon="linear_scale" className="mb-4">
         <ol className="flex flex-wrap items-center gap-2">
           {STEPS.map((step, index) => {
-            const done = currentStep > step.number || activeCycle?.is_initialized;
-            const active = currentStep === step.number && !activeCycle?.is_initialized;
-            const busy = awaitingAccounts && step.number === 5;
+            const done = doneSteps.has(step.number);
+            const busy = busyStep === step.number;
             return (
               <li key={step.number} className="flex flex-1 items-center gap-2 min-w-[140px]">
                 <span
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-label-sm transition-colors ${
-                    done ? 'bg-success text-white' : active || busy ? 'bg-primary text-white' : 'bg-surface-container-high text-tertiary'
+                    done ? 'bg-success text-white' : busy ? 'bg-primary text-white' : 'bg-surface-container-high text-tertiary'
                   }`}
                 >
                   {busy ? (
@@ -194,8 +232,8 @@ export default function HodSemesterSetupPage() {
                     step.number
                   )}
                 </span>
-                <span className={`text-label-sm ${active || busy ? 'text-primary' : 'text-on-surface-variant'}`}>
-                  {busy ? 'Creating accounts...' : step.label}
+                <span className={`text-label-sm ${busy ? 'text-primary' : 'text-on-surface-variant'}`}>
+                  {step.label}
                 </span>
                 {index < STEPS.length - 1 && <span className="hidden h-px flex-1 bg-outline-variant sm:block" />}
               </li>
@@ -227,38 +265,10 @@ export default function HodSemesterSetupPage() {
             </button>
           </form>
 
-          {cycles.length > 0 && (
-            <div className="mt-5 border-t border-surface-container pt-4">
-              <label htmlFor="active-cycle" className="field-label">
-                Working on
-              </label>
-              <select
-                id="active-cycle"
-                className="field-input"
-                value={activeCycle?.id ?? ''}
-                onChange={(event) => setActiveCycle(cycles.find((c) => c.id === event.target.value) ?? null)}
-              >
-                {cycles.map((cycle) => (
-                  <option key={cycle.id} value={cycle.id}>
-                    {cycle.academic_year} · {cycle.term}
-                    {cycle.is_initialized ? ' (initialised)' : ''}
-                  </option>
-                ))}
-              </select>
-              {activeCycle && (
-                <dl className="mt-3 space-y-1.5 text-label-sm">
-                  <div className="flex justify-between">
-                    <dt className="text-tertiary">Faculty imported</dt>
-                    <dd className="text-on-surface">{activeCycle.faculty_imported_count}</dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-tertiary">Students imported</dt>
-                    <dd className="text-on-surface">{activeCycle.student_imported_count}</dd>
-                  </div>
-                </dl>
-              )}
-            </div>
-          )}
+          {/* The "Working on" picker was removed. Imports now always attach
+              to the most recently created semester, which load() puts at the
+              head of the list — the only case where choosing mattered was
+              back-filling an old semester, which nobody was doing. */}
         </Panel>
 
         <Panel tab="2–4 · Import roster" tabIcon="upload_file" className="lg:col-span-2">
@@ -281,44 +291,30 @@ export default function HodSemesterSetupPage() {
               }
             />
 
+            {/* No column-headings crib sheet and no dry-run checkbox. The
+                parser already accepts every common spelling of each column
+                and reports unusable rows back individually, so the import
+                is its own validation — a separate "validate only" pass was
+                an extra click that told the HOD what the real run tells
+                them anyway. */}
             <FileField
               label="Roster file"
               accept=".csv,.xlsx"
-              hint={
-                importType === 'combined'
-                  ? 'CSV or XLSX. Columns: Role, Email, Name (required); Reg No / Faculty ID, Branch, Section, Semester, Phone, Mentor Email (optional).'
-                  : 'CSV or XLSX. Columns: Email, Name (required); Reg No / Faculty ID, Branch, Section, Semester, Phone, Mentor Email (optional).'
-              }
+              placeholder="Choose a file (CSV or XLSX)"
               currentName={file?.name}
               onFileSelected={setFile}
               disabled={pending}
             />
 
-            <CheckboxField
-              label="Validate only (dry run)"
-              description="Check the file for problems without creating any accounts. Recommended before the real import."
-              checked={dryRun}
-              onChange={setDryRun}
-            />
-
             <button type="button" className="btn-primary" onClick={upload} disabled={pending || !file}>
-              <span className="material-symbols-outlined text-[18px]">{dryRun ? 'fact_check' : 'cloud_upload'}</span>
-              {pending ? 'Processing...' : dryRun ? 'Validate file' : 'Import and create accounts'}
+              <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
+              {pending ? 'Processing...' : 'Import and create accounts'}
             </button>
-
-            <div className="rounded border border-dashed border-outline-variant bg-surface-container-low p-3 text-label-sm text-on-surface-variant">
-              <p className="font-semibold">Accepted column headings (any of these spellings)</p>
-              <p className="mt-1">
-                Email · Name / Full Name / Student Name · Reg No / Registration No / Roll No / Faculty ID ·
-                Branch / Dept · Section · Semester · Mobile / Phone · Mentor Email / Faculty Email ·
-                Role / Type <span className="text-tertiary">(combined imports only)</span>
-              </p>
-            </div>
           </div>
         </Panel>
       </div>
 
-      {activeCycle && !activeCycle.is_initialized && currentStep >= 4 && (
+      {activeCycle && !activeCycle.is_initialized && hasImports && (
         <Panel tab="5 · Finish" tabIcon="done_all" className="mt-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-body-sm text-on-surface-variant">
@@ -362,15 +358,11 @@ export default function HodSemesterSetupPage() {
         open={Boolean(result)}
         onClose={() => setResult(null)}
         size="lg"
-        title={result?.dryRun ? 'Validation results' : 'Import complete'}
-        description={
-          result?.dryRun
-            ? 'Nothing has been created yet. Untick "Validate only" and run again to create the accounts.'
-            : 'Download the credentials file and distribute it securely. Passwords are shown only once.'
-        }
+        title="Import complete"
+        description="Download the credentials file and distribute it securely. Passwords are shown only once."
         footer={
           <>
-            {!result?.dryRun && result?.created?.length > 0 && (
+            {result?.created?.length > 0 && (
               <button type="button" className="btn-secondary" onClick={downloadCredentials}>
                 <span className="material-symbols-outlined text-[18px]">download</span>
                 Download credentials (CSV)
@@ -384,7 +376,7 @@ export default function HodSemesterSetupPage() {
       >
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded bg-success-container/60 p-3">
-            <p className="text-label-sm text-on-success-container">{result?.dryRun ? 'Ready to import' : 'Created'}</p>
+            <p className="text-label-sm text-on-success-container">Created</p>
             <p className="text-headline-sm text-on-success-container">{result?.created?.length ?? 0}</p>
             {(result?.faculty_created > 0 || result?.student_created > 0) && (
               <p className="text-label-sm text-on-success-container">
@@ -415,7 +407,7 @@ export default function HodSemesterSetupPage() {
           </div>
         )}
 
-        {!result?.dryRun && result?.created?.length > 0 && (
+        {result?.created?.length > 0 && (
           <p className="mt-4 rounded bg-warning-container/60 px-3 py-2 text-body-sm text-on-warning-container">
             Temporary passwords are shown only in this download. Every account is forced to set a new password
             on first sign-in.

@@ -215,7 +215,18 @@ export function Pagination({ page, pageCount, onPageChange, total }) {
   );
 }
 
-export function FileField({ label, hint, accept, onFileSelected, currentName, error, disabled }) {
+export function FileField({
+  label,
+  hint,
+  accept,
+  onFileSelected,
+  currentName,
+  error,
+  disabled,
+  // Callers that accept something other than images/PDF pass their own
+  // prompt; the default is the profile-photo / Form A case.
+  placeholder = 'Choose a file (PNG, JPG or PDF, max 5 MB)'
+}) {
   return (
     <div>
       <span className="field-label">{label}</span>
@@ -229,7 +240,7 @@ export function FileField({ label, hint, accept, onFileSelected, currentName, er
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-body-sm text-on-surface">
-            {currentName || 'Choose a file (PNG, JPG or PDF, max 5 MB)'}
+            {currentName || placeholder}
           </span>
           {hint && <span className="block text-label-sm text-tertiary">{hint}</span>}
         </span>
