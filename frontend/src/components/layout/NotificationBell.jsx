@@ -14,7 +14,16 @@ const TYPE_ICONS = {
   star_mentee_assigned: 'workspace_premium',
   achievement_verified: 'verified',
   onboarding_reminder: 'assignment',
-  account_provisioned: 'person_add'
+  account_provisioned: 'person_add',
+  // Added in migration 0018 but never given an icon, so it silently fell
+  // back to the generic bell.
+  ticket_escalated: 'priority_high',
+  student_at_risk: 'e911_emergency',
+  at_risk_meeting_required: 'event_available',
+  at_risk_cleared: 'verified',
+  survey_published: 'ballot',
+  survey_reminder: 'notifications_active',
+  academic_data_uploaded: 'cloud_upload'
 };
 
 export default function NotificationBell() {

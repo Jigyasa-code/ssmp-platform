@@ -148,9 +148,17 @@ export default function AddAccountModal({ open, onClose, onCreated }) {
           options={[
             { value: 'student', label: 'Student' },
             { value: 'faculty', label: 'Faculty mentor' },
-            { value: 'hod', label: 'Head of Department' }
+            { value: 'hod', label: 'Head of Department' },
+            { value: 'cluster_head', label: 'Cluster Head (data uploads only)' }
           ]}
         />
+
+        {form.role === 'cluster_head' && (
+          <p className="rounded-lg bg-primary-fixed/50 px-4 py-3 text-body-sm text-on-surface-variant">
+            A Cluster Head can only upload attendance, GPA and backlog data. They get no access to
+            tickets or student profiles. On first sign-in they are asked which subjects they handle.
+          </p>
+        )}
         <TextField label="Full name" name="full_name" required minLength={2} value={form.full_name} onChange={update('full_name')} />
         <TextField
           label="University email"
@@ -163,7 +171,7 @@ export default function AddAccountModal({ open, onClose, onCreated }) {
         />
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField
-            label={form.role === 'student' ? 'Registration no.' : 'Faculty ID'}
+            label={form.role === 'student' ? 'Registration no.' : 'Staff ID'}
             name="login_id"
             value={form.login_id}
             onChange={update('login_id')}

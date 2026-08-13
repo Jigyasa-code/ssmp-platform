@@ -44,6 +44,21 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error(message);
 }
 
+/**
+ * SESSION LENGTH
+ * ------------------------------------------------------------------
+ * persistSession writes the session to localStorage rather than
+ * sessionStorage, so closing the tab (or the whole browser) does not sign
+ * anyone out — that alone was a large share of the "logged out again"
+ * complaints. autoRefreshToken then swaps the 1-hour access token for a
+ * fresh one in the background for as long as the refresh token lives.
+ *
+ * How long the refresh token lives is a SERVER setting, not a client one:
+ * see [auth.sessions] in supabase/config.toml for local development, and
+ * Authentication -> Sessions in the Supabase dashboard for a hosted
+ * project. Both are set to a 30-day inactivity window. Nothing in this
+ * file can extend a session past what the server allows.
+ */
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,

@@ -2,12 +2,19 @@
 /**
  * seed-demo-accounts.mjs
  * ---------------------------------------------------------------------
- * Creates the demo accounts (1 HOD, 3 faculty, 4 students), assigns
- * mentors and raises a few sample tickets so every dashboard has data on
- * first login.
+ * Creates the demo accounts (1 HOD, 3 faculty, 4 students, 2 cluster
+ * heads), assigns mentors, raises a few sample tickets, and loads the
+ * Cluster Head sample data so every dashboard — including the At-Risk
+ * Students page and the survey tracking — has something in it on first
+ * login.
  *
  * Safe to run more than once — existing accounts are reused, not
- * duplicated.
+ * duplicated, and every data load is an upsert.
+ *
+ * All the dummy academic data lives in ONE file,
+ * sample-data/cluster-head-sample-data.mjs, and is loaded here through the
+ * same RPCs the portal uses. That matters: the seed exercises the real
+ * upload path rather than a parallel one that could silently diverge.
  *
  * Usage:
  *   node supabase/scripts/seed-demo-accounts.mjs
@@ -22,6 +29,17 @@ import { createClient } from '@supabase/supabase-js';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  SAMPLE_CLUSTER_HEADS,
+  SAMPLE_CLUSTER_HEAD_COURSES,
+  SAMPLE_CLUSTER_HEAD_2_COURSES,
+  SAMPLE_ATTENDANCE,
+  SAMPLE_GPA,
+  SAMPLE_GPA_PREVIOUS,
+  SAMPLE_BACKLOGS,
+  SAMPLE_SURVEY_RESPONSES,
+  sampleAttendancePeriod
+} from '../../sample-data/cluster-head-sample-data.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -62,7 +80,10 @@ const DEMO_ACCOUNTS = [
   { email: 'john.doe@muj.manipal.edu',      role: 'student', full_name: 'John Doe',      login_id: '2428020221', branch: 'CSE', section: 'A', semester_label: '3rd Semester', mentor: 'alice.smith@jaipur.manipal.edu' },
   { email: 'jane.smith@muj.manipal.edu',    role: 'student', full_name: 'Jane Smith',    login_id: '2428020222', branch: 'CSE', section: 'B', semester_label: '3rd Semester', mentor: 'alice.smith@jaipur.manipal.edu' },
   { email: 'mike.davis@muj.manipal.edu',    role: 'student', full_name: 'Mike Davis',    login_id: '2428020223', branch: 'CSE', section: 'A', semester_label: '3rd Semester', mentor: 'bob.johnson@jaipur.manipal.edu' },
-  { email: 'emily.wilson@muj.manipal.edu',  role: 'student', full_name: 'Emily Wilson',  login_id: '2428020224', branch: 'ECE', section: 'A', semester_label: '3rd Semester', mentor: 'carol.williams@jaipur.manipal.edu' }
+  { email: 'emily.wilson@muj.manipal.edu',  role: 'student', full_name: 'Emily Wilson',  login_id: '2428020224', branch: 'ECE', section: 'A', semester_label: '3rd Semester', mentor: 'carol.williams@jaipur.manipal.edu' },
+
+  // Cluster Heads — upload attendance / GPA / backlogs and nothing else.
+  ...SAMPLE_CLUSTER_HEADS.map((spec) => ({ ...spec, role: 'cluster_head' }))
 ];
 
 const SAMPLE_TICKETS = [
@@ -227,13 +248,194 @@ async function main() {
     if (!found) await db.from('canned_replies').insert({ ...c, is_global: true, owner_id: null });
   }
 
-  console.log('\n' + '='.repeat(52));
+  await seedClusterHeadData(idByEmail);
+
+  console.log('\n' + '='.repeat(64));
   console.log('Demo accounts ready. Password for all: ' + PASSWORD);
-  console.log('='.repeat(52));
+  console.log('='.repeat(64));
   for (const a of DEMO_ACCOUNTS) {
-    console.log(`  ${a.role.padEnd(7)} ${a.email}`);
+    console.log(`  ${a.role.padEnd(13)} ${a.email}`);
   }
   console.log('');
+  console.log('At-risk demo: John Doe (attendance), Jane Smith (GPA), Mike Davis (backlog).');
+  console.log('Emily Wilson is deliberately NOT flagged.');
+  console.log('Fire the 15-day jobs by hand from the HOD portal -> Scheduled Jobs.\n');
+}
+
+/**
+ * Loads the Cluster Head sample data through the real RPCs.
+ *
+ * The service role has no auth.uid(), which the record_*_batch functions
+ * treat as a trusted server call — the same escape hatch migrations and
+ * the SQL console use. So this exercises the genuine upload path, and any
+ * change that breaks a real upload breaks the seed too.
+ */
+async function seedClusterHeadData(idByEmail) {
+  const head1 = idByEmail[SAMPLE_CLUSTER_HEADS[0].email];
+  const head2 = idByEmail[SAMPLE_CLUSTER_HEADS[1].email];
+  if (!head1) {
+    console.log('\nSkipping cluster head sample data (no cluster head account).');
+    return;
+  }
+
+  console.log('\nSetting up cluster head subjects');
+  const courseIdByCode = {};
+
+  for (const [ownerId, courses] of [
+    [head1, SAMPLE_CLUSTER_HEAD_COURSES],
+    [head2, SAMPLE_CLUSTER_HEAD_2_COURSES]
+  ]) {
+    if (!ownerId) continue;
+    for (const [index, course] of courses.entries()) {
+      // Written directly rather than through submit_cluster_head_setup(),
+      // which keys off auth.uid() and so cannot act on someone else's
+      // behalf. Upsert on the same unique key the RPC uses.
+      const { data: existing } = await db
+        .from('cluster_head_courses')
+        .select('id')
+        .eq('cluster_head_id', ownerId)
+        .ilike('course_code', course.course_code)
+        .maybeSingle();
+
+      if (existing) {
+        courseIdByCode[course.course_code] = existing.id;
+        continue;
+      }
+
+      const { data, error } = await db
+        .from('cluster_head_courses')
+        .insert({ cluster_head_id: ownerId, ...course, display_order: index + 1 })
+        .select('id')
+        .single();
+      if (error) throw error;
+      courseIdByCode[course.course_code] = data.id;
+      console.log(`  + ${course.course_name} (${course.course_code}) — ${course.section_count} section(s)`);
+    }
+
+    // cluster_head_setup_completed is a protected column; a service-role
+    // write has auth.uid() = null, which the guard trigger permits.
+    const { error: flagError } = await db
+      .from('user_profiles')
+      .update({ cluster_head_setup_completed: true, cluster_head_setup_completed_at: new Date().toISOString() })
+      .eq('id', ownerId);
+    if (flagError) throw flagError;
+  }
+
+  console.log('\nUploading sample attendance');
+  const period = sampleAttendancePeriod();
+  for (const block of SAMPLE_ATTENDANCE) {
+    const courseId = courseIdByCode[block.course_code];
+    if (!courseId) continue;
+    const { data, error } = await db.rpc('record_attendance_batch', {
+      p_course_id: courseId,
+      p_section: block.section,
+      p_period_start: period.period_start,
+      p_period_end: period.period_end,
+      p_filename: `attendance-${block.course_code}-${block.section}-sample.csv`,
+      p_rows: block.rows
+    });
+    if (error) throw error;
+    console.log(`  ${block.course_code} section ${block.section}: ${data.matched} recorded, ${data.failed} failed`);
+  }
+
+  console.log('\nUploading sample GPA');
+  for (const dataset of [SAMPLE_GPA_PREVIOUS, SAMPLE_GPA]) {
+    const { data, error } = await db.rpc('record_gpa_batch', {
+      p_semester_number: dataset.semester_number,
+      p_filename: `gpa-semester-${dataset.semester_number}-sample.csv`,
+      p_rows: dataset.rows
+    });
+    if (error) throw error;
+    console.log(`  Semester ${dataset.semester_number}: ${data.matched} recorded, ${data.failed} failed`);
+  }
+
+  console.log('\nUploading sample backlogs');
+  {
+    const { data, error } = await db.rpc('record_backlog_batch', {
+      p_semester_number: SAMPLE_BACKLOGS.semester_number,
+      p_exam_session: SAMPLE_BACKLOGS.exam_session,
+      p_filename: 'backlogs-semester-2-sample.csv',
+      p_rows: SAMPLE_BACKLOGS.rows
+    });
+    if (error) throw error;
+    console.log(`  ${data.matched} recorded, ${data.failed} failed`);
+  }
+
+  // The uploads above already re-evaluated everyone they touched. Running
+  // the sweep explicitly makes the seeded state match what the 15-day job
+  // would produce, and raises the meetings.
+  console.log('\nRunning the at-risk sweep and meeting dispatch');
+  for (const jobType of ['at_risk_sweep', 'at_risk_meeting_dispatch']) {
+    const { data, error } = await db.rpc('run_cycle_job', {
+      p_job_type: jobType,
+      p_trigger: 'manual',
+      p_note: 'seeded demo data'
+    });
+    if (error) throw error;
+    console.log(`  ${jobType}: ${JSON.stringify(data.result)}`);
+  }
+
+  console.log('\nOpening a survey cycle');
+  const { data: surveyRun, error: surveyError } = await db.rpc('run_cycle_job', {
+    p_job_type: 'survey_cycle',
+    p_trigger: 'manual',
+    p_note: 'seeded demo data'
+  });
+  if (surveyError) throw surveyError;
+  console.log(`  Cycle #${surveyRun.result?.cycle_number} open`);
+
+  // Two of four students answer, so completion tracking reads 2/4 rather
+  // than 0 or 100 — both of which would hide a counting bug.
+  const { data: cycle } = await db
+    .from('survey_cycles')
+    .select('id')
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (cycle) {
+    console.log('\nRecording sample survey responses');
+    const { data: questions } = await db
+      .from('survey_questions')
+      .select('id, question_number')
+      .order('question_number');
+
+    for (const sample of SAMPLE_SURVEY_RESPONSES) {
+      const { data: student } = await db
+        .from('user_profiles')
+        .select('id, full_name, assigned_mentor_id')
+        .eq('login_id', sample.registration_no)
+        .maybeSingle();
+      if (!student) continue;
+
+      const { data: existing } = await db
+        .from('survey_responses')
+        .select('id')
+        .eq('cycle_id', cycle.id)
+        .eq('student_id', student.id)
+        .maybeSingle();
+      if (existing) {
+        console.log(`  = exists   ${student.full_name}`);
+        continue;
+      }
+
+      const { data: response, error: responseError } = await db
+        .from('survey_responses')
+        .insert({ cycle_id: cycle.id, student_id: student.id, mentor_id: student.assigned_mentor_id })
+        .select('id')
+        .single();
+      if (responseError) throw responseError;
+
+      const { error: answerError } = await db.from('survey_response_answers').insert(
+        (questions ?? []).map((question, index) => ({
+          response_id: response.id,
+          question_id: question.id,
+          rating: sample.ratings[index] ?? 4
+        }))
+      );
+      if (answerError) throw answerError;
+      console.log(`  + ${student.full_name} submitted`);
+    }
+  }
 }
 
 main().catch((err) => {

@@ -34,7 +34,7 @@ export const emailSchema = z
 export const provisionUserSchema = z.object({
   email: emailSchema,
   full_name: z.string().trim().min(2, 'Name is too short').max(120),
-  role: z.enum(['student', 'faculty', 'hod']),
+  role: z.enum(['student', 'faculty', 'hod', 'cluster_head']),
   login_id: z.string().trim().min(1).max(40).optional().nullable(),
   branch: z.string().trim().max(60).optional().nullable(),
   section: z.string().trim().max(10).optional().nullable(),
@@ -88,6 +88,80 @@ export const facultyReportQuerySchema = z.object({
 export const studentReportQuerySchema = z.object({
   student_id: uuid,
   format: z.enum(['json', 'pdf']).optional().default('json')
+});
+
+// ---------------------------------------------------------------------
+// Cluster Head uploads
+// ---------------------------------------------------------------------
+/**
+ * There is deliberately NO date constraint anywhere in these schemas. A
+ * Cluster Head may upload attendance on any day — early, late, or twice in
+ * one afternoon. The 15-day cadence belongs to cycle_job_schedule, not to
+ * the upload.
+ */
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+
+export const clusterHeadSetupSchema = z.object({
+  courses: z
+    .array(
+      z.object({
+        course_name: z.string().trim().min(2, 'Course name is too short').max(160),
+        course_code: z.string().trim().min(1, 'Course code is required').max(40),
+        section_count: z.coerce.number().int().min(1, 'At least 1 section').max(15, 'At most 15 sections')
+      })
+    )
+    .min(1, 'Add at least one subject')
+    .max(60, 'That is more subjects than one cluster head can handle')
+});
+
+const uploadFileSchema = {
+  filename: z.string().trim().min(1).max(255),
+  file_base64: z.string().min(1).max(8_000_000)
+};
+
+export const attendanceUploadSchema = z.object({
+  action: z.literal('attendance'),
+  course_id: uuid,
+  section: z.string().trim().regex(/^[A-O]$/, 'Pick a section from the dropdown'),
+  period_start: isoDate,
+  period_end: isoDate,
+  ...uploadFileSchema
+});
+
+export const gpaUploadSchema = z.object({
+  action: z.literal('gpa'),
+  semester_number: z.coerce.number().int().min(1).max(8),
+  ...uploadFileSchema
+});
+
+export const backlogUploadSchema = z.object({
+  action: z.literal('backlog'),
+  semester_number: z.coerce.number().int().min(1).max(8),
+  exam_session: z.string().trim().max(60).optional().nullable(),
+  ...uploadFileSchema
+});
+
+export const clusterHeadUploadSchema = z.discriminatedUnion('action', [
+  attendanceUploadSchema,
+  gpaUploadSchema,
+  backlogUploadSchema
+]);
+
+/** On-demand trigger for anything that normally runs on the 15-day cycle. */
+export const cycleJobSchema = z.object({
+  job_type: z.enum([
+    'survey_cycle',
+    'survey_reminder_sweep',
+    'at_risk_sweep',
+    'at_risk_meeting_dispatch',
+    'all'
+  ]),
+  /**
+   * 'manual' does the work but leaves next_run_due_on alone, which is what
+   * makes repeated testing safe. 'scheduled' is what a cron would send.
+   */
+  trigger_source: z.enum(['manual', 'scheduled']).optional().default('manual'),
+  note: z.string().trim().max(300).optional().nullable()
 });
 
 /** Parses and throws a 400 with a readable list of problems. */

@@ -49,12 +49,19 @@ export default function FacultyProfilePage() {
           </div>
 
           <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {/* This page is shared by faculty, the HOD and the cluster head
+                (both re-export it). Mentee capacity is meaningless for the
+                latter two, so it only appears for an actual mentor. */}
             {[
-              ['Faculty ID', profile.login_id ?? '—'],
+              ['Staff ID', profile.login_id ?? '—'],
               ['Branch', profile.branch ?? '—'],
               ['Department', profile.department ?? '—'],
-              ['Mentee capacity', String(profile.mentee_capacity ?? '—')],
-              ['Available for new mentees', profile.available_for_reassignment ? 'Yes' : 'No'],
+              ...(profile.role === 'faculty'
+                ? [
+                    ['Mentee capacity', String(profile.mentee_capacity ?? '—')],
+                    ['Available for new mentees', profile.available_for_reassignment ? 'Yes' : 'No']
+                  ]
+                : []),
               ['Joined', formatDate(profile.created_at)]
             ].map(([label, value]) => (
               <div key={label}>

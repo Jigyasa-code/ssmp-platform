@@ -16,6 +16,7 @@
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
     "db:seed": "node supabase/scripts/seed-demo-accounts.mjs",
+    "sample:files": "node sample-data/cluster-head-sample-data.mjs",
     "verify:security": "node supabase/scripts/verify-security-policies.mjs",
     "test": "npm --prefix frontend run test:ui"
   },

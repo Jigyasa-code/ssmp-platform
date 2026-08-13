@@ -19,7 +19,7 @@ import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { apiClient } from '../../lib/apiClient.js';
-import { describeError } from '../../lib/formatters.js';
+import { describeError, formatDate } from '../../lib/formatters.js';
 
 export default function FacultyMenteesPage() {
   const { profile } = useAuth();
@@ -27,6 +27,7 @@ export default function FacultyMenteesPage() {
   const { run, pending } = useAsyncAction();
 
   const [mentees, setMentees] = useState([]);
+  const [surveyStatus, setSurveyStatus] = useState({ cycle: null, byStudent: {} });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [starTarget, setStarTarget] = useState(null);
@@ -34,13 +35,32 @@ export default function FacultyMenteesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('student_ticket_summary')
-      .select('*')
-      .eq('assigned_mentor_id', profile.id)
-      .order('student_name');
-    if (error) toast.error(describeError(error));
-    setMentees(data ?? []);
+
+    // Two independent reads, so they go in parallel: the ticket rollup the
+    // page has always shown, plus completion status for the survey cycle
+    // that is currently open (the mentor-facing half of the 15-day pulse
+    // check — the student rep sees the same numbers from their side).
+    const [summaryResult, surveyResult] = await Promise.all([
+      supabase
+        .from('student_ticket_summary')
+        .select('*')
+        .eq('assigned_mentor_id', profile.id)
+        .order('student_name'),
+      supabase
+        .from('survey_mentee_status')
+        .select('cycle_number, closes_on, student_id, has_submitted, submitted_at')
+        .eq('assigned_mentor_id', profile.id)
+        .eq('cycle_is_active', true)
+    ]);
+
+    if (summaryResult.error) toast.error(describeError(summaryResult.error));
+    if (surveyResult.error) toast.error(describeError(surveyResult.error));
+
+    setMentees(summaryResult.data ?? []);
+    setSurveyStatus({
+      cycle: surveyResult.data?.[0] ?? null,
+      byStudent: Object.fromEntries((surveyResult.data ?? []).map((row) => [row.student_id, row]))
+    });
     setLoading(false);
   }, [profile.id, toast]);
 
@@ -141,6 +161,18 @@ export default function FacultyMenteesPage() {
           <span className="chip bg-warning-container text-on-warning-container">Pending</span>
         )
     },
+    {
+      key: 'survey',
+      header: 'Survey',
+      render: (row) => {
+        if (!surveyStatus.cycle) return <span className="text-tertiary">—</span>;
+        return surveyStatus.byStudent[row.student_id]?.has_submitted ? (
+          <span className="chip bg-success-container text-on-success-container">Filled in</span>
+        ) : (
+          <span className="chip bg-warning-container text-on-warning-container">Pending</span>
+        );
+      }
+    },
     { key: 'total_tickets', header: 'Tickets', align: 'right' },
     {
       key: 'open',
@@ -172,7 +204,7 @@ export default function FacultyMenteesPage() {
         subtitle="Your assigned mentor group. Star one student as your group representative."
       />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total mentees" value={mentees.length} icon="groups" tone="primary" />
         <StatCard
           label="Form A submitted"
@@ -188,6 +220,21 @@ export default function FacultyMenteesPage() {
           tone="warning"
         />
         <StatCard
+          label={surveyStatus.cycle ? `Survey #${surveyStatus.cycle.cycle_number} filled in` : 'Survey completion'}
+          value={
+            surveyStatus.cycle
+              ? `${Object.values(surveyStatus.byStudent).filter((s) => s.has_submitted).length}/${mentees.length}`
+              : 'No survey open'
+          }
+          icon="ballot"
+          tone="warning"
+          caption={
+            surveyStatus.cycle
+              ? `Closes ${formatDate(surveyStatus.cycle.closes_on)}`
+              : 'Opens on the next 15-day cycle'
+          }
+        />
+        <StatCard
           label="Representative"
           value={currentStar ? currentStar.student_name.split(' ')[0] : 'Not set'}
           icon="workspace_premium"
@@ -197,7 +244,7 @@ export default function FacultyMenteesPage() {
       </div>
 
       {loading ? (
-        <SkeletonTable rows={8} columns={8} />
+        <SkeletonTable rows={8} columns={9} />
       ) : (
         <Panel bodyClassName="">
           <DataTable

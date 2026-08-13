@@ -51,6 +51,29 @@ export function RequireOnboarding({ children }) {
   return children;
 }
 
+/**
+ * Cluster Head gate — the one-time setup form.
+ * Mirrors RequireOnboarding: the Cluster Head cannot reach any part of
+ * their portal until they have told us which subjects they handle, because
+ * the Course and Section dropdowns on every upload screen are built from
+ * exactly that answer. Enforced here in the routing layer rather than in
+ * each page; the real boundary is still submit_cluster_head_setup(), which
+ * is the only thing that can flip the flag.
+ */
+export function RequireClusterHeadSetup({ children }) {
+  const { profile, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) return <PageLoader />;
+  if (!profile) return <Navigate to="/login" replace />;
+  if (profile.role !== 'cluster_head') return children;
+
+  if (!profile.cluster_head_setup_completed && location.pathname !== '/cluster-head/setup') {
+    return <Navigate to="/cluster-head/setup" replace />;
+  }
+  return children;
+}
+
 /** Forces a password change on first login with a temporary password. */
 export function RequirePasswordChange({ children }) {
   const { profile, loading } = useAuth();

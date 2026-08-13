@@ -17,7 +17,8 @@ import { useAuth } from '../../context/AuthProvider.jsx';
 const ROLE_SUBTITLE = {
   student: 'Student Portal',
   faculty: 'Faculty Mentor',
-  hod: 'Department Admin'
+  hod: 'Department Admin',
+  cluster_head: 'Cluster Head'
 };
 
 export default function SidebarNavigation({ role, profile, isOpen, onToggle, onNavigate }) {
