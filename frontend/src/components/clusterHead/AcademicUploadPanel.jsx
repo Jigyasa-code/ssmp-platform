@@ -36,7 +36,11 @@ export default function AcademicUploadPanel({
   disabled,
   disabledReason,
   submitLabel = 'Upload file',
-  onUploaded
+  onUploaded,
+  // Attendance also accepts the ERP's .xls export, which is really an HTML
+  // table rather than a spreadsheet.
+  accept = '.csv,.xlsx',
+  placeholder = 'Choose a file (CSV or XLSX)'
 }) {
   const { run, pending } = useAsyncAction();
   const [file, setFile] = useState(null);
@@ -68,8 +72,8 @@ export default function AcademicUploadPanel({
         <div className="space-y-4">
           <FileField
             label="Data file"
-            accept=".csv,.xlsx"
-            placeholder="Choose a file (CSV or XLSX)"
+            accept={accept}
+            placeholder={placeholder}
             hint={hint}
             currentName={file?.name}
             onFileSelected={setFile}

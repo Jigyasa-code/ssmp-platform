@@ -324,10 +324,12 @@ async function seedClusterHeadData(idByEmail) {
   console.log('\nUploading sample attendance');
   const period = sampleAttendancePeriod();
   for (const block of SAMPLE_ATTENDANCE) {
-    const courseId = courseIdByCode[block.course_code];
-    if (!courseId) continue;
+    // Course, name and section are passed the way the real upload passes
+    // them — read out of the file header rather than picked from a list.
+    if (!courseIdByCode[block.course_code]) continue;
     const { data, error } = await db.rpc('record_attendance_batch', {
-      p_course_id: courseId,
+      p_course_code: block.course_code,
+      p_course_name: block.course_name,
       p_section: block.section,
       p_period_start: period.period_start,
       p_period_end: period.period_end,

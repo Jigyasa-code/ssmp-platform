@@ -102,53 +102,67 @@ export function sampleAttendancePeriod(reference = new Date()) {
  * these numbers are chosen to add up to the intended verdict rather than
  * each being individually below or above the line.
  *
- * John:   26+22+20 of 40+38+36  = 68/114 = 59.6%  -> flagged
- * Jane:   34+33+31 of 40+38+36  = 98/114 = 86.0%  -> fine on attendance
- * Mike:   35+32+30 of 40+38+36  = 97/114 = 85.1%  -> fine on attendance
- * Emily:  36+34+33 of 40+38+36  = 103/114 = 90.4% -> fine on attendance
+ * Since migration 0025 the percentage is the source of truth (it is what
+ * the ERP export gives us), and overall attendance is the MEAN of the
+ * per-course percentages. attendance_percent below is therefore the value
+ * that actually gets stored; classes_held / classes_attended ride along
+ * for reference only, exactly as they do in a real upload.
+ *
+ * John:   mean(65, 58, 56) = 59.67%  -> flagged on attendance
+ * Jane:   mean(85, 87, 86) = 86.00%  -> fine
+ * Mike:   mean(88, 84, 83) = 85.00%  -> fine
+ * Emily:  mean(90, 89, 92) = 90.33%  -> fine
  */
 export const SAMPLE_ATTENDANCE = [
   {
     course_code: 'CS2001',
+    course_name: 'Data Structures and Algorithms',
     section: 'A',
     rows: [
-      { identifier: '2428020221', classes_held: '40', classes_attended: '26' },
-      { identifier: '2428020223', classes_held: '40', classes_attended: '35' },
-      { identifier: '2428020224', classes_held: '40', classes_attended: '36' }
+      { identifier: '2428020221', classes_held: '40', classes_attended: '26', attendance_percent: '65' },
+      { identifier: '2428020223', classes_held: '40', classes_attended: '35', attendance_percent: '88' },
+      { identifier: '2428020224', classes_held: '40', classes_attended: '36', attendance_percent: '90' }
     ]
   },
   {
     course_code: 'CS2001',
+    course_name: 'Data Structures and Algorithms',
     section: 'B',
-    rows: [{ identifier: '2428020222', classes_held: '40', classes_attended: '34' }]
+    rows: [{ identifier: '2428020222', classes_held: '40', classes_attended: '34', attendance_percent: '85' }]
   },
   {
     course_code: 'CS2003',
+    course_name: 'Database Management Systems',
     section: 'A',
     rows: [
-      { identifier: '2428020221', classes_held: '38', classes_attended: '22' },
-      { identifier: '2428020223', classes_held: '38', classes_attended: '32' },
-      { identifier: '2428020224', classes_held: '38', classes_attended: '34' }
+      { identifier: '2428020221', classes_held: '38', classes_attended: '22', attendance_percent: '58' },
+      { identifier: '2428020223', classes_held: '38', classes_attended: '32', attendance_percent: '84' },
+      { identifier: '2428020224', classes_held: '38', classes_attended: '34', attendance_percent: '89' }
     ]
   },
   {
     course_code: 'CS2003',
+    course_name: 'Database Management Systems',
     section: 'B',
-    rows: [{ identifier: '2428020222', classes_held: '38', classes_attended: '33' }]
+    rows: [{ identifier: '2428020222', classes_held: '38', classes_attended: '33', attendance_percent: '87' }]
   },
   {
     course_code: 'IOT2001',
-    section: 'A',
+    course_name: 'Internet of Things',
+    // Deliberately a different teaching section from the students' Form A
+    // section, so the "these two can differ" case is covered by the seed.
+    section: 'C',
     rows: [
-      { identifier: '2428020221', classes_held: '36', classes_attended: '20' },
-      { identifier: '2428020223', classes_held: '36', classes_attended: '30' },
-      { identifier: '2428020224', classes_held: '36', classes_attended: '33' }
+      { identifier: '2428020221', classes_held: '36', classes_attended: '20', attendance_percent: '56' },
+      { identifier: '2428020223', classes_held: '36', classes_attended: '30', attendance_percent: '83' },
+      { identifier: '2428020224', classes_held: '36', classes_attended: '33', attendance_percent: '92' }
     ]
   },
   {
     course_code: 'IOT2001',
+    course_name: 'Internet of Things',
     section: 'B',
-    rows: [{ identifier: '2428020222', classes_held: '36', classes_attended: '31' }]
+    rows: [{ identifier: '2428020222', classes_held: '36', classes_attended: '31', attendance_percent: '86' }]
   }
 ];
 
@@ -228,22 +242,61 @@ function toCsv(headers, rows) {
   return [headers.join(','), ...rows.map((row) => row.map(escape).join(','))].join('\n') + '\n';
 }
 
-/** Header names deliberately differ from the canonical keys, to exercise the alias table. */
+/**
+ * Mirrors the shape of the real ERP export: metadata lines naming the
+ * course, section and reporting window, then the table with a % column.
+ * The parser finds the header row by looking for "Registration No." and
+ * "%", so the leading lines can vary without breaking it.
+ */
 export function buildAttendanceCsv(courseCode, section) {
   const block = SAMPLE_ATTENDANCE.find((b) => b.course_code === courseCode && b.section === section);
   if (!block) throw new Error(`No sample attendance for ${courseCode} section ${section}`);
   const nameOf = (reg) => SAMPLE_STUDENTS.find((s) => s.registration_no === reg)?.full_name ?? '';
-  return toCsv(
-    ['Reg No', 'Name', 'Classes Held', 'Classes Attended'],
-    block.rows.map((row) => [row.identifier, nameOf(row.identifier), row.classes_held, row.classes_attended])
-  );
+  const { period_start, period_end } = sampleAttendancePeriod();
+  const dmy = (iso) => iso.split('-').reverse().join('/');
+
+  const header = [
+    ['Class Attendance', `Academic Year: 26-27`, ''],
+    [`From Date: ${dmy(period_start)}`, `To Date: ${dmy(period_end)}`, ''],
+    [`Course Code: ${block.course_code}`, `Course Name: ${block.course_name}`, `Section: ${block.section}`]
+  ];
+
+  const table = [
+    ['S.No.', 'Registration No.', 'Name', 'Section', 'Total Class', 'Present', 'Absent', '%'],
+    ...block.rows.map((row, index) => [
+      index + 1,
+      row.identifier,
+      nameOf(row.identifier),
+      block.section,
+      row.classes_held,
+      row.classes_attended,
+      Number(row.classes_held) - Number(row.classes_attended),
+      row.attendance_percent
+    ])
+  ];
+
+  return toCsv(header[0], [...header.slice(1), ...table]);
+}
+
+/** 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 4 -> "4th" — matching the ERP's wording. */
+function ordinal(n) {
+  const suffix = n % 10 === 1 && n % 100 !== 11 ? 'st'
+    : n % 10 === 2 && n % 100 !== 12 ? 'nd'
+      : n % 10 === 3 && n % 100 !== 13 ? 'rd'
+        : 'th';
+  return `${n}${suffix}`;
 }
 
 export function buildGpaCsv(dataset = SAMPLE_GPA) {
   const nameOf = (reg) => SAMPLE_STUDENTS.find((s) => s.registration_no === reg)?.full_name ?? '';
   return toCsv(
-    ['Reg No', 'Name', 'GPA'],
-    dataset.rows.map((row) => [row.identifier, nameOf(row.identifier), row.gpa])
+    ['Reg No', 'Student Name', 'GPA', 'Semester'],
+    dataset.rows.map((row) => [
+      row.identifier,
+      nameOf(row.identifier),
+      row.gpa,
+      `${ordinal(dataset.semester_number)} Semester`
+    ])
   );
 }
 

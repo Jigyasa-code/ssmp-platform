@@ -133,7 +133,29 @@ export default withApiDefaults(['POST'], async (req, res) => {
         continue;
       }
 
-      const temporaryPassword = generateTemporaryPassword();
+      /**
+       * A "Password" column in the roster sets the account's initial
+       * password, so the HOD hands out one they already chose instead of a
+       * random string they have to read off a CSV. A blank cell still gets
+       * a generated password, which keeps every existing roster working.
+       *
+       * This replaces the *generation* of the password, not the rule that
+       * follows it: must_change_password stays true below, so the account
+       * is still forced onto "Set your password" at first sign-in. A
+       * shared password sitting in a spreadsheet is a way to distribute a
+       * first login, not a credential to keep.
+       */
+      const suppliedPassword = String(record.password ?? '').trim();
+      if (suppliedPassword && suppliedPassword.length < 8) {
+        failed.push({
+          row: record.rowNumber,
+          email,
+          reason: 'The Password column must be at least 8 characters (leave it blank to auto-generate one)'
+        });
+        continue;
+      }
+      const temporaryPassword = suppliedPassword || generateTemporaryPassword();
+
       const { data, error } = await admin.auth.admin.createUser({
         email,
         password: temporaryPassword,
@@ -172,7 +194,8 @@ export default withApiDefaults(['POST'], async (req, res) => {
         full_name: record.full_name,
         role: rowRole,
         login_id: record.login_id ?? null,
-        temporary_password: temporaryPassword
+        temporary_password: temporaryPassword,
+        password_from_file: Boolean(suppliedPassword)
       });
     } catch (error) {
       failed.push({ row: record.rowNumber, email: record.email ?? '', reason: `${rowLabel}: ${error.message}` });

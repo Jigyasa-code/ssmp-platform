@@ -32,6 +32,14 @@ const HEADER_ALIASES = {
   semester_label: ['semester', 'sem', 'semester label'],
   phone: ['phone', 'mobile', 'mobile no', 'contact', 'contact no'],
   mentor_email: ['mentor email', 'faculty email', 'assigned mentor', 'mentor'],
+  /**
+   * Optional. When present, this becomes the account's initial password
+   * instead of a generated one, so the HOD can hand out a password they
+   * already know. The account is still forced to change it on first
+   * sign-in — this replaces the *generation*, not the change-on-first-use
+   * rule. Blank cells fall back to a generated password.
+   */
+  password: ['password', 'initial password', 'temporary password', 'temp password', 'default password'],
   /** Only used by a combined import: says whether the row is staff or a student. */
   role: ['role', 'type', 'user type', 'category', 'designation type']
 };
@@ -119,12 +127,74 @@ function rowsToRecords(rows) {
   return records;
 }
 
-/** Reads a .csv or .xlsx buffer into a raw array-of-arrays. */
+/**
+ * The ERP's "export to Excel" produces an HTML <table> saved with a .xls
+ * extension — not a spreadsheet at all. Neither ExcelJS nor the CSV reader
+ * can touch it, so it gets its own reader.
+ *
+ * Deliberately a small tag-stripper rather than a DOM parser: the input is
+ * one machine-generated table with no scripts, no attributes we care about
+ * and no nesting beyond the header block, and adding an HTML parser to the
+ * serverless bundle for it would be disproportionate. Everything is
+ * entity-decoded and tags are discarded, so nothing from the file is ever
+ * interpreted as markup.
+ */
+function looksLikeHtml(buffer) {
+  const head = buffer.subarray(0, 2048).toString('utf8').toLowerCase();
+  return /<table|<html|<!doctype html|<tr[\s>]/.test(head);
+}
+
+function decodeEntities(text) {
+  return text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+}
+
+function parseHtmlTable(text) {
+  const rows = [];
+  // Rows are delimited by </tr>, cells by </td> or </th>. Nested tables in
+  // the header block flatten into the row that contains them, which is
+  // exactly what we want: the metadata lines come through as plain cells.
+  for (const rawRow of text.split(/<\/tr\s*>/i)) {
+    if (!/<t[dh][\s>]/i.test(rawRow)) continue;
+    const cells = rawRow
+      .split(/<\/t[dh]\s*>/i)
+      .slice(0, -1)
+      .map((cell) =>
+        decodeEntities(cell.replace(/<[^>]*>/g, ' '))
+          .replace(/\s+/g, ' ')
+          .trim()
+      );
+    if (cells.some((cell) => cell !== '')) rows.push(cells);
+  }
+  return rows;
+}
+
+/** Reads a .csv, .xlsx or HTML-table-masquerading-as-.xls buffer. */
 async function readSheetRows(buffer, filename) {
   const lower = String(filename ?? '').toLowerCase();
 
+  // Extension is a hint, not proof — check the bytes first.
+  if (looksLikeHtml(buffer)) {
+    return parseHtmlTable(buffer.toString('utf8'));
+  }
+
   if (lower.endsWith('.csv')) {
     return parseCsv(buffer.toString('utf8'));
+  }
+
+  if (lower.endsWith('.xls')) {
+    // A genuine binary .xls (BIFF, starts with D0 CF 11 E0). ExcelJS cannot
+    // read those and adding a reader for a format Excel itself deprecated
+    // is not worth it.
+    throw new ApiError(
+      'This is a legacy binary .xls file. Open it in Excel and save as .xlsx, then upload again.',
+      400
+    );
   }
 
   if (lower.endsWith('.xlsx')) {
@@ -149,7 +219,7 @@ async function readSheetRows(buffer, filename) {
     return rows;
   }
 
-  throw new ApiError('Only .csv and .xlsx files are supported (legacy .xls is not).', 400);
+  throw new ApiError('Only .csv, .xlsx and the ERP .xls export are supported.', 400);
 }
 
 export async function parseRosterFile(buffer, filename) {
@@ -176,6 +246,7 @@ const ACADEMIC_HEADER_ALIASES = {
   classes_attended: ['classes attended', 'attended', 'present', 'lectures attended', 'attendance'],
   attendance_percent: ['attendance %', 'attendance percent', 'attendance percentage', '% attendance', 'percentage'],
   gpa: ['gpa', 'sgpa', 'cgpa', 'grade point average', 'semester gpa'],
+  semester: ['semester', 'sem', 'semester number'],
   subject_code: ['subject code', 'course code', 'paper code', 'backlog code', 'code'],
   subject_name: ['subject', 'subject name', 'course name', 'paper name'],
   is_cleared: ['cleared', 'is cleared', 'status', 'result']
@@ -250,6 +321,10 @@ export async function parseAcademicDataFile(buffer, filename, kind) {
       }
     } else if (kind === 'gpa') {
       record.gpa = raw.gpa ?? '';
+      // The GPA export names the semester per row ("4th Semester"). When
+      // it does, that wins over whatever was picked on the upload screen.
+      const semester = parseSemesterLabel(raw.semester);
+      record.semester_number = semester == null ? '' : String(semester);
     } else if (kind === 'backlog') {
       record.subject_code = raw.subject_code ?? '';
       record.subject_name = raw.subject_name ?? '';
@@ -263,4 +338,156 @@ export async function parseAcademicDataFile(buffer, filename, kind) {
     throw new ApiError('No usable data rows were found in that file.', 400);
   }
   return records;
+}
+
+// =====================================================================
+// The ERP "Class Attendance" export
+// =====================================================================
+/**
+ * Shape of the file (see migration 0025 for why it is handled specially):
+ *
+ *   Class Attendance | Academic Year: 26-27 | Academic Session: JUL-NOV 2026
+ *   Faculty Name:-Amita Nandal | From Date: 23/07/2026 | To Date: 12/08/2026
+ *   Course Code: IIS3120 | Course Name: DIGITAL IMAGE ... | Section: A
+ *   S.No. | Registration No. | Name | Section | Total Class | Present | Absent | %
+ *   1     | 2428010116       | ...  | A       | 12          | 9       | 3      | 75
+ *
+ * The course, section and reporting window all come from the header block,
+ * so nothing has to be typed in by hand. The "%" column is taken verbatim.
+ */
+
+/** Pulls "Course Code: IIS3120" style pairs out of the header cells. */
+function headerValue(cells, ...labels) {
+  for (const cell of cells) {
+    for (const label of labels) {
+      // Tolerates "Label: value", "Label :-value", "Label:-value".
+      const match = new RegExp(`${label}\\s*:?\\s*-?\\s*(.+)$`, 'i').exec(cell);
+      if (match && match[1].trim()) return match[1].trim();
+    }
+  }
+  return null;
+}
+
+/** "23/07/2026" -> "2026-07-23". The export is day-first. */
+function parseErpDate(value) {
+  if (!value) return null;
+  const match = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(String(value).trim());
+  if (!match) return null;
+  const [, day, month, year] = match;
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
+const ATTENDANCE_COLUMNS = {
+  identifier: ['registration no.', 'registration no', 'reg no.', 'reg no', 'roll no', 'student id'],
+  name: ['name', 'student name'],
+  section: ['section', 'sec'],
+  classes_held: ['total class', 'total classes', 'classes held', 'total'],
+  classes_attended: ['present', 'classes attended', 'attended'],
+  classes_absent: ['absent'],
+  attendance_percent: ['%', 'percentage', 'attendance %', '% attendance', 'percent']
+};
+
+function matchAttendanceColumn(raw) {
+  const cleaned = String(raw ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  for (const [canonical, aliases] of Object.entries(ATTENDANCE_COLUMNS)) {
+    if (aliases.includes(cleaned)) return canonical;
+  }
+  return null;
+}
+
+export async function parseAttendanceExport(buffer, filename) {
+  const rows = await readSheetRows(buffer, filename);
+  if (!rows.length) throw new ApiError('That attendance file appears to be empty.', 400);
+
+  // Find the header row by looking for the two columns we cannot work
+  // without, rather than assuming it is at a fixed offset — the number of
+  // metadata lines above it varies between exports.
+  let headerIndex = -1;
+  let headerMap = null;
+  for (let r = 0; r < Math.min(rows.length, 25); r += 1) {
+    const mapped = rows[r].map(matchAttendanceColumn);
+    if (mapped.includes('identifier') && mapped.includes('attendance_percent')) {
+      headerIndex = r;
+      headerMap = mapped;
+      break;
+    }
+  }
+
+  if (headerIndex === -1) {
+    throw new ApiError(
+      'Could not find the attendance table. The file needs a header row with "Registration No." and a "%" column.',
+      400
+    );
+  }
+
+  const headerCells = rows.slice(0, headerIndex).flat();
+  const meta = {
+    course_code: headerValue(headerCells, 'course code'),
+    course_name: headerValue(headerCells, 'course name'),
+    section: headerValue(headerCells, 'section'),
+    period_start: parseErpDate(headerValue(headerCells, 'from date')),
+    period_end: parseErpDate(headerValue(headerCells, 'to date')),
+    faculty_name: headerValue(headerCells, 'faculty name'),
+    academic_year: headerValue(headerCells, 'academic year'),
+    academic_session: headerValue(headerCells, 'academic session')
+  };
+
+  if (!meta.course_code) {
+    throw new ApiError('No "Course Code:" line found in the file header.', 400);
+  }
+
+  const records = [];
+  for (let r = headerIndex + 1; r < rows.length; r += 1) {
+    const raw = Object.create(null);
+    for (let c = 0; c < headerMap.length; c += 1) {
+      const key = headerMap[c];
+      if (!key) continue;
+      const value = String(rows[r][c] ?? '').trim();
+      if (value) raw[key] = value;
+    }
+    if (!raw.identifier) continue;
+
+    const percent = Number(String(raw.attendance_percent ?? '').replace('%', '').trim());
+    records.push({
+      rowNumber: r + 1,
+      identifier: raw.identifier,
+      // Total class / present are carried through for reference only. The
+      // percentage is what the portal displays and what the at-risk rule
+      // reads — see migration 0025.
+      classes_held: raw.classes_held ?? '',
+      classes_attended: raw.classes_attended ?? '',
+      attendance_percent: Number.isFinite(percent) ? String(percent) : ''
+    });
+
+    // A per-row Section overrides the header for that student, which the
+    // export does use when one class is split.
+    if (!meta.section && raw.section) meta.section = raw.section;
+  }
+
+  if (!records.length) {
+    throw new ApiError('The attendance table has a header but no student rows.', 400);
+  }
+  if (!meta.section) {
+    throw new ApiError('No "Section:" found in the file header or in the table.', 400);
+  }
+
+  // A file with no dates still records fine; the window just defaults to
+  // the day of upload rather than blocking a valid roll call.
+  const today = new Date().toISOString().slice(0, 10);
+  meta.period_start = meta.period_start ?? today;
+  meta.period_end = meta.period_end ?? meta.period_start;
+
+  return { meta, records };
+}
+
+// =====================================================================
+// GPA export
+// =====================================================================
+/** "4th Semester" / "Sem 4" / "4" -> 4. Returns null if unreadable. */
+export function parseSemesterLabel(value) {
+  if (value == null || String(value).trim() === '') return null;
+  const match = /(\d+)/.exec(String(value));
+  if (!match) return null;
+  const number = Number(match[1]);
+  return number >= 1 && number <= 8 ? number : null;
 }

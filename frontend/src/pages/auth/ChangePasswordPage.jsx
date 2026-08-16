@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
-import { TextField } from '../../components/ui/FormControls.jsx';
+import { PasswordField } from '../../components/ui/FormControls.jsx';
 import { HOME_PATH } from '../../lib/constants.js';
 import { describeError } from '../../lib/formatters.js';
 
@@ -56,18 +56,19 @@ export default function ChangePasswordPage() {
         </p>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
-          <TextField
+          {/* Both fields carry their own eye toggle. Typing a password you
+              cannot see against five live rules is needlessly hostile, and
+              this screen is the very first thing a new account meets. */}
+          <PasswordField
             name="password"
-            type="password"
             label="New password"
             required
             autoComplete="new-password"
             value={form.password}
             onChange={(event) => setForm((f) => ({ ...f, password: event.target.value }))}
           />
-          <TextField
+          <PasswordField
             name="confirm"
-            type="password"
             label="Confirm new password"
             required
             autoComplete="new-password"

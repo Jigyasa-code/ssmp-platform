@@ -99,8 +99,6 @@ export const studentReportQuerySchema = z.object({
  * one afternoon. The 15-day cadence belongs to cycle_job_schedule, not to
  * the upload.
  */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
-
 export const clusterHeadSetupSchema = z.object({
   courses: z
     .array(
@@ -119,18 +117,24 @@ const uploadFileSchema = {
   file_base64: z.string().min(1).max(8_000_000)
 };
 
+/**
+ * Attendance takes nothing but the file. Course code, course name, section
+ * and the reporting window all live in the ERP export's header block, so
+ * asking the Cluster Head to re-enter them would only create a way for the
+ * two to disagree.
+ */
 export const attendanceUploadSchema = z.object({
   action: z.literal('attendance'),
-  course_id: uuid,
-  section: z.string().trim().regex(/^[A-O]$/, 'Pick a section from the dropdown'),
-  period_start: isoDate,
-  period_end: isoDate,
   ...uploadFileSchema
 });
 
 export const gpaUploadSchema = z.object({
   action: z.literal('gpa'),
-  semester_number: z.coerce.number().int().min(1).max(8),
+  /**
+   * Optional fallback only. The GPA export has its own Semester column and
+   * each row uses it; this is for a hand-made file that does not.
+   */
+  semester_number: z.coerce.number().int().min(1).max(8).optional().nullable(),
   ...uploadFileSchema
 });
 

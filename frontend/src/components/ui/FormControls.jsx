@@ -1,5 +1,7 @@
 /** Small, dependency-free form primitives used across every form. */
 
+import { useState } from 'react';
+
 export function TextField({ label, hint, error, required, className = '', ...props }) {
   const id = props.id ?? props.name;
   return (
@@ -17,6 +19,61 @@ export function TextField({ label, hint, error, required, className = '', ...pro
         required={required}
         {...props}
       />
+      {hint && !error && <p className="mt-1 text-label-sm text-tertiary">{hint}</p>}
+      {error && (
+        <p id={`${id}-error`} className="field-error">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A password input with a show/hide toggle.
+ *
+ * The eye sits inside the field rather than beside it so the control does
+ * not change width when the icon swaps. `type` flips between password and
+ * text, which is what lets a browser password manager still recognise the
+ * field; rendering two inputs and swapping them would break autofill.
+ */
+export function PasswordField({ label, hint, error, required, className = '', ...props }) {
+  const [visible, setVisible] = useState(false);
+  const id = props.id ?? props.name;
+
+  return (
+    <div className={className}>
+      {label && (
+        <label htmlFor={id} className="field-label">
+          {label} {required && <span className="text-error">*</span>}
+        </label>
+      )}
+      <div className="relative">
+        <input
+          id={id}
+          type={visible ? 'text' : 'password'}
+          className="field-input pr-11"
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? `${id}-error` : undefined}
+          required={required}
+          {...props}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((current) => !current)}
+          // aria-pressed rather than a label change alone, so a screen
+          // reader announces the state and not just the action.
+          aria-pressed={visible}
+          aria-label={visible ? 'Hide password' : 'Show password'}
+          title={visible ? 'Hide password' : 'Show password'}
+          tabIndex={-1}
+          className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r text-on-surface-variant transition-colors hover:text-primary"
+        >
+          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
+            {visible ? 'visibility_off' : 'visibility'}
+          </span>
+        </button>
+      </div>
       {hint && !error && <p className="mt-1 text-label-sm text-tertiary">{hint}</p>}
       {error && (
         <p id={`${id}-error`} className="field-error">

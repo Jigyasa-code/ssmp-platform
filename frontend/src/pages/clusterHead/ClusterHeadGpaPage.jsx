@@ -23,20 +23,22 @@ export default function ClusterHeadGpaPage() {
     <PortalShell>
       <PageHeader
         title="Upload GPA"
-        subtitle="Semester GPA for the students in your cluster. Usually done twice a year, but there is no restriction on when you upload."
+        subtitle="Semester GPA for the students in your cluster, matched on registration number. Usually done twice a year, but there is no restriction on when you upload."
       />
 
-      <Panel className="mb-4" tab="Which semester?" tabIcon="tune">
+      {/* The GPA export has its own Semester column ("4th Semester") and
+          each row uses it. This dropdown is only a fallback for a
+          hand-made file that has no such column, so it is optional. */}
+      <Panel className="mb-4" tab="Semester (only if the file has no Semester column)" tabIcon="tune">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <SelectField
-            label="Semester"
+            label="Fallback semester"
             name="semester"
-            placeholder="Select a semester"
-            required
+            placeholder="Read it from the file"
             options={SEMESTER_OPTIONS}
             value={semester}
             onChange={(event) => setSemester(event.target.value)}
-            hint="One row per student for this semester"
+            hint="Leave this alone if your file has a Semester column"
           />
         </div>
       </Panel>
@@ -44,13 +46,11 @@ export default function ClusterHeadGpaPage() {
       <AcademicUploadPanel
         title="GPA file"
         tabIcon="grade"
-        hint="CSV or XLSX. Columns: Reg No (or Email) and GPA. Values must be between 0 and 10."
-        disabled={!semester}
-        disabledReason="Choose a semester before uploading."
+        hint="CSV or XLSX. Columns: Reg No, GPA, and Semester. Values must be between 0 and 10."
         submitLabel="Upload GPA"
         buildPayload={({ filename, file_base64 }) => ({
           action: 'gpa',
-          semester_number: Number(semester),
+          semester_number: semester ? Number(semester) : null,
           filename,
           file_base64
         })}

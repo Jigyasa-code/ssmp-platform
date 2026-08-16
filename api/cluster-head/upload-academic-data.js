@@ -39,7 +39,7 @@ import {
   clusterHeadUploadSchema,
   assertBodySize
 } from '../_lib/input-validation.js';
-import { parseAcademicDataFile } from '../_lib/spreadsheet-parser.js';
+import { parseAcademicDataFile, parseAttendanceExport } from '../_lib/spreadsheet-parser.js';
 
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
 
@@ -85,32 +85,35 @@ export default withApiDefaults(['POST'], async (req, res) => {
   if (!buffer.length) throw new ApiError('The uploaded file is empty.', 400);
   if (buffer.length > 10 * 1024 * 1024) throw new ApiError('The file is larger than 10 MB.', 413);
 
-  const rows = await parseAcademicDataFile(buffer, body.filename, body.action);
-
+  let rows;
   let rpcName;
   let rpcArgs;
 
   if (body.action === 'attendance') {
-    if (body.period_end < body.period_start) {
-      throw new ApiError('The reporting period ends before it starts.', 400);
-    }
+    // Everything about the upload — course, section, dates — is read out
+    // of the export's own header. Nothing is supplied by the client.
+    const { meta, records } = await parseAttendanceExport(buffer, body.filename);
+    rows = records;
     rpcName = 'record_attendance_batch';
     rpcArgs = {
-      p_course_id: body.course_id,
-      p_section: body.section,
-      p_period_start: body.period_start,
-      p_period_end: body.period_end,
+      p_course_code: meta.course_code,
+      p_course_name: meta.course_name,
+      p_section: meta.section,
+      p_period_start: meta.period_start,
+      p_period_end: meta.period_end,
       p_filename: body.filename,
-      p_rows: rows
+      p_rows: records
     };
   } else if (body.action === 'gpa') {
+    rows = await parseAcademicDataFile(buffer, body.filename, 'gpa');
     rpcName = 'record_gpa_batch';
     rpcArgs = {
-      p_semester_number: body.semester_number,
+      p_semester_number: body.semester_number ?? null,
       p_filename: body.filename,
       p_rows: rows
     };
   } else {
+    rows = await parseAcademicDataFile(buffer, body.filename, body.action);
     rpcName = 'record_backlog_batch';
     rpcArgs = {
       p_semester_number: body.semester_number,
@@ -137,11 +140,16 @@ export default withApiDefaults(['POST'], async (req, res) => {
 
   const matched = data?.matched ?? 0;
   const failed = data?.failed ?? 0;
+  // Naming the course back to the Cluster Head is how they confirm the
+  // file they picked was the one they meant, given they no longer choose
+  // it from a dropdown.
+  const scope = data?.course_code ? ` for ${data.course_code} section ${data.section}` : '';
+
   sendSuccess(
     res,
     failed
-      ? `${matched} row(s) recorded, ${failed} could not be matched.`
-      : `${matched} row(s) recorded.`,
+      ? `${matched} row(s) recorded${scope}, ${failed} could not be matched.`
+      : `${matched} row(s) recorded${scope}.`,
     data ?? {}
   );
 });
