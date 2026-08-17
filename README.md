@@ -4,7 +4,7 @@
 
 A role-based support and mentorship platform connecting **students**, **faculty mentors** and the **Head of Department**. Students raise tickets, faculty resolve them, the HOD oversees the whole department — and every action taken in one portal shows up in the others in real time.
 
-> **New in this version:** the backend has been migrated from Node/Express + MongoDB to **Supabase** (Postgres, Auth, Storage, Realtime, Row Level Security). Every feature was preserved and eight new ones were added.
+> "New in this version": the backend has been migrated from Node/Express + MongoDB to **Supabase** (Postgres, Auth, Storage, Realtime, Row Level Security). Every feature was preserved and eight new ones were added.
 
 ---
 
@@ -168,3 +168,5 @@ docs/SECURITY.md        security model and trade-offs
 sample-data/            example roster spreadsheets
 design-reference/       original UI mockups, excluded from the deploy
 ```
+
+
