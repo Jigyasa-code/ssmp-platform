@@ -49,10 +49,13 @@ export function requireRole(context, ...roles) {
   return context;
 }
 
-/** Client IP, best-effort, behind Vercel's proxy. */
+/** Client IP, safe behind Vercel's proxy. */
 export function clientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length) return forwarded.split(',')[0].trim();
+  // Vercel guarantees x-real-ip is the actual client IP, preventing spoofing
+  const realIp = req.headers['x-real-ip'] || req.headers['x-vercel-forwarded-for'];
+  if (typeof realIp === 'string' && realIp.length) return realIp.split(',')[0].trim();
+  
+  // Fallback for local development
   return req.socket?.remoteAddress || 'unknown';
 }
 
