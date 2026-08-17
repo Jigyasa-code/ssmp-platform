@@ -19,7 +19,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
 
   const context = await requireAuthenticatedUser(req);
   requireRole(context, 'hod');
-  await enforceRateLimit(context, { key: 'provision-accounts', max: 20, windowSeconds: 60 });
+  await enforceRateLimit(context, { key: 'provision-accounts', max: 60, windowSeconds: 60 });
 
   const { accounts } = parseOrThrow(provisionBatchSchema, req.body ?? {});
   const { admin } = context;
@@ -98,6 +98,10 @@ export default withApiDefaults(['POST'], async (req, res) => {
     throw new ApiError(`No accounts could be created. First error: ${failed[0].reason}`, 400);
   }
 
+  // V-05 ACCEPTED RISK: Returning temporary passwords in the response body exposes them 
+  // to browser memory and potentially DevTools. This is a known risk pending a future 
+  // redesign to deliver passwords out-of-band (e.g. via email). Ensure this response 
+  // is never logged by infrastructure.
   sendSuccess(
     res,
     `Created ${created.length} account(s). ${skipped.length} skipped, ${failed.length} failed.`,

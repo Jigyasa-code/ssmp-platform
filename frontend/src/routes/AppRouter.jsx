@@ -26,7 +26,6 @@ import NotFoundPage from '../pages/NotFoundPage.jsx';
 const StudentDashboardPage = lazy(() => import('../pages/student/StudentDashboardPage.jsx'));
 const StudentTicketsPage = lazy(() => import('../pages/student/StudentTicketsPage.jsx'));
 const StudentTicketDetailPage = lazy(() => import('../pages/student/StudentTicketDetailPage.jsx'));
-const StudentOnboardingFormPage = lazy(() => import('../pages/student/StudentOnboardingFormPage.jsx'));
 const StudentAcademicsPage = lazy(() => import('../pages/student/StudentAcademicsPage.jsx'));
 const StudentAchievementsPage = lazy(() => import('../pages/student/StudentAchievementsPage.jsx'));
 const StudentProfilePage = lazy(() => import('../pages/student/StudentProfilePage.jsx'));
@@ -94,14 +93,6 @@ export default function AppRouter() {
         <Route path="/" element={<HomeRedirect />} />
 
         {/* ── Student portal ─────────────────────────────────────────── */}
-        <Route
-          path="/student/onboarding"
-          element={
-            <Protected role="student">
-              <StudentOnboardingFormPage />
-            </Protected>
-          }
-        />
         <Route
           path="/student/profile-photo"
           element={

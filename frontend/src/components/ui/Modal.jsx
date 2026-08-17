@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 /** Accessible modal: focus trap on open, Escape to close, scroll lock. */
-export default function Modal({ open, onClose, title, description, children, footer, size = 'md' }) {
+export default function Modal({ open, onClose, title, description, children, footer, size = 'md', dismissible = true }) {
   const panelRef = useRef(null);
 
   // Callers pass an inline arrow for onClose, so its identity changes on
@@ -21,7 +21,7 @@ export default function Modal({ open, onClose, title, description, children, foo
     document.body.style.overflow = 'hidden';
 
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') onCloseRef.current();
+      if (event.key === 'Escape' && dismissible) onCloseRef.current();
       if (event.key !== 'Tab' || !panelRef.current) return;
       const focusable = panelRef.current.querySelectorAll(
         'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -57,7 +57,7 @@ export default function Modal({ open, onClose, title, description, children, foo
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus?.();
     };
-  }, [open]);
+  }, [open, dismissible]);
 
   if (!open) return null;
 
@@ -65,7 +65,11 @@ export default function Modal({ open, onClose, title, description, children, foo
 
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/45 p-4 sm:items-center">
-      <button type="button" aria-label="Close dialog" className="absolute inset-0 cursor-default" onClick={onClose} />
+      {dismissible ? (
+        <button type="button" aria-label="Close dialog" className="absolute inset-0 cursor-default" onClick={onClose} />
+      ) : (
+        <div className="absolute inset-0 cursor-default" />
+      )}
       <div
         ref={panelRef}
         role="dialog"
@@ -78,14 +82,16 @@ export default function Modal({ open, onClose, title, description, children, foo
             <h2 className="text-headline-sm text-on-surface">{title}</h2>
             {description && <p className="mt-1 text-body-sm text-on-surface-variant">{description}</p>}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1.5 text-tertiary hover:bg-surface-container hover:text-on-surface"
-            aria-label="Close"
-          >
-            <span className="material-symbols-outlined text-[20px]">close</span>
-          </button>
+          {dismissible && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1.5 text-tertiary hover:bg-surface-container hover:text-on-surface"
+              aria-label="Close"
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+          )}
         </header>
         <div className="custom-scrollbar max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
         {footer && (

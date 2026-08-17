@@ -42,9 +42,8 @@ export function RequireOnboarding({ children }) {
   if (!profile) return <Navigate to="/login" replace />;
   if (profile.role !== 'student') return children;
 
-  if (!profile.form_a_completed && !location.pathname.startsWith('/student/onboarding')) {
-    return <Navigate to="/student/onboarding" replace />;
-  }
+  // Form A onboarding is now handled via a modal inside PortalShell, so we do not redirect.
+  // We only redirect if Form A is completed but they don't have a profile photo.
   if (profile.form_a_completed && !profile.avatar_url && location.pathname !== '/student/profile-photo') {
     return <Navigate to="/student/profile-photo" replace />;
   }

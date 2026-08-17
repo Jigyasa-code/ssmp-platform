@@ -8,7 +8,7 @@ import { HOME_PATH } from '../../lib/constants.js';
 import { describeError } from '../../lib/formatters.js';
 
 export default function LoginPage() {
-  const { signIn, sendPasswordReset, isAuthenticated, profile, loading } = useAuth();
+  const { signIn, isAuthenticated, profile, loading } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -42,11 +42,23 @@ export default function LoginPage() {
       setError('Enter your university email first, then choose "Forgot password".');
       return;
     }
+    setError(null);
+    setSubmitting(true);
     try {
-      await sendPasswordReset(form.email);
-      toast.success('If that email exists, a reset link is on its way.');
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, origin: window.location.origin })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Password reset request failed.');
+      }
+      toast.success(data.message || 'If an active account exists for this email, a reset link is on its way.');
     } catch (resetError) {
-      toast.error(describeError(resetError));
+      toast.error(resetError.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -58,7 +70,7 @@ export default function LoginPage() {
           <img src={mujLogo} alt="Manipal University Jaipur" className="h-14 w-auto object-contain" />
         </div>
         <div>
-          <h1 className="max-w-lg text-display-lg leading-tight">Student Support &amp; Mentorship Portal</h1>
+          <h1 className="max-w-lg text-display-lg leading-tight">Student Management Portal SMP</h1>
           <p className="mt-4 max-w-md text-body-lg text-primary-fixed">
             One place for students, faculty mentors and the department head to raise, track and resolve
             academic support requests.

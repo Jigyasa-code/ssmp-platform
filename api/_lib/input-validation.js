@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import { ApiError } from './http-response.js';
+import crypto from 'node:crypto';
 
 const uuid = z.string().uuid('Must be a valid ID');
 
@@ -204,11 +205,11 @@ export function generateTemporaryPassword() {
   const digits = '23456789';
   const symbols = '!@#$%&*';
   const all = upper + lower + digits + symbols;
-  const pick = (set) => set[Math.floor(Math.random() * set.length)];
+  const pick = (set) => set[crypto.randomInt(0, set.length)];
   const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)];
   while (chars.length < 14) chars.push(pick(all));
   for (let i = chars.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = crypto.randomInt(0, i + 1);
     [chars[i], chars[j]] = [chars[j], chars[i]];
   }
   return chars.join('');

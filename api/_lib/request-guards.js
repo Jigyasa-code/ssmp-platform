@@ -49,10 +49,13 @@ export function requireRole(context, ...roles) {
   return context;
 }
 
-/** Client IP, best-effort, behind Vercel's proxy. */
+/** Client IP, safe behind Vercel's proxy. */
 export function clientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length) return forwarded.split(',')[0].trim();
+  // Vercel guarantees x-real-ip is the actual client IP, preventing spoofing
+  const realIp = req.headers['x-real-ip'] || req.headers['x-vercel-forwarded-for'];
+  if (typeof realIp === 'string' && realIp.length) return realIp.split(',')[0].trim();
+  
+  // Fallback for local development
   return req.socket?.remoteAddress || 'unknown';
 }
 
@@ -60,7 +63,7 @@ export function clientIp(req) {
  * Postgres-backed fixed-window rate limit. Shared across every warm
  * serverless instance, unlike an in-memory counter.
  */
-export async function enforceRateLimit(context, { key, max, windowSeconds }) {
+export async function enforceRateLimit(context, { key, max, windowSeconds, failClosed = false }) {
   const bucket = `${key}:${context.profile.id}`;
   const { data, error } = await context.admin.rpc('consume_rate_limit', {
     p_bucket_key: bucket,
@@ -68,8 +71,31 @@ export async function enforceRateLimit(context, { key, max, windowSeconds }) {
     p_window_seconds: windowSeconds
   });
   if (error) {
-    console.error('[rate-limit] failed open:', error.message);
-    return; // never block a legitimate request because the limiter broke
+    console.error('[rate-limit] error:', error.message);
+    if (failClosed) throw new ApiError('Service temporarily unavailable. Please try again later.', 503);
+    return; // never block a legitimate request because the limiter broke unless strictly required
+  }
+  if (data === false) {
+    throw new ApiError(
+      `Too many requests. Please wait ${windowSeconds} seconds and try again.`,
+      429
+    );
+  }
+}
+
+/** Rate limits unauthenticated requests based on client IP. */
+export async function enforceIpRateLimit(req, admin, { key, max, windowSeconds, failClosed = false }) {
+  const ip = clientIp(req);
+  const bucket = `${key}:${ip}`;
+  const { data, error } = await admin.rpc('consume_rate_limit', {
+    p_bucket_key: bucket,
+    p_max_requests: max,
+    p_window_seconds: windowSeconds
+  });
+  if (error) {
+    console.error('[rate-limit-ip] error:', error.message);
+    if (failClosed) throw new ApiError('Service temporarily unavailable. Please try again later.', 503);
+    return; // fail open unless strictly required
   }
   if (data === false) {
     throw new ApiError(
@@ -82,7 +108,7 @@ export async function enforceRateLimit(context, { key, max, windowSeconds }) {
 /** Writes an entry to the append-only audit log. Failures never block. */
 export async function recordAuditEntry(context, req, action, entity = {}) {
   const { error } = await context.admin.rpc('write_audit_entry', {
-    p_actor_id: context.profile.id,
+    p_actor_id: context.profile?.id ?? null,
     p_action: action,
     p_entity_type: entity.type ?? null,
     p_entity_id: entity.id ? String(entity.id) : null,

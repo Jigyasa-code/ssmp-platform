@@ -19,7 +19,7 @@ import { buildFacultyActivityPdf, buildDepartmentReportPdf } from '../_lib/repor
 export default withApiDefaults(['GET'], async (req, res) => {
   const context = await requireAuthenticatedUser(req);
   requireRole(context, 'faculty', 'hod');
-  await enforceRateLimit(context, { key: 'faculty-report', max: 30, windowSeconds: 60 });
+  await enforceRateLimit(context, { key: 'faculty-report', max: 90, windowSeconds: 60 });
 
   const query = parseOrThrow(facultyReportQuerySchema, {
     faculty_id: req.query.faculty_id || undefined,

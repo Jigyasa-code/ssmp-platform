@@ -134,6 +134,45 @@ export default function StudentProfilePage() {
             </Link>
           </form>
         </Panel>
+
+        <Panel tab="Representative Sharing" tabIcon="share">
+          <div className="space-y-4">
+            <p className="text-body-sm text-on-surface-variant">
+              Allow your class's Student Representative (the Star Mentee designated by your mentor) to view your support tickets and achievements list.
+            </p>
+            <div className="flex items-center justify-between border-t border-surface-container pt-3">
+              <span className="text-label-md text-on-surface">Share with representative</span>
+              <button
+                type="button"
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  formA.form.representative_sharing_enabled ? 'bg-primary' : 'bg-outline-variant'
+                }`}
+                onClick={async () => {
+                  const nextVal = !formA.form.representative_sharing_enabled;
+                  run(
+                    async () => {
+                      const { error } = await supabase.rpc('set_representative_sharing', { p_enabled: nextVal });
+                      if (error) throw error;
+                    },
+                    {
+                      successMessage: nextVal ? 'Representative sharing enabled.' : 'Representative sharing disabled.',
+                      onSuccess: async () => {
+                        await formA.reload();
+                      }
+                    }
+                  );
+                }}
+                disabled={pending}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    formA.form.representative_sharing_enabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        </Panel>
       </div>
 
       <section className="mt-4">

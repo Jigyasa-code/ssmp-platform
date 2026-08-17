@@ -16,7 +16,7 @@ export default function StudentProfilePhotoPage() {
   const navigate = useNavigate();
 
   // Form A comes first; a photo is pointless if they have not been through it.
-  if (profile && !profile.form_a_completed) return <Navigate to="/student/onboarding" replace />;
+  if (profile && !profile.form_a_completed) return <Navigate to="/student" replace />;
   if (profile?.avatar_url) return <Navigate to="/student" replace />;
 
   return (
