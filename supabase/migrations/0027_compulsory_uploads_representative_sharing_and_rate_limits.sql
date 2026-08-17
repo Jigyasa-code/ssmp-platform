@@ -166,24 +166,37 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_rep public.user_profiles;
-  v_student public.user_profiles;
+  v_rep_id uuid;
+  v_rep_role text;
+  v_rep_is_star_mentee boolean;
+  v_rep_mentor_id uuid;
+  
+  v_student_id uuid;
+  v_student_role text;
+  v_student_mentor_id uuid;
+  
   v_sharing_enabled boolean;
 begin
   -- Get the caller (potential representative)
-  select * into v_rep from public.user_profiles where id = auth.uid();
-  if v_rep.id is null or v_rep.role <> 'student' or not v_rep.is_star_mentee then
+  select id, role, is_star_mentee, assigned_mentor_id 
+    into v_rep_id, v_rep_role, v_rep_is_star_mentee, v_rep_mentor_id 
+    from public.user_profiles where id = auth.uid();
+    
+  if v_rep_id is null or v_rep_role <> 'student' or not coalesce(v_rep_is_star_mentee, false) then
     return false;
   end if;
 
   -- Get the student whose data is being accessed
-  select * into v_student from public.user_profiles where id = p_student_id;
-  if v_student.id is null or v_student.role <> 'student' then
+  select id, role, assigned_mentor_id 
+    into v_student_id, v_student_role, v_student_mentor_id 
+    from public.user_profiles where id = p_student_id;
+    
+  if v_student_id is null or v_student_role <> 'student' then
     return false;
   end if;
 
   -- They must belong to the same mentor group
-  if v_rep.assigned_mentor_id is null or v_student.assigned_mentor_id is null or v_rep.assigned_mentor_id <> v_student.assigned_mentor_id then
+  if v_rep_mentor_id is null or v_student_mentor_id is null or v_rep_mentor_id <> v_student_mentor_id then
     return false;
   end if;
 
@@ -224,18 +237,23 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_me public.user_profiles;
+  v_me_id uuid;
+  v_me_role text;
+  v_me_is_star_mentee boolean;
+  v_me_mentor_id uuid;
 begin
-  select * into v_me from public.user_profiles where id = auth.uid();
+  select id, role, is_star_mentee, assigned_mentor_id 
+    into v_me_id, v_me_role, v_me_is_star_mentee, v_me_mentor_id 
+    from public.user_profiles where id = auth.uid();
 
-  if v_me.id is null or v_me.role <> 'student' then
+  if v_me_id is null or v_me_role <> 'student' then
     raise exception 'Not permitted' using errcode = '42501';
   end if;
-  if not v_me.is_star_mentee then
+  if not coalesce(v_me_is_star_mentee, false) then
     raise exception 'Only the student representative can view the group ticket list'
       using errcode = '42501';
   end if;
-  if v_me.assigned_mentor_id is null then
+  if v_me_mentor_id is null then
     return '[]'::jsonb;
   end if;
 
@@ -257,7 +275,7 @@ begin
            ) order by t.last_message_at desc)
       from public.support_tickets t
       join public.user_profiles s on s.id = t.student_id
-     where t.mentor_id = v_me.assigned_mentor_id
+     where t.mentor_id = v_me_mentor_id
        and (
          t.student_id = auth.uid()
          or exists (
@@ -287,16 +305,14 @@ begin
       using errcode = '42501';
   end if;
 
-  insert into public.student_form_a_profiles (
-    student_id, full_name, registration_no, mobile_no, email,
-    father_name, mother_name,
-    communication_address, communication_pin_code, permanent_address, permanent_pin_code,
-    is_day_scholar, representative_sharing_enabled
-  )
-  select p.id, p.full_name, coalesce(p.login_id, 'PENDING'), '0000000000', p.email,
-         'PENDING', 'PENDING', 'PENDING', '000000', 'PENDING', '000000', true, p_enabled
-    from public.user_profiles p where p.id = auth.uid()
-  on conflict (student_id) do update set representative_sharing_enabled = p_enabled;
+  update public.student_form_a_profiles
+     set representative_sharing_enabled = p_enabled
+   where student_id = auth.uid();
+
+  if not found then
+    raise exception 'You must complete Form A before changing sharing preferences'
+      using errcode = '42501';
+  end if;
 
   return p_enabled;
 end;

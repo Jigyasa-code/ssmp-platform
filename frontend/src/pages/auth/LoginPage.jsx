@@ -8,7 +8,7 @@ import { HOME_PATH } from '../../lib/constants.js';
 import { describeError } from '../../lib/formatters.js';
 
 export default function LoginPage() {
-  const { signIn, sendPasswordReset, isAuthenticated, profile, loading } = useAuth();
+  const { signIn, isAuthenticated, profile, loading } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();

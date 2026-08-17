@@ -64,7 +64,7 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
   }
 
   // ── Fire ──────────────────────────────────────────────────────────
-  await enforceRateLimit(context, { key: 'cycle-job', max: 40, windowSeconds: 300 });
+  await enforceRateLimit(context, { key: 'cycle-job', max: 120, windowSeconds: 300 });
   const body = parseOrThrow(cycleJobSchema, req.body ?? {});
 
   if (body.job_type === 'all') {

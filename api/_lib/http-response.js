@@ -12,10 +12,11 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, private'
+  'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; connect-src 'self' https://*.supabase.co; img-src 'self' data: blob: https://*.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self';"
 };
 
-function resolveAllowedOrigin(req) {
+export function resolveAllowedOrigin(req) {
   const origin = req.headers.origin;
   if (!origin) return null;
 
@@ -28,7 +29,7 @@ function resolveAllowedOrigin(req) {
   if (!env.IS_PRODUCTION && /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
     return origin;
   }
-  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin) && allowList.some((o) => o.endsWith('.vercel.app'))) {
+  if (/^https:\/\/ssmp-platform-[a-z0-9-]+\.vercel\.app$/.test(origin) && allowList.some((o) => o.endsWith('.vercel.app'))) {
     return origin;
   }
   return null;

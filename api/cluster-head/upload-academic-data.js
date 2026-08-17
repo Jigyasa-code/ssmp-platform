@@ -68,7 +68,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
   // The HOD is included so the department can correct an upload without
   // borrowing the Cluster Head's account. No other role can reach this.
   requireRole(context, 'cluster_head', 'hod');
-  await enforceRateLimit(context, { key: 'academic-upload', max: 30, windowSeconds: 300 });
+  await enforceRateLimit(context, { key: 'academic-upload', max: 90, windowSeconds: 300 });
 
   const body = parseOrThrow(clusterHeadUploadSchema, req.body ?? {});
 

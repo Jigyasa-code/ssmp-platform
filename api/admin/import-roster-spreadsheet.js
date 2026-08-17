@@ -133,15 +133,6 @@ export default withApiDefaults(['POST'], async (req, res) => {
         continue;
       }
 
-      /**
-       * A "Password" column in the roster sets the account's initial
-       * password, so the HOD hands out one they already chose instead of a
-       * random string they have to read off a CSV. A blank cell still gets
-       * a generated password, which keeps every existing roster working.
-       *
-       * This replaces the *generation* of the password, not the rule that
-       * follows it: must_change_password stays true below, so the account
-       * is still forced onto "Set your password" at first sign-in. A
       // Feature 4: To prevent shared temporary password vulnerabilities, we always
       // auto-generate a unique, random 14-character temporary password for every user,
       // ignoring any supplied password columns in the spreadsheet.
@@ -186,7 +177,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
         role: rowRole,
         login_id: record.login_id ?? null,
         temporary_password: temporaryPassword,
-        password_from_file: Boolean(suppliedPassword)
+        password_from_file: false
       });
     } catch (error) {
       failed.push({ row: record.rowNumber, email: record.email ?? '', reason: `${rowLabel}: ${error.message}` });
@@ -237,6 +228,10 @@ export default withApiDefaults(['POST'], async (req, res) => {
   const facultyCreated = created.filter((c) => (c.role ?? body.import_type) === 'faculty').length;
   const studentCreated = created.filter((c) => (c.role ?? body.import_type) === 'student').length;
 
+  // V-05 ACCEPTED RISK: Returning temporary passwords in the response body exposes them 
+  // to browser memory and potentially DevTools. This is a known risk pending a future 
+  // redesign to deliver passwords out-of-band (e.g. via email). Ensure this response 
+  // is never logged by infrastructure.
   sendSuccess(
     res,
     body.create_accounts
