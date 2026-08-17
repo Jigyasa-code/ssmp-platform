@@ -17,7 +17,18 @@ const PRIORITY_STYLES = {
   Urgent: 'bg-error-container text-on-error-container'
 };
 
+/**
+ * Current categories first, then the three legacy values kept so tickets
+ * raised before migration 0026 still render with their own colour rather
+ * than falling through to the neutral default.
+ */
 const CATEGORY_STYLES = {
+  Academics: 'bg-primary-fixed text-on-primary-fixed',
+  Examination: 'bg-[#ffe2d6] text-on-secondary-container',
+  Behavioural: 'bg-info-container text-on-info-container',
+  Administrative: 'bg-warning-container text-on-warning-container',
+  Others: 'bg-surface-container-high text-on-surface-variant',
+
   Academic: 'bg-primary-fixed text-on-primary-fixed',
   'ERP/Tech': 'bg-[#ffe2d6] text-on-secondary-container',
   Infrastructure: 'bg-surface-container-high text-on-surface-variant'
@@ -49,7 +60,7 @@ export function PriorityBadge({ priority }) {
 }
 
 export function CategoryBadge({ category }) {
-  return <span className={`chip ${CATEGORY_STYLES[category] ?? CATEGORY_STYLES.Infrastructure}`}>{category}</span>;
+  return <span className={`chip ${CATEGORY_STYLES[category] ?? CATEGORY_STYLES.Others}`}>{category}</span>;
 }
 
 export function EmploymentBadge({ status }) {

@@ -14,7 +14,24 @@ export const ROLE_LABELS = {
   cluster_head: 'Cluster Head'
 };
 
-export const TICKET_CATEGORIES = ['Academic', 'ERP/Tech', 'Infrastructure'];
+/**
+ * The categories a ticket can be raised under. Mirrors the ticket_category
+ * enum (§10.9) — every value here must exist in Postgres, which is what
+ * migration 0026 adds.
+ *
+ * The legacy values 'Academic', 'ERP/Tech' and 'Infrastructure' are
+ * deliberately absent. They are still valid in the database (an enum value
+ * cannot be dropped, and old tickets carry them), so historical tickets
+ * still display and still read back correctly — they just cannot be chosen
+ * any more, here or in the filter pills that share this list.
+ */
+export const TICKET_CATEGORIES = [
+  'Academics',
+  'Examination',
+  'Behavioural',
+  'Administrative',
+  'Others'
+];
 export const TICKET_STATUSES = ['Open', 'In Progress', 'Resolved'];
 export const TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
 

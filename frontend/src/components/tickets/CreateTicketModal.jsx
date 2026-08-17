@@ -13,7 +13,7 @@ import { useAsyncAction } from '../../hooks/useAsyncAction.js';
  */
 const DEFAULT_PRIORITY = 'Medium';
 
-const EMPTY = { subject: '', category: 'Academic', description: '' };
+const EMPTY = { subject: '', category: 'Academics', description: '' };
 
 export default function CreateTicketModal({ open, onClose, onCreated, mentorName }) {
   const { run, pending } = useAsyncAction();
