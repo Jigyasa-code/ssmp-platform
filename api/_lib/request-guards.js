@@ -79,6 +79,27 @@ export async function enforceRateLimit(context, { key, max, windowSeconds }) {
   }
 }
 
+/** Rate limits unauthenticated requests based on client IP. */
+export async function enforceIpRateLimit(req, admin, { key, max, windowSeconds }) {
+  const ip = clientIp(req);
+  const bucket = `${key}:${ip}`;
+  const { data, error } = await admin.rpc('consume_rate_limit', {
+    p_bucket_key: bucket,
+    p_max_requests: max,
+    p_window_seconds: windowSeconds
+  });
+  if (error) {
+    console.error('[rate-limit-ip] failed open:', error.message);
+    return; // fail open
+  }
+  if (data === false) {
+    throw new ApiError(
+      `Too many requests. Please wait ${windowSeconds} seconds and try again.`,
+      429
+    );
+  }
+}
+
 /** Writes an entry to the append-only audit log. Failures never block. */
 export async function recordAuditEntry(context, req, action, entity = {}) {
   const { error } = await context.admin.rpc('write_audit_entry', {

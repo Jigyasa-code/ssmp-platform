@@ -19,7 +19,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
 
   const context = await requireAuthenticatedUser(req);
   requireRole(context, 'hod');
-  await enforceRateLimit(context, { key: 'provision-accounts', max: 20, windowSeconds: 60 });
+  await enforceRateLimit(context, { key: 'provision-accounts', max: 60, windowSeconds: 60 });
 
   const { accounts } = parseOrThrow(provisionBatchSchema, req.body ?? {});
   const { admin } = context;

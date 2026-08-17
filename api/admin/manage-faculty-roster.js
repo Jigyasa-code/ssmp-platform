@@ -96,7 +96,7 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
 
   // ---- POST -----------------------------------------------------------
   const action = String(req.body?.action ?? '');
-  await enforceRateLimit(context, { key: `faculty-roster:${action}`, max: 60, windowSeconds: 60 });
+  await enforceRateLimit(context, { key: `faculty-roster:${action}`, max: 180, windowSeconds: 60 });
 
   if (action === 'set-status') {
     const payload = parseOrThrow(facultyStatusSchema, req.body ?? {});

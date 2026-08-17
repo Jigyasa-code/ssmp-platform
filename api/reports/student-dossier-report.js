@@ -16,7 +16,7 @@ import { buildStudentDossierPdf } from '../_lib/report-document-builder.js';
 
 export default withApiDefaults(['GET'], async (req, res) => {
   const context = await requireAuthenticatedUser(req);
-  await enforceRateLimit(context, { key: 'student-report', max: 30, windowSeconds: 60 });
+  await enforceRateLimit(context, { key: 'student-report', max: 90, windowSeconds: 60 });
 
   const query = parseOrThrow(studentReportQuerySchema, {
     student_id: req.query.student_id,

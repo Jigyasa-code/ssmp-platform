@@ -25,7 +25,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
 
   const context = await requireAuthenticatedUser(req);
   requireRole(context, 'hod');
-  await enforceRateLimit(context, { key: 'roster-import', max: 10, windowSeconds: 300 });
+  await enforceRateLimit(context, { key: 'roster-import', max: 30, windowSeconds: 300 });
 
   const body = parseOrThrow(rosterImportSchema, req.body ?? {});
   const { admin } = context;
@@ -142,19 +142,10 @@ export default withApiDefaults(['POST'], async (req, res) => {
        * This replaces the *generation* of the password, not the rule that
        * follows it: must_change_password stays true below, so the account
        * is still forced onto "Set your password" at first sign-in. A
-       * shared password sitting in a spreadsheet is a way to distribute a
-       * first login, not a credential to keep.
-       */
-      const suppliedPassword = String(record.password ?? '').trim();
-      if (suppliedPassword && suppliedPassword.length < 8) {
-        failed.push({
-          row: record.rowNumber,
-          email,
-          reason: 'The Password column must be at least 8 characters (leave it blank to auto-generate one)'
-        });
-        continue;
-      }
-      const temporaryPassword = suppliedPassword || generateTemporaryPassword();
+      // Feature 4: To prevent shared temporary password vulnerabilities, we always
+      // auto-generate a unique, random 14-character temporary password for every user,
+      // ignoring any supplied password columns in the spreadsheet.
+      const temporaryPassword = generateTemporaryPassword();
 
       const { data, error } = await admin.auth.admin.createUser({
         email,

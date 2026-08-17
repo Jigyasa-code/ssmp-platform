@@ -280,13 +280,17 @@ export function FileField({
   currentName,
   error,
   disabled,
+  required,
   // Callers that accept something other than images/PDF pass their own
   // prompt; the default is the profile-photo / Form A case.
   placeholder = 'Choose a file (PNG, JPG or PDF, max 5 MB)'
 }) {
   return (
     <div>
-      <span className="field-label">{label}</span>
+      <span className="field-label">
+        {label}
+        {required && <span className="text-error"> *</span>}
+      </span>
       <label
         className={`flex cursor-pointer items-center gap-3 rounded border border-dashed px-4 py-3 transition-colors ${
           disabled ? 'cursor-not-allowed border-outline-variant bg-surface-container' : 'border-outline hover:bg-surface-container-low'

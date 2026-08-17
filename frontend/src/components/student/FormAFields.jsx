@@ -34,7 +34,8 @@ export const EMPTY_FORM_A = {
   mother_mobile: '', mother_email: '',
   communication_address: '', communication_pin_code: '',
   permanent_same_as_communication: false, permanent_address: '', permanent_pin_code: '',
-  parent_business_card_path: '', student_signature_path: ''
+  parent_business_card_path: '', student_signature_path: '',
+  representative_sharing_enabled: false
 };
 
 export function validateFormA(form) {
@@ -48,6 +49,8 @@ export function validateFormA(form) {
   required('father_name', "Father's name is required.");
   required('mother_name', "Mother's name is required.");
   required('communication_address', 'Address for communication is required.');
+  required('parent_business_card_path', 'Parent business card is required.');
+  required('student_signature_path', 'Student signature is required.');
 
   if (!/^[0-9]{10}$/.test(form.mobile_no)) errors.mobile_no = 'Enter a 10-digit mobile number.';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email)) errors.email = 'Enter a valid email address.';
@@ -285,18 +288,20 @@ export default function FormAFields({ form, errors, setField, uploads, uploading
         </div>
       </Panel>
 
-      <Panel tab="Optional Uploads" tabIcon="attach_file">
+      <Panel tab="Uploads (Required)" tabIcon="attach_file">
         <div className="grid gap-4 lg:grid-cols-2">
           <FileField
             label="Business card of the parent"
-            hint={uploading === 'businessCard' ? 'Uploading...' : 'Optional. PNG, JPG or PDF.'}
+            required
+            hint={uploading === 'businessCard' ? 'Uploading...' : 'Required. PNG, JPG or PDF.'}
             currentName={uploads.businessCard || (form.parent_business_card_path ? 'File on record' : '')}
             onFileSelected={(file) => onUpload('businessCard', file)}
             disabled={disabled || uploading !== null}
           />
           <FileField
             label="Signature of the student"
-            hint={uploading === 'signature' ? 'Uploading...' : 'Optional. PNG, JPG or PDF.'}
+            required
+            hint={uploading === 'signature' ? 'Uploading...' : 'Required. PNG, JPG or PDF.'}
             currentName={uploads.signature || (form.student_signature_path ? 'File on record' : '')}
             onFileSelected={(file) => onUpload('signature', file)}
             disabled={disabled || uploading !== null}
