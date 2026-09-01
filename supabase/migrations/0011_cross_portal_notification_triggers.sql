@@ -7,7 +7,7 @@
 -- fires no matter whether the action came from the web app, the admin
 -- API, or a direct RPC call.
 --
---   student raises ticket        -> faculty bell
+--   student raises query        -> faculty bell
 --   either party sends message   -> the other party's bell
 --   faculty resolves             -> student is asked to confirm
 --   student confirms / reopens   -> faculty bell
@@ -23,7 +23,7 @@ create or replace function public.enqueue_notification(
   p_type      public.notification_type,
   p_title     text,
   p_body      text,
-  p_ticket    uuid,
+  p_query    uuid,
   p_link      text
 )
 returns void
@@ -36,13 +36,13 @@ begin
   if p_recipient is null or p_recipient = p_actor then
     return;
   end if;
-  insert into public.notifications (recipient_id, actor_id, type, title, body, ticket_id, link_path)
-  values (p_recipient, p_actor, p_type, p_title, p_body, p_ticket, p_link);
+  insert into public.notifications (recipient_id, actor_id, type, title, body, query_id, link_path)
+  values (p_recipient, p_actor, p_type, p_title, p_body, p_query, p_link);
 end;
 $$;
 
--- ── Student raised a ticket -> assigned faculty ───────────────────────
-create or replace function public.notify_on_ticket_created()
+-- ── Student raised a query -> assigned faculty ───────────────────────
+create or replace function public.notify_on_query_created()
 returns trigger
 language plpgsql
 security definer
@@ -53,29 +53,29 @@ declare
 begin
   select full_name into v_student from public.user_profiles where id = new.student_id;
   perform public.enqueue_notification(
-    new.mentor_id, new.student_id, 'ticket_created',
-    format('New %s ticket from %s', new.category, coalesce(v_student, 'a student')),
-    format('%s — %s', new.ticket_code, new.subject),
-    new.id, '/faculty/tickets/' || new.id::text
+    new.mentor_id, new.student_id, 'query_created',
+    format('New %s query from %s', new.category, coalesce(v_student, 'a student')),
+    format('%s — %s', new.query_code, new.subject),
+    new.id, '/faculty/queries/' || new.id::text
   );
   return new;
 end;
 $$;
 
-drop trigger if exists trg_notify_ticket_created on public.support_tickets;
-create trigger trg_notify_ticket_created
-  after insert on public.support_tickets
-  for each row execute function public.notify_on_ticket_created();
+drop trigger if exists trg_notify_query_created on public.support_queries;
+create trigger trg_notify_query_created
+  after insert on public.support_queries
+  for each row execute function public.notify_on_query_created();
 
 -- ── New message -> the other party ────────────────────────────────────
-create or replace function public.notify_on_ticket_message()
+create or replace function public.notify_on_query_message()
 returns trigger
 language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_ticket    public.support_tickets;
+  v_query    public.support_queries;
   v_sender    text;
   v_recipient uuid;
   v_link      text;
@@ -84,36 +84,36 @@ begin
     return new;   -- resolution/confirmation triggers cover these
   end if;
 
-  select * into v_ticket from public.support_tickets where id = new.ticket_id;
-  if v_ticket.id is null then return new; end if;
+  select * into v_query from public.support_queries where id = new.query_id;
+  if v_query.id is null then return new; end if;
 
   select full_name into v_sender from public.user_profiles where id = new.sender_id;
 
-  if new.sender_id = v_ticket.student_id then
-    v_recipient := v_ticket.mentor_id;
-    v_link := '/faculty/tickets/' || v_ticket.id::text;
+  if new.sender_id = v_query.student_id then
+    v_recipient := v_query.mentor_id;
+    v_link := '/faculty/queries/' || v_query.id::text;
   else
-    v_recipient := v_ticket.student_id;
-    v_link := '/student/tickets/' || v_ticket.id::text;
+    v_recipient := v_query.student_id;
+    v_link := '/student/queries/' || v_query.id::text;
   end if;
 
   perform public.enqueue_notification(
-    v_recipient, new.sender_id, 'ticket_message',
+    v_recipient, new.sender_id, 'query_message',
     format('New reply from %s', coalesce(v_sender, 'a user')),
     left(new.body, 140),
-    v_ticket.id, v_link
+    v_query.id, v_link
   );
   return new;
 end;
 $$;
 
-drop trigger if exists trg_notify_ticket_message on public.ticket_messages;
-create trigger trg_notify_ticket_message
-  after insert on public.ticket_messages
-  for each row execute function public.notify_on_ticket_message();
+drop trigger if exists trg_notify_query_message on public.query_messages;
+create trigger trg_notify_query_message
+  after insert on public.query_messages
+  for each row execute function public.notify_on_query_message();
 
 -- ── Resolution lifecycle ──────────────────────────────────────────────
-create or replace function public.notify_on_ticket_resolution_change()
+create or replace function public.notify_on_query_resolution_change()
 returns trigger
 language plpgsql
 security definer
@@ -126,9 +126,9 @@ begin
     -- not a resolution change; check for a fresh rating instead
     if new.satisfaction_rating is not null and old.satisfaction_rating is null then
       perform public.enqueue_notification(
-        new.mentor_id, new.student_id, 'ticket_rated',
-        format('Ticket %s rated %s/5', new.ticket_code, new.satisfaction_rating),
-        new.subject, new.id, '/faculty/tickets/' || new.id::text
+        new.mentor_id, new.student_id, 'query_rated',
+        format('Query %s rated %s/5', new.query_code, new.satisfaction_rating),
+        new.subject, new.id, '/faculty/queries/' || new.id::text
       );
     end if;
     return new;
@@ -138,25 +138,25 @@ begin
 
   if new.resolution_status = 'pending_confirmation' then
     perform public.enqueue_notification(
-      new.student_id, new.resolved_by, 'ticket_resolution_pending',
+      new.student_id, new.resolved_by, 'query_resolution_pending',
       'Was your issue fixed?',
       format('%s marked "%s" as resolved. Please confirm.', coalesce(v_actor, 'Your mentor'), new.subject),
-      new.id, '/student/tickets/' || new.id::text
+      new.id, '/student/queries/' || new.id::text
     );
 
   elsif new.resolution_status = 'confirmed' then
     perform public.enqueue_notification(
-      new.mentor_id, new.student_id, 'ticket_confirmed',
-      format('%s confirmed as resolved', new.ticket_code),
-      new.subject, new.id, '/faculty/tickets/' || new.id::text
+      new.mentor_id, new.student_id, 'query_confirmed',
+      format('%s confirmed as resolved', new.query_code),
+      new.subject, new.id, '/faculty/queries/' || new.id::text
     );
 
   elsif new.resolution_status = 'reopened' then
     perform public.enqueue_notification(
-      new.mentor_id, new.student_id, 'ticket_reopened',
-      format('%s reopened by the student', new.ticket_code),
+      new.mentor_id, new.student_id, 'query_reopened',
+      format('%s reopened by the student', new.query_code),
       coalesce(new.student_confirmation_comment, 'The student reported the issue is not resolved.'),
-      new.id, '/faculty/tickets/' || new.id::text
+      new.id, '/faculty/queries/' || new.id::text
     );
   end if;
 
@@ -164,10 +164,10 @@ begin
 end;
 $$;
 
-drop trigger if exists trg_notify_ticket_resolution on public.support_tickets;
-create trigger trg_notify_ticket_resolution
-  after update on public.support_tickets
-  for each row execute function public.notify_on_ticket_resolution_change();
+drop trigger if exists trg_notify_query_resolution on public.support_queries;
+create trigger trg_notify_query_resolution
+  after update on public.support_queries
+  for each row execute function public.notify_on_query_resolution_change();
 
 -- ── Mentor reassignment (Feature 8) -> student + both faculty + log ───
 create or replace function public.notify_on_mentor_reassignment()

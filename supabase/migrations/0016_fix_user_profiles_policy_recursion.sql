@@ -57,13 +57,13 @@ create policy profiles_select_own_mentor on public.user_profiles
   for select to authenticated
   using (id = public.my_mentor_id());
 
--- ── Same treatment for the ticket INSERT check ───────────────────────
+-- ── Same treatment for the query INSERT check ───────────────────────
 -- Not recursive (different table), but its inline subquery still forced a
--- full RLS evaluation of user_profiles on every ticket insert. Routing it
+-- full RLS evaluation of user_profiles on every query insert. Routing it
 -- through the same helper is both correct and faster.
-drop policy if exists tickets_insert_own on public.support_tickets;
+drop policy if exists queries_insert_own on public.support_queries;
 
-create policy tickets_insert_own on public.support_tickets
+create policy queries_insert_own on public.support_queries
   for insert to authenticated
   with check (
     public.is_student()

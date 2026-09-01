@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Modal from '../ui/Modal.jsx';
 import { TextField, TextAreaField, SelectField } from '../ui/FormControls.jsx';
-import { TICKET_CATEGORIES } from '../../lib/constants.js';
+import { QUERY_CATEGORIES } from '../../lib/constants.js';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 
@@ -9,13 +9,13 @@ import { useAsyncAction } from '../../hooks/useAsyncAction.js';
  * Priority is no longer asked for. Students were guessing at it and the
  * queue treated everything as Medium anyway. The column and the enum are
  * untouched — faculty and the HOD can still triage — so this is a UI
- * change only and every existing ticket keeps its priority.
+ * change only and every existing query keeps its priority.
  */
 const DEFAULT_PRIORITY = 'Medium';
 
 const EMPTY = { subject: '', category: 'Academics', description: '' };
 
-export default function CreateTicketModal({ open, onClose, onCreated, mentorName }) {
+export default function CreateQueryModal({ open, onClose, onCreated, mentorName }) {
   const { run, pending } = useAsyncAction();
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
@@ -41,7 +41,7 @@ export default function CreateTicketModal({ open, onClose, onCreated, mentorName
 
     await run(
       async () => {
-        const { data, error } = await supabase.rpc('create_support_ticket', {
+        const { data, error } = await supabase.rpc('create_support_query', {
           p_subject: form.subject.trim(),
           p_category: form.category,
           p_description: form.description.trim(),
@@ -51,11 +51,11 @@ export default function CreateTicketModal({ open, onClose, onCreated, mentorName
         return data;
       },
       {
-        successMessage: 'Ticket raised. Your mentor has been notified.',
-        onSuccess: (ticket) => {
+        successMessage: 'Query raised. Your mentor has been notified.',
+        onSuccess: (query) => {
           setForm(EMPTY);
           setErrors({});
-          onCreated?.(ticket);
+          onCreated?.(query);
           onClose();
         }
       }
@@ -66,15 +66,15 @@ export default function CreateTicketModal({ open, onClose, onCreated, mentorName
     <Modal
       open={open}
       onClose={onClose}
-      title="Raise a support ticket"
+      title="Raise a support query"
       description={mentorName ? `This will go to your mentor, ${mentorName}.` : undefined}
       footer={
         <>
           <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
             Cancel
           </button>
-          <button type="submit" form="create-ticket-form" className="btn-primary" disabled={pending}>
-            {pending ? 'Submitting...' : 'Raise ticket'}
+          <button type="submit" form="create-query-form" className="btn-primary" disabled={pending}>
+            {pending ? 'Submitting...' : 'Raise query'}
           </button>
         </>
       }
@@ -82,14 +82,14 @@ export default function CreateTicketModal({ open, onClose, onCreated, mentorName
       {/* Category first, then subject: picking the area of the problem is
           the easier question, and it primes what the subject line should
           say. */}
-      <form id="create-ticket-form" onSubmit={submit} className="space-y-4">
+      <form id="create-query-form" onSubmit={submit} className="space-y-4">
         <SelectField
           name="category"
           label="Category"
           required
           value={form.category}
           onChange={update('category')}
-          options={TICKET_CATEGORIES}
+          options={QUERY_CATEGORIES}
         />
         <TextField
           name="subject"

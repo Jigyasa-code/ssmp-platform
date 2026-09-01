@@ -156,7 +156,7 @@ export default function AddAccountModal({ open, onClose, onCreated }) {
         {form.role === 'cluster_head' && (
           <p className="rounded-lg bg-primary-fixed/50 px-4 py-3 text-body-sm text-on-surface-variant">
             A Cluster Head can only upload attendance, GPA and backlog data. They get no access to
-            tickets or student profiles. On first sign-in they are asked which subjects they handle.
+            queries or student profiles. On first sign-in they are asked which subjects they handle.
           </p>
         )}
         <TextField label="Full name" name="full_name" required minLength={2} value={form.full_name} onChange={update('full_name')} />

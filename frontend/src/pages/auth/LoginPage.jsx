@@ -65,7 +65,7 @@ export default function LoginPage() {
           </p>
           <ul className="mt-8 space-y-3 text-body-md text-primary-fixed">
             {[
-              ['confirmation_number', 'Raise and track tickets in real time'],
+              ['confirmation_number', 'Raise and track queries in real time'],
               ['groups', 'Stay connected with your assigned mentor'],
               ['analytics', 'Analytical reports for faculty and the HOD']
             ].map(([icon, text]) => (

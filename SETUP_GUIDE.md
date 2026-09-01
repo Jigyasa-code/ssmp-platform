@@ -65,12 +65,12 @@ You have two options. **Option A is easier** and needs no extra tools.
    0001_extensions_enums_and_shared_helpers.sql
    0002_user_profiles_table.sql
    0003_student_form_a_onboarding.sql
-   0004_support_tickets_and_messages.sql
+   0004_support_queries_and_messages.sql
    0005_notifications_and_achievements.sql
    0006_semester_setup_roster_and_audit.sql
    0007_authorization_helper_functions.sql
    0008_row_level_security_policies.sql
-   0009_ticket_workflow_functions.sql
+   0009_query_workflow_functions.sql
    0010_student_and_mentor_functions.sql
    0011_cross_portal_notification_triggers.sql
    0012_analytics_views.sql
@@ -102,7 +102,7 @@ supabase db push
 
 ```bash
 npm install                 # installs the serverless API dependencies
-npm run db:seed             # creates 1 HOD, 3 faculty, 4 students + sample tickets
+npm run db:seed             # creates 1 HOD, 3 faculty, 4 students + sample queries
 ```
 
 The script prints every account it creates. All of them use the password from `SEED_DEFAULT_PASSWORD`:
@@ -132,7 +132,7 @@ npm --prefix frontend install # frontend dependencies
 npm run dev                   # → http://localhost:5173
 ```
 
-`npm run dev` starts the frontend only. The three portals, live ticket updates, notifications, Form A, GPA, achievements and star mentee all work this way, because they talk to Supabase directly.
+`npm run dev` starts the frontend only. The three portals, live query updates, notifications, Form A, GPA, achievements and star mentee all work this way, because they talk to Supabase directly.
 
 **To also run the serverless API locally** (needed for roster import, PDF reports and faculty reassignment):
 
@@ -185,22 +185,22 @@ Sign in as each role in three different browser windows (or one normal + two pri
 | 1 | Sign in as a **student** for the first time | A full-screen Form A with **no sidebar and no menu** — there is nothing else to click until it is submitted |
 | 2 | Submit Form A | Step 2 appears: a **profile photo, which is compulsory**. Still no menu until it is uploaded |
 | 2b | Upload the photo | Landed on the student dashboard. Form A is no longer a menu item; it now lives under **My Profile**, editable with no HOD approval |
-| 3 | Raise a ticket | It appears in the **faculty** window within a second, and the faculty bell shows a badge — no refresh |
-| 4 | Reply as faculty | The reply appears in the student window instantly; ticket flips to *In Progress* |
+| 3 | Raise a query | It appears in the **faculty** window within a second, and the faculty bell shows a badge — no refresh |
+| 4 | Reply as faculty | The reply appears in the student window instantly; query flips to *In Progress* |
 | 5 | Faculty clicks **Mark resolved** | Student gets "Was your issue fixed?" with Yes / No |
-| 6 | Student clicks **No** + a comment | Ticket reopens, faculty is notified and sees the comment |
-| 7 | Student clicks **Yes** | Ticket closes, student can leave a 1–5 star rating |
+| 6 | Student clicks **No** + a comment | Query reopens, faculty is notified and sees the comment |
+| 7 | Student clicks **Yes** | Query closes, student can leave a 1–5 star rating |
 | 8 | Student → Academics → turn **GPA sharing off** | Faculty's mentee report now says "not shared" instead of the grades |
 | 9 | Faculty → My Mentees → click a **star** | That student becomes the representative; starring another replaces them after a confirmation |
-| 9b | Check that student's window | Notification explains the role, and a new **Group Tickets** menu item appears — a read-only list of the whole mentor group's tickets, with no way to open, reply or resolve |
+| 9b | Check that student's window | Notification explains the role, and a new **Group Queries** menu item appears — a read-only list of the whole mentor group's queries, with no way to open, reply or resolve |
 | 10 | Faculty → My Report → **Download PDF** | A branded PDF with KPI cards, bar chart, donut chart, weekly trend and tables |
-| 11 | Faculty → a mentee → **Generate report** | Per-student PDF with GPA trend, achievements, ticket history |
+| 11 | Faculty → a mentee → **Generate report** | Per-student PDF with GPA trend, achievements, query history |
 | 12 | HOD → Faculty Roster → mark someone **departed** | Their mentee list opens; reassign to someone from the reserve pool |
 | 13 | Check the reassigned student's window | They are notified their mentor changed, and it is already updated on screen |
 | 14 | HOD → Faculty Reports, or **PDF** on any row of Faculty Performance | The same analytical report a faculty member gets for themselves, for any faculty member |
 | 15 | HOD → Faculty Reports → **All faculty members (consolidated)** | Department-wide charts plus one row per faculty member, on screen and as a single PDF |
 | 16 | HOD → Semester Setup → **Both together** + `sample-data/combined-roster-sample.csv` | Faculty and students created from one file, mentors matched from the same upload |
-| 17 | Any portal → My Profile → **Upload photo** | The photo replaces the grey silhouette in the sidebar, top bar and every ticket message |
+| 17 | Any portal → My Profile → **Upload photo** | The photo replaces the grey silhouette in the sidebar, top bar and every query message |
 
 ---
 
@@ -222,7 +222,7 @@ Everything under `/api` — roster import, both PDF reports, faculty reassignmen
 
 **Login works but the page is blank / "No profile found"** — the migrations were not all applied, so the `user_profiles` trigger never ran. Re-run migration `0002`, then delete and recreate the account.
 
-**Realtime updates are not arriving** — check Supabase → **Database → Publications → `supabase_realtime`** lists `support_tickets`, `ticket_messages`, `notifications`, `user_profiles`, `student_achievements`. If not, re-run migration `0014`.
+**Realtime updates are not arriving** — check Supabase → **Database → Publications → `supabase_realtime`** lists `support_queries`, `query_messages`, `notifications`, `user_profiles`, `student_achievements`. If not, re-run migration `0014`.
 
 **PDF download does nothing** — the serverless API is not running. Use `vercel dev` locally, or check the environment variables on Vercel in production.
 
@@ -230,7 +230,7 @@ Everything under `/api` — roster import, both PDF reports, faculty reassignmen
 
 **"... is an invalid header value"** — one of your Supabase keys has a space or line break inside it, usually from the value wrapping when it was pasted. Copy it again from Project Settings → API Keys as a single unbroken line, in both `.env` and the Vercel environment variables. Check with `https://your-app.vercel.app/api/health`, which reports each variable as `ok`, `missing` or `malformed` without ever printing the value.
 
-**Student cannot reject a resolution any more** — working as designed. A student may answer "No" at most **3 times** on one ticket. After that the mentor gets a **Report to HOD** button on the ticket, which notifies every HOD with the mentor's note.
+**Student cannot reject a resolution any more** — working as designed. A student may answer "No" at most **3 times** on one query. After that the mentor gets a **Report to HOD** button on the query, which notifies every HOD with the mentor's note.
 
 ---
 

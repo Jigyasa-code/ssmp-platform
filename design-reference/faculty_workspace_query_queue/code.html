@@ -3,7 +3,7 @@
 <html class="light" lang="en"><head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Academic Nexus | Ticket Queue</title>
+<title>Academic Nexus | Query Queue</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Hanken+Grotesk:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -111,7 +111,7 @@
 </a>
 <a class="flex items-center gap-3 px-4 py-3 bg-secondary-container text-on-secondary-container rounded-lg font-bold transition-all duration-200" href="#">
 <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">confirmation_number</span>
-<span class="font-label text-label-md">Ticket Queue</span>
+<span class="font-label text-label-md">Query Queue</span>
 </a>
 <a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all duration-200" href="#">
 <span class="material-symbols-outlined">insights</span>
@@ -136,7 +136,7 @@
 <div class="flex items-center gap-4 flex-1">
 <div class="relative w-full max-w-md">
 <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
-<input class="w-full bg-surface-container-low border-none rounded-lg pl-10 pr-4 py-2 text-body-md focus:ring-2 focus:ring-primary" placeholder="Search tickets, students, or IDs..." type="text"/>
+<input class="w-full bg-surface-container-low border-none rounded-lg pl-10 pr-4 py-2 text-body-md focus:ring-2 focus:ring-primary" placeholder="Search queries, students, or IDs..." type="text"/>
 </div>
 </div>
 <div class="flex items-center gap-4">
@@ -164,14 +164,14 @@
 <div class="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
 <div>
 <div class="flex items-center gap-3 mb-1">
-<h2 class="font-headline text-headline-lg text-on-surface font-bold">Support Ticket Queue</h2>
+<h2 class="font-headline text-headline-lg text-on-surface font-bold">Support Query Queue</h2>
 <span class="px-3 py-1 bg-primary text-on-primary text-label-sm rounded-full font-bold">12 Pending</span>
 </div>
 <p class="text-body-md text-on-surface-variant">Manage and respond to student inquiries across academic and technical domains.</p>
 </div>
 <button class="flex items-center gap-2 bg-primary text-on-primary px-5 py-2.5 rounded-lg font-bold shadow-md hover:bg-primary-container transition-all active:scale-95">
 <span class="material-symbols-outlined">add</span>
-<span>Create Ticket</span>
+<span>Create Query</span>
 </button>
 </div>
 <!-- Filter Bar -->
@@ -206,12 +206,12 @@
 <span class="material-symbols-outlined">filter_list</span>
 </button>
 </div>
-<!-- Ticket List Table -->
+<!-- Query List Table -->
 <div class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
 <table class="w-full text-left border-collapse">
 <thead>
 <tr class="bg-surface-container-low border-b border-outline-variant">
-<th class="px-6 py-4 text-label-md text-on-surface-variant font-bold">Ticket ID</th>
+<th class="px-6 py-4 text-label-md text-on-surface-variant font-bold">Query ID</th>
 <th class="px-6 py-4 text-label-md text-on-surface-variant font-bold">Student</th>
 <th class="px-6 py-4 text-label-md text-on-surface-variant font-bold">Subject</th>
 <th class="px-6 py-4 text-label-md text-on-surface-variant font-bold text-center">Category</th>
@@ -222,7 +222,7 @@
 </tr>
 </thead>
 <tbody class="divide-y divide-outline-variant">
-<!-- Row 1: Urgent Ticket -->
+<!-- Row 1: Urgent Query -->
 <tr class="group hover:bg-surface-container-low transition-colors cursor-pointer">
 <td class="px-6 py-4 font-bold text-primary">#AN-8924</td>
 <td class="px-6 py-4">
@@ -374,7 +374,7 @@
 </table>
 <!-- Pagination Footer -->
 <div class="bg-surface-container-low px-6 py-4 flex items-center justify-between">
-<p class="text-label-sm text-on-surface-variant">Showing <span class="font-bold text-on-surface">1 - 4</span> of <span class="font-bold text-on-surface">42</span> tickets</p>
+<p class="text-label-sm text-on-surface-variant">Showing <span class="font-bold text-on-surface">1 - 4</span> of <span class="font-bold text-on-surface">42</span> queries</p>
 <div class="flex items-center gap-2">
 <button class="w-8 h-8 flex items-center justify-center rounded border border-outline-variant text-on-surface-variant disabled:opacity-30" disabled="">
 <span class="material-symbols-outlined text-sm">chevron_left</span>
@@ -435,10 +435,10 @@
         // Simple click interaction for table rows
         document.querySelectorAll('tbody tr').forEach(row => {
             row.addEventListener('click', () => {
-                const ticketId = row.querySelector('td:first-child').innerText;
-                console.log(`Navigating to details for ticket: ${ticketId}`);
-                // In a real app: window.location.href = `/tickets/${ticketId}`;
-                alert(`Opening details for Ticket ${ticketId}`);
+                const queryId = row.querySelector('td:first-child').innerText;
+                console.log(`Navigating to details for query: ${queryId}`);
+                // In a real app: window.location.href = `/queries/${queryId}`;
+                alert(`Opening details for Query ${queryId}`);
             });
         });
 
@@ -446,8 +446,8 @@
         document.querySelectorAll('.row-hover-action').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation(); // Prevent row click from firing
-                const ticketId = btn.closest('tr').querySelector('td:first-child').innerText;
-                alert(`Viewing details for ${ticketId}`);
+                const queryId = btn.closest('tr').querySelector('td:first-child').innerText;
+                alert(`Viewing details for ${queryId}`);
             });
         });
     </script>

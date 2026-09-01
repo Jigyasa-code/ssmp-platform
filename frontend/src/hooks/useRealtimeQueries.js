@@ -1,11 +1,11 @@
 /**
- * useRealtimeTickets
- * Loads tickets the caller is allowed to see (RLS decides that, not this
+ * useRealtimeQueries
+ * Loads queries the caller is allowed to see (RLS decides that, not this
  * file) and keeps the list live over Realtime.
  *
- * The same hook backs all three portals — students see their own tickets,
+ * The same hook backs all three portals — students see their own queries,
  * faculty see the ones assigned to them, the HOD sees everything, because
- * the SELECT policy on support_tickets already scopes the query.
+ * the SELECT policy on support_queries already scopes the query.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,8 +18,8 @@ const SELECT = `
   mentor:mentor_id (id, full_name, email, login_id)
 `;
 
-export function useRealtimeTickets({ status, category, search, pageSize = 25 } = {}) {
-  const [tickets, setTickets] = useState([]);
+export function useRealtimeQueries({ status, category, search, pageSize = 25 } = {}) {
+  const [queries, setQueries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
@@ -28,7 +28,7 @@ export function useRealtimeTickets({ status, category, search, pageSize = 25 } =
   const load = useCallback(async () => {
     setLoading(true);
     let query = supabase
-      .from('support_tickets')
+      .from('support_queries')
       .select(SELECT, { count: 'exact' })
       .order('last_message_at', { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
@@ -37,14 +37,14 @@ export function useRealtimeTickets({ status, category, search, pageSize = 25 } =
     if (category && category !== 'All') query = query.eq('category', category);
     if (search?.trim()) {
       const term = search.trim().replace(/[%,]/g, '');
-      query = query.or(`subject.ilike.%${term}%,ticket_code.ilike.%${term}%`);
+      query = query.or(`subject.ilike.%${term}%,query_code.ilike.%${term}%`);
     }
 
     const { data, error: queryError, count } = await query;
     if (queryError) {
       setError(describeError(queryError));
     } else {
-      setTickets(data ?? []);
+      setQueries(data ?? []);
       setTotal(count ?? 0);
       setError(null);
     }
@@ -59,11 +59,11 @@ export function useRealtimeTickets({ status, category, search, pageSize = 25 } =
     setPage(1);
   }, [status, category, search]);
 
-  // Any insert/update on a ticket the user can see triggers a refresh.
+  // Any insert/update on a query the user can see triggers a refresh.
   useEffect(() => {
     const channel = supabase
-      .channel('tickets-stream')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => load())
+      .channel('queries-stream')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_queries' }, () => load())
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -72,79 +72,79 @@ export function useRealtimeTickets({ status, category, search, pageSize = 25 } =
 
   const pageCount = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
 
-  return { tickets, loading, error, page, setPage, pageCount, total, reload: load };
+  return { queries, loading, error, page, setPage, pageCount, total, reload: load };
 }
 
 /**
- * A single ticket plus its live message thread.
+ * A single query plus its live message thread.
  *
  * `loading` is true only for the very first fetch. Every later refresh --
- * a new message arriving over Realtime, the ticket being resolved -- swaps
+ * a new message arriving over Realtime, the query being resolved -- swaps
  * the data underneath without unmounting the page, so sending a message no
- * longer blanks the screen with "Loading ticket...".
+ * longer blanks the screen with "Loading query...".
  */
-export function useTicketThread(ticketId) {
-  const [ticket, setTicket] = useState(null);
+export function useQueryThread(queryId) {
+  const [query, setQuery] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const hasLoadedOnce = useRef(false);
 
   const load = useCallback(async () => {
-    if (!ticketId) return;
+    if (!queryId) return;
     if (!hasLoadedOnce.current) setLoading(true);
 
-    const [{ data: ticketRow, error: ticketError }, { data: messageRows, error: messageError }] =
+    const [{ data: queryRow, error: queryError }, { data: messageRows, error: messageError }] =
       await Promise.all([
-        supabase.from('support_tickets').select(SELECT).eq('id', ticketId).single(),
+        supabase.from('support_queries').select(SELECT).eq('id', queryId).single(),
         supabase
-          .from('ticket_messages')
+          .from('query_messages')
           .select('*, sender:sender_id (id, full_name, role, avatar_url)')
-          .eq('ticket_id', ticketId)
+          .eq('query_id', queryId)
           .order('created_at', { ascending: true })
       ]);
 
-    if (ticketError || messageError) {
+    if (queryError || messageError) {
       // A failed background refresh must not wipe a thread that is on screen.
-      if (!hasLoadedOnce.current) setError(describeError(ticketError ?? messageError));
-      else console.warn('[ticket] refresh failed:', (ticketError ?? messageError).message);
+      if (!hasLoadedOnce.current) setError(describeError(queryError ?? messageError));
+      else console.warn('[query] refresh failed:', (queryError ?? messageError).message);
     } else {
-      setTicket(ticketRow);
+      setQuery(queryRow);
       setMessages(messageRows ?? []);
       setError(null);
     }
     hasLoadedOnce.current = true;
     setLoading(false);
-  }, [ticketId]);
+  }, [queryId]);
 
-  // A different ticket is a fresh page, so the loader is appropriate again.
+  // A different query is a fresh page, so the loader is appropriate again.
   useEffect(() => {
     hasLoadedOnce.current = false;
-  }, [ticketId]);
+  }, [queryId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
-    if (!ticketId) return undefined;
+    if (!queryId) return undefined;
     const channel = supabase
-      .channel(`ticket-${ticketId}`)
+      .channel(`query-${queryId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${ticketId}` },
+        { event: '*', schema: 'public', table: 'query_messages', filter: `query_id=eq.${queryId}` },
         () => load()
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'support_tickets', filter: `id=eq.${ticketId}` },
+        { event: 'UPDATE', schema: 'public', table: 'support_queries', filter: `id=eq.${queryId}` },
         () => load()
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [ticketId, load]);
+  }, [queryId, load]);
 
   /** Appends a just-sent message, ignoring it if Realtime already did. */
   const appendMessage = useCallback((message) => {
@@ -154,5 +154,5 @@ export function useTicketThread(ticketId) {
     );
   }, []);
 
-  return { ticket, messages, loading, error, reload: load, appendMessage };
+  return { query, messages, loading, error, reload: load, appendMessage };
 }

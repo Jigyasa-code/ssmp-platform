@@ -5,10 +5,10 @@
  * chase people.
  *
  * Backed by get_mentor_group_survey_status() — a narrow read-only
- * projection, the same technique as get_mentor_group_tickets(). The rep
+ * projection, the same technique as get_mentor_group_queries(). The rep
  * sees names and a yes/no, never anyone's ratings and never an email
  * address. Visible only when is_star_mentee is true; the nav item carries
- * the same `when` predicate as Group Tickets.
+ * the same `when` predicate as Group Queries.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';

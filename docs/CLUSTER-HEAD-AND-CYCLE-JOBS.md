@@ -8,7 +8,7 @@ engineering context first if you are changing any of it.
 ## 1. The Cluster Head role
 
 A Cluster Head uploads two kinds of data and has access to nothing else —
-no tickets, no student profiles, no reports.
+no queries, no student profiles, no reports.
 
 | What | Where |
 |---|---|
@@ -30,11 +30,11 @@ step for it, by design.
 
 ### What a Cluster Head can read
 
-No RLS policy grants them access to `user_profiles`, `support_tickets`,
+No RLS policy grants them access to `user_profiles`, `support_queries`,
 `student_form_a_profiles` or `student_risk_flags`. Matching an uploaded row
 to a student happens inside `resolve_students_for_upload()`, a SECURITY
 DEFINER function returning a four-column projection — the same technique
-`get_mentor_group_tickets()` uses for the star mentee.
+`get_mentor_group_queries()` uses for the star mentee.
 
 ### Upload timing is deliberately unconstrained
 

@@ -256,25 +256,25 @@ export async function buildFacultyActivityPdf(report) {
   doc.y = drawStatCards(doc.page, doc.fonts, {
     x: MARGIN, y: doc.y, width: CONTENT_WIDTH, perRow: 4,
     cards: [
-      { label: 'Tickets handled', value: summary.total_tickets, accent: PALETTE.primary,
-        caption: `${summary.resolved_tickets} resolved` },
+      { label: 'Queries handled', value: summary.total_queries, accent: PALETTE.primary,
+        caption: `${summary.resolved_queries} resolved` },
       { label: 'Resolution rate', value: `${summary.resolution_rate_percent}%`, accent: PALETTE.success,
-        caption: `${summary.open_tickets + summary.in_progress_tickets} still active` },
+        caption: `${summary.open_queries + summary.in_progress_queries} still active` },
       { label: 'Avg first response', value: hoursLabel(summary.avg_first_response_hours), accent: PALETTE.secondary,
         caption: 'time to first reply' },
       { label: 'Avg resolution', value: hoursLabel(summary.avg_resolution_hours), accent: PALETTE.slate,
         caption: 'raised to resolved' },
       { label: 'Satisfaction', value: summary.avg_satisfaction ? `${summary.avg_satisfaction}/5` : '—',
-        accent: PALETTE.warning, caption: `${summary.rated_tickets} ratings received` },
-      { label: 'Open', value: summary.open_tickets, accent: PALETTE.error },
-      { label: 'In progress', value: summary.in_progress_tickets, accent: PALETTE.warning },
+        accent: PALETTE.warning, caption: `${summary.rated_queries} ratings received` },
+      { label: 'Open', value: summary.open_queries, accent: PALETTE.error },
+      { label: 'In progress', value: summary.in_progress_queries, accent: PALETTE.warning },
       { label: 'Mentees', value: report.mentees.length, accent: PALETTE.primaryLight,
         caption: `${report.mentees.filter((m) => m.form_a_completed).length} onboarded` }
     ]
   });
 
   // ── Category + confirmation charts side by side ────────────────────
-  doc.heading('Ticket mix and resolution quality', 190);
+  doc.heading('Query mix and resolution quality', 190);
 
   const categoryData = ['Academic', 'ERP/Tech', 'Infrastructure'].map((category, index) => {
     const found = (report.by_category ?? []).find((c) => c.category === category);
@@ -286,7 +286,7 @@ export async function buildFacultyActivityPdf(report) {
 
   drawBarChart(doc.page, doc.fonts, {
     x: MARGIN, y: chartTop - 12, width: halfWidth, height: 132,
-    data: categoryData, title: 'Tickets by category'
+    data: categoryData, title: 'Queries by category'
   });
 
   const confirmation = report.resolution_confirmation ?? {};
@@ -354,7 +354,7 @@ export async function buildFacultyActivityPdf(report) {
       ...c,
       rate: c.total ? `${Math.round((c.resolved / c.total) * 100)}%` : '—'
     })),
-    emptyMessage: 'No tickets in this period'
+    emptyMessage: 'No queries in this period'
   });
 
   // ── Mentee roster ──────────────────────────────────────────────────
@@ -368,7 +368,7 @@ export async function buildFacultyActivityPdf(report) {
       { header: 'Branch', key: 'branch', width: 1 },
       { header: 'Form A', key: 'onboarded', width: 1, align: 'center' },
       { header: 'Rep', key: 'star', width: 0.6, align: 'center' },
-      { header: 'Tickets', key: 'ticket_count', width: 0.9, align: 'right' }
+      { header: 'Queries', key: 'query_count', width: 0.9, align: 'right' }
     ],
     rows: report.mentees.map((m) => ({
       ...m,
@@ -387,7 +387,7 @@ export async function buildFacultyActivityPdf(report) {
  * FEATURE 5 — Per-student dossier (no parent-communication section)
  * ==================================================================== */
 export async function buildStudentDossierPdf(report) {
-  const { student, mentor, form_a: formA, ticket_summary: tickets } = report;
+  const { student, mentor, form_a: formA, query_summary: queries } = report;
   const { pdf, doc } = await createDocument({
     title: `Student Report — ${student.name}`,
     generatedAt: report.generated_at
@@ -412,17 +412,17 @@ export async function buildStudentDossierPdf(report) {
       { label: 'CGPA', value: report.gpa_shared ? (gpaStats.cgpa ?? '—') : 'Hidden',
         accent: PALETTE.primary,
         caption: report.gpa_shared ? `${gpaStats.semesters_recorded ?? 0} semesters` : 'not shared by student' },
-      { label: 'Tickets raised', value: tickets.total, accent: PALETTE.secondary,
-        caption: `${tickets.resolved} resolved` },
+      { label: 'Queries raised', value: queries.total, accent: PALETTE.secondary,
+        caption: `${queries.resolved} resolved` },
       { label: 'Achievements', value: report.achievements.length, accent: PALETTE.success,
         caption: `${report.achievements.filter((a) => a.verified).length} verified` },
-      { label: 'Avg resolution', value: hoursLabel(tickets.avg_resolution_hours), accent: PALETTE.slate,
-        caption: 'on their tickets' },
+      { label: 'Avg resolution', value: hoursLabel(queries.avg_resolution_hours), accent: PALETTE.slate,
+        caption: 'on their queries' },
       { label: 'Onboarding', value: student.form_a_completed ? 'Complete' : 'Pending',
         accent: student.form_a_completed ? PALETTE.success : PALETTE.error, caption: 'Form A' },
-      { label: 'Confirmed fixed', value: tickets.confirmed_yes, accent: PALETTE.success },
-      { label: 'Reopened', value: tickets.reopened_no, accent: PALETTE.error },
-      { label: 'Avg rating given', value: tickets.avg_rating_given || '—', accent: PALETTE.warning }
+      { label: 'Confirmed fixed', value: queries.confirmed_yes, accent: PALETTE.success },
+      { label: 'Reopened', value: queries.reopened_no, accent: PALETTE.error },
+      { label: 'Avg rating given', value: queries.avg_rating_given || '—', accent: PALETTE.warning }
     ]
   });
 
@@ -457,18 +457,18 @@ export async function buildStudentDossierPdf(report) {
 
   drawBarChart(doc.page, doc.fonts, {
     x: MARGIN, y: activityTop - 12, width: halfWidth, height: 128,
-    title: 'Tickets by category',
+    title: 'Queries by category',
     data: [
-      { label: 'Academic', value: tickets.academic, color: SERIES_COLORS[0] },
-      { label: 'ERP/Tech', value: tickets.erp_tech, color: SERIES_COLORS[1] },
-      { label: 'Infra', value: tickets.infrastructure, color: SERIES_COLORS[2] }
+      { label: 'Academic', value: queries.academic, color: SERIES_COLORS[0] },
+      { label: 'ERP/Tech', value: queries.erp_tech, color: SERIES_COLORS[1] },
+      { label: 'Infra', value: queries.infrastructure, color: SERIES_COLORS[2] }
     ]
   });
 
   const statusSlices = [
-    { label: 'Resolved', value: tickets.resolved, color: PALETTE.success },
-    { label: 'In progress', value: tickets.in_progress, color: PALETTE.warning },
-    { label: 'Open', value: tickets.open, color: PALETTE.error }
+    { label: 'Resolved', value: queries.resolved, color: PALETTE.success },
+    { label: 'In progress', value: queries.in_progress, color: PALETTE.warning },
+    { label: 'Open', value: queries.open, color: PALETTE.error }
   ];
   drawDonutChart(doc.page, doc.fonts, {
     centerX: MARGIN + halfWidth + 24 + halfWidth / 2, centerY: activityTop - 82,
@@ -482,21 +482,21 @@ export async function buildStudentDossierPdf(report) {
   });
   doc.y = activityTop - 172;
 
-  if ((report.monthly_ticket_trend ?? []).length > 1) {
+  if ((report.monthly_query_trend ?? []).length > 1) {
     doc.reserve(150);
     drawLineChart(doc.page, doc.fonts, {
       x: MARGIN, y: doc.y - 8, width: CONTENT_WIDTH, height: 118,
-      data: report.monthly_ticket_trend.map((m) => ({ label: m.month, value: m.count })),
-      title: 'Tickets raised per month', color: PALETTE.secondary
+      data: report.monthly_query_trend.map((m) => ({ label: m.month, value: m.count })),
+      title: 'Queries raised per month', color: PALETTE.secondary
     });
     doc.y -= 138;
   }
 
-  doc.heading('Ticket history');
+  doc.heading('Query history');
   doc.y = drawTable(doc.page, doc.fonts, {
     x: MARGIN, y: doc.y, width: CONTENT_WIDTH,
     columns: [
-      { header: 'Ref', key: 'ticket_code', width: 1.1 },
+      { header: 'Ref', key: 'query_code', width: 1.1 },
       { header: 'Subject', key: 'subject', width: 3.4 },
       { header: 'Category', key: 'category', width: 1.3 },
       { header: 'Status', key: 'status', width: 1.1 },
@@ -504,14 +504,14 @@ export async function buildStudentDossierPdf(report) {
       { header: 'Rating', key: 'rating_label', width: 0.8, align: 'center' },
       { header: 'Raised', key: 'raised_label', width: 1.3 }
     ],
-    rows: (report.tickets ?? []).map((t) => ({
+    rows: (report.queries ?? []).map((t) => ({
       ...t,
       confirmation_label: t.confirmation === 'yes' ? 'Yes' : t.confirmation === 'no' ? 'Reopened' : '—',
       rating_label: t.satisfaction_rating ? `${t.satisfaction_rating}/5` : '—',
       raised_label: formatDate(t.created_at)
     })),
     maxRows: 30,
-    emptyMessage: 'This student has not raised any tickets'
+    emptyMessage: 'This student has not raised any queries'
   });
 
   // ── Achievements (Feature 6) ───────────────────────────────────────
@@ -610,10 +610,10 @@ export async function buildDepartmentReportPdf(report) {
   doc.y = drawStatCards(doc.page, doc.fonts, {
     x: MARGIN, y: doc.y, width: CONTENT_WIDTH, perRow: 4,
     cards: [
-      { label: 'Tickets raised', value: summary.total_tickets, accent: PALETTE.primary,
-        caption: `${summary.resolved_tickets} resolved` },
+      { label: 'Queries raised', value: summary.total_queries, accent: PALETTE.primary,
+        caption: `${summary.resolved_queries} resolved` },
       { label: 'Resolution rate', value: `${summary.resolution_rate_percent}%`, accent: PALETTE.success,
-        caption: `${summary.open_tickets + summary.in_progress_tickets} still active` },
+        caption: `${summary.open_queries + summary.in_progress_queries} still active` },
       { label: 'Avg first response', value: hoursLabel(summary.avg_first_response_hours), accent: PALETTE.secondary },
       { label: 'Avg resolution', value: hoursLabel(summary.avg_resolution_hours), accent: PALETTE.slate },
       { label: 'Satisfaction', value: summary.avg_satisfaction ? `${summary.avg_satisfaction}/5` : '—',
@@ -622,19 +622,19 @@ export async function buildDepartmentReportPdf(report) {
         caption: `${summary.active_faculty} active` },
       { label: 'Unassigned students', value: summary.unassigned_students,
         accent: summary.unassigned_students ? PALETTE.error : PALETTE.success },
-      { label: 'Referred to HOD', value: summary.escalated_tickets,
-        accent: summary.escalated_tickets ? PALETTE.error : PALETTE.slate }
+      { label: 'Referred to HOD', value: summary.escalated_queries,
+        accent: summary.escalated_queries ? PALETTE.error : PALETTE.slate }
     ]
   });
 
   // ── Category and status mix side by side ───────────────────────────
-  doc.heading('Department ticket mix', 190);
+  doc.heading('Department query mix', 190);
   const chartTop = doc.y;
   const halfWidth = (CONTENT_WIDTH - 24) / 2;
 
   drawBarChart(doc.page, doc.fonts, {
     x: MARGIN, y: chartTop - 12, width: halfWidth, height: 132,
-    title: 'Tickets by category',
+    title: 'Queries by category',
     data: ['Academic', 'ERP/Tech', 'Infrastructure'].map((category, index) => {
       const found = (report.by_category ?? []).find((c) => c.category === category);
       return { label: category, value: found ? found.total : 0, color: SERIES_COLORS[index] };
@@ -674,15 +674,15 @@ export async function buildDepartmentReportPdf(report) {
 
   // ── Who is carrying the load ───────────────────────────────────────
   const faculty = report.faculty ?? [];
-  const topByVolume = [...faculty].sort((a, b) => b.total_tickets - a.total_tickets).slice(0, 8);
+  const topByVolume = [...faculty].sort((a, b) => b.total_queries - a.total_queries).slice(0, 8);
 
-  doc.heading('Ticket load by faculty member', topByVolume.length * 16 + 20);
+  doc.heading('Query load by faculty member', topByVolume.length * 16 + 20);
   doc.y = drawHorizontalBars(doc.page, doc.fonts, {
     x: MARGIN, y: doc.y, width: CONTENT_WIDTH, labelWidth: 130,
     rows: topByVolume.map((f) => ({
       label: f.name,
-      value: f.total_tickets,
-      display: `${f.total_tickets} (${f.resolved_tickets} resolved)`
+      value: f.total_queries,
+      display: `${f.total_queries} (${f.resolved_queries} resolved)`
     }))
   });
 
@@ -713,8 +713,8 @@ export async function buildDepartmentReportPdf(report) {
       { header: 'Branch', key: 'branch', width: 0.85 },
       { header: 'Status', key: 'employment_status', width: 1 },
       { header: 'Mentees', key: 'mentee_count', width: 1.05, align: 'right' },
-      { header: 'Tickets', key: 'total_tickets', width: 1, align: 'right' },
-      { header: 'Resolved', key: 'resolved_tickets', width: 1.1, align: 'right' },
+      { header: 'Queries', key: 'total_queries', width: 1, align: 'right' },
+      { header: 'Resolved', key: 'resolved_queries', width: 1.1, align: 'right' },
       { header: 'Reopened', key: 'reopened', width: 1.15, align: 'right' },
       { header: '1st resp.', key: 'first_response_label', width: 1.05, align: 'right' },
       { header: 'Resol.', key: 'resolution_label', width: 0.95, align: 'right' },

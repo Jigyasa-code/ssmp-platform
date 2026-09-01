@@ -1,5 +1,5 @@
 /**
- * TicketConversation
+ * QueryConversation
  * The shared message thread. Used unchanged by the student, faculty and
  * HOD views — the differences are only which actions are offered, which
  * come in as props.
@@ -12,7 +12,7 @@ import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import Avatar from '../ui/Avatar.jsx';
 import { formatDateTime, formatRelativeTime } from '../../lib/formatters.js';
 
-export default function TicketConversation({ ticket, messages, onPosted, onOptimisticMessage, cannedReplies = [], readOnly }) {
+export default function QueryConversation({ query, messages, onPosted, onOptimisticMessage, cannedReplies = [], readOnly }) {
   const { profile } = useAuth();
   const { run, pending } = useAsyncAction();
   const [draft, setDraft] = useState('');
@@ -34,8 +34,8 @@ export default function TicketConversation({ ticket, messages, onPosted, onOptim
 
     await run(
       async () => {
-        const { data, error } = await supabase.rpc('post_ticket_message', {
-          p_ticket_id: ticket.id,
+        const { data, error } = await supabase.rpc('post_query_message', {
+          p_query_id: query.id,
           p_body: body
         });
         if (error) throw error;
@@ -134,11 +134,11 @@ export default function TicketConversation({ ticket, messages, onPosted, onOptim
           )}
 
           <div className="flex items-end gap-2">
-            <label htmlFor="ticket-reply" className="sr-only">
+            <label htmlFor="query-reply" className="sr-only">
               Write a reply
             </label>
             <textarea
-              id="ticket-reply"
+              id="query-reply"
               rows={2}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}

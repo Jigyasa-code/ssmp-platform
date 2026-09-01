@@ -36,13 +36,13 @@ export default function FacultyMenteesPage() {
   const load = useCallback(async () => {
     setLoading(true);
 
-    // Two independent reads, so they go in parallel: the ticket rollup the
+    // Two independent reads, so they go in parallel: the query rollup the
     // page has always shown, plus completion status for the survey cycle
     // that is currently open (the mentor-facing half of the 15-day pulse
     // check — the student rep sees the same numbers from their side).
     const [summaryResult, surveyResult] = await Promise.all([
       supabase
-        .from('student_ticket_summary')
+        .from('student_query_summary')
         .select('*')
         .eq('assigned_mentor_id', profile.id)
         .order('student_name'),
@@ -183,12 +183,12 @@ export default function FacultyMenteesPage() {
         );
       }
     },
-    { key: 'total_tickets', header: 'Tickets', align: 'right' },
+    { key: 'total_queries', header: 'Queries', align: 'right' },
     {
       key: 'open',
       header: 'Open',
       align: 'right',
-      render: (row) => (row.open_tickets + row.in_progress_tickets) || '—'
+      render: (row) => (row.open_queries + row.in_progress_queries) || '—'
     },
     {
       key: 'actions',
@@ -224,8 +224,8 @@ export default function FacultyMenteesPage() {
           caption={`${mentees.filter((m) => !m.form_a_completed).length} pending`}
         />
         <StatCard
-          label="With open tickets"
-          value={mentees.filter((m) => m.open_tickets + m.in_progress_tickets > 0).length}
+          label="With open queries"
+          value={mentees.filter((m) => m.open_queries + m.in_progress_queries > 0).length}
           icon="pending_actions"
           tone="warning"
         />

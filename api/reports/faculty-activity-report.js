@@ -1,6 +1,6 @@
 /**
  * GET /api/reports/faculty-activity-report
- * FEATURE 4 — a faculty member's own mentoring + ticket activity.
+ * FEATURE 4 — a faculty member's own mentoring + query activity.
  *
  *   ?format=json  -> the same JSON the on-screen charts render
  *   ?format=pdf   -> a branded, chart-led PDF of exactly those numbers

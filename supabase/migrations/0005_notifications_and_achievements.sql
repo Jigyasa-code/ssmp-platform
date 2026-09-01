@@ -1,7 +1,7 @@
 -- =====================================================================
 -- 0005  Notifications (cross-portal glue)  +  Feature 6 achievements
 -- =====================================================================
--- Notifications are what make the three portals feel connected: a ticket
+-- Notifications are what make the three portals feel connected: a query
 -- raised in the student portal lands in the faculty bell instantly via
 -- Supabase Realtime, with no polling.
 -- =====================================================================
@@ -13,7 +13,7 @@ create table if not exists public.notifications (
   type          public.notification_type not null,
   title         text not null,
   body          text,
-  ticket_id     uuid references public.support_tickets (id) on delete cascade,
+  query_id     uuid references public.support_queries (id) on delete cascade,
   link_path     text,
   is_read       boolean not null default false,
   read_at       timestamptz,
@@ -28,7 +28,7 @@ comment on table public.notifications is
 
 create index if not exists notifications_recipient_idx on public.notifications (recipient_id, created_at desc);
 create index if not exists notifications_unread_idx    on public.notifications (recipient_id) where is_read = false;
-create index if not exists notifications_ticket_idx    on public.notifications (ticket_id);
+create index if not exists notifications_query_idx    on public.notifications (query_id);
 
 -- ---------------------------------------------------------------------
 -- Feature 6 — non-academic achievements, student maintained

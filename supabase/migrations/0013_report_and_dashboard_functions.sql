@@ -28,16 +28,16 @@ begin
   if v_me.role = 'student' then
     select jsonb_build_object(
       'role', 'student',
-      'total_tickets',        count(*),
-      'open_tickets',         count(*) filter (where status = 'Open'),
-      'in_progress_tickets',  count(*) filter (where status = 'In Progress'),
-      'resolved_tickets',     count(*) filter (where status = 'Resolved'),
+      'total_queries',        count(*),
+      'open_queries',         count(*) filter (where status = 'Open'),
+      'in_progress_queries',  count(*) filter (where status = 'In Progress'),
+      'resolved_queries',     count(*) filter (where status = 'Resolved'),
       'awaiting_confirmation',count(*) filter (where resolution_status = 'pending_confirmation'),
       'unrated_resolved',     count(*) filter (where status = 'Resolved' and satisfaction_rating is null),
       'avg_resolution_hours', round(avg(extract(epoch from (resolved_at - created_at))/3600.0)
                                     filter (where resolved_at is not null)::numeric, 1)
     ) into v_result
-    from public.support_tickets where student_id = v_me.id;
+    from public.support_queries where student_id = v_me.id;
 
     v_result := v_result || jsonb_build_object(
       'form_a_completed',  v_me.form_a_completed,
@@ -50,12 +50,12 @@ begin
   elsif v_me.role = 'faculty' then
     select jsonb_build_object(
       'role', 'faculty',
-      'total_tickets',        count(*),
-      'open_tickets',         count(*) filter (where status = 'Open'),
-      'in_progress_tickets',  count(*) filter (where status = 'In Progress'),
-      'resolved_tickets',     count(*) filter (where status = 'Resolved'),
+      'total_queries',        count(*),
+      'open_queries',         count(*) filter (where status = 'Open'),
+      'in_progress_queries',  count(*) filter (where status = 'In Progress'),
+      'resolved_queries',     count(*) filter (where status = 'Resolved'),
       'awaiting_confirmation',count(*) filter (where resolution_status = 'pending_confirmation'),
-      'reopened_tickets',     count(*) filter (where resolution_status = 'reopened'),
+      'reopened_queries',     count(*) filter (where resolution_status = 'reopened'),
       'avg_first_response_hours', round(avg(extract(epoch from (first_response_at - created_at))/3600.0)
                                         filter (where first_response_at is not null)::numeric, 1),
       'avg_resolution_hours', round(avg(extract(epoch from (resolved_at - created_at))/3600.0)
@@ -66,7 +66,7 @@ begin
       'resolved_last_week',   count(*) filter (where resolved_at >= date_trunc('week', now()) - interval '7 days'
                                                 and resolved_at <  date_trunc('week', now()))
     ) into v_result
-    from public.support_tickets where mentor_id = v_me.id;
+    from public.support_queries where mentor_id = v_me.id;
 
     v_result := v_result || jsonb_build_object(
       'mentee_count',
@@ -85,23 +85,23 @@ begin
   else  -- hod
     select jsonb_build_object(
       'role', 'hod',
-      'total_tickets',        count(*),
-      'open_tickets',         count(*) filter (where status = 'Open'),
-      'in_progress_tickets',  count(*) filter (where status = 'In Progress'),
-      'resolved_tickets',     count(*) filter (where status = 'Resolved'),
+      'total_queries',        count(*),
+      'open_queries',         count(*) filter (where status = 'Open'),
+      'in_progress_queries',  count(*) filter (where status = 'In Progress'),
+      'resolved_queries',     count(*) filter (where status = 'Resolved'),
       'awaiting_confirmation',count(*) filter (where resolution_status = 'pending_confirmation'),
-      'reopened_tickets',     count(*) filter (where resolution_status = 'reopened'),
+      'reopened_queries',     count(*) filter (where resolution_status = 'reopened'),
       'avg_first_response_hours', round(avg(extract(epoch from (first_response_at - created_at))/3600.0)
                                         filter (where first_response_at is not null)::numeric, 1),
       'avg_resolution_hours', round(avg(extract(epoch from (resolved_at - created_at))/3600.0)
                                     filter (where resolved_at is not null)::numeric, 1),
       'avg_satisfaction',     round(avg(satisfaction_rating)
                                     filter (where satisfaction_rating is not null)::numeric, 2),
-      'academic_tickets',     count(*) filter (where category = 'Academic'),
-      'erp_tech_tickets',     count(*) filter (where category = 'ERP/Tech'),
-      'infrastructure_tickets', count(*) filter (where category = 'Infrastructure')
+      'academic_queries',     count(*) filter (where category = 'Academic'),
+      'erp_tech_queries',     count(*) filter (where category = 'ERP/Tech'),
+      'infrastructure_queries', count(*) filter (where category = 'Infrastructure')
     ) into v_result
-    from public.support_tickets;
+    from public.support_queries;
 
     v_result := v_result || jsonb_build_object(
       'total_students', (select count(*) from public.user_profiles where role = 'student'),
@@ -165,21 +165,21 @@ begin
     -- headline numbers -------------------------------------------------
     'summary', (
       select jsonb_build_object(
-        'total_tickets',        count(*),
-        'open_tickets',         count(*) filter (where status = 'Open'),
-        'in_progress_tickets',  count(*) filter (where status = 'In Progress'),
-        'resolved_tickets',     count(*) filter (where status = 'Resolved'),
+        'total_queries',        count(*),
+        'open_queries',         count(*) filter (where status = 'Open'),
+        'in_progress_queries',  count(*) filter (where status = 'In Progress'),
+        'resolved_queries',     count(*) filter (where status = 'Resolved'),
         'avg_first_response_hours', coalesce(round(avg(extract(epoch from (first_response_at - created_at))/3600.0)
                                      filter (where first_response_at is not null)::numeric, 1), 0),
         'avg_resolution_hours', coalesce(round(avg(extract(epoch from (resolved_at - created_at))/3600.0)
                                      filter (where resolved_at is not null)::numeric, 1), 0),
         'avg_satisfaction',     coalesce(round(avg(satisfaction_rating)
                                      filter (where satisfaction_rating is not null)::numeric, 2), 0),
-        'rated_tickets',        count(*) filter (where satisfaction_rating is not null),
+        'rated_queries',        count(*) filter (where satisfaction_rating is not null),
         'resolution_rate_percent',
             case when count(*) = 0 then 0
                  else round(100.0 * count(*) filter (where status = 'Resolved') / count(*), 1) end)
-      from public.support_tickets
+      from public.support_queries
       where mentor_id = v_faculty_id and created_at >= v_from and created_at < v_to),
 
     -- bar / donut chart: category mix ---------------------------------
@@ -192,7 +192,7 @@ begin
                count(*)                                  as total,
                count(*) filter (where status = 'Resolved') as resolved,
                count(*) filter (where status <> 'Resolved') as open_count
-        from public.support_tickets
+        from public.support_queries
         where mentor_id = v_faculty_id and created_at >= v_from and created_at < v_to
         group by category) c),
 
@@ -200,7 +200,7 @@ begin
     'by_status', (
       select coalesce(jsonb_agg(jsonb_build_object('status', status, 'total', total) order by status), '[]'::jsonb)
       from (select status, count(*) as total
-              from public.support_tickets
+              from public.support_queries
              where mentor_id = v_faculty_id and created_at >= v_from and created_at < v_to
              group by status) s),
 
@@ -211,7 +211,7 @@ begin
         'reopened_no',          count(*) filter (where resolution_status = 'reopened'),
         'awaiting_response',    count(*) filter (where resolution_status = 'pending_confirmation'),
         'never_resolved',       count(*) filter (where resolution_status = 'none'))
-      from public.support_tickets
+      from public.support_queries
       where mentor_id = v_faculty_id and created_at >= v_from and created_at < v_to),
 
     -- line chart: weekly volume ---------------------------------------
@@ -223,7 +223,7 @@ begin
         select date_trunc('week', created_at)::date              as week_start,
                count(*)                                          as created_count,
                count(*) filter (where status = 'Resolved')       as resolved_count
-        from public.support_tickets
+        from public.support_queries
         where mentor_id = v_faculty_id and created_at >= v_from and created_at < v_to
         group by 1) w),
 
@@ -231,7 +231,7 @@ begin
     'rating_distribution', (
       select coalesce(jsonb_object_agg(rating::text, cnt), '{}'::jsonb)
       from (select satisfaction_rating as rating, count(*) as cnt
-              from public.support_tickets
+              from public.support_queries
              where mentor_id = v_faculty_id and satisfaction_rating is not null
                and created_at >= v_from and created_at < v_to
              group by satisfaction_rating) r),
@@ -243,7 +243,7 @@ begin
                'section', s.section, 'branch', s.branch, 'email', s.email,
                'is_star_mentee', s.is_star_mentee,
                'form_a_completed', s.form_a_completed,
-               'ticket_count', (select count(*) from public.support_tickets t
+               'query_count', (select count(*) from public.support_queries t
                                  where t.student_id = s.id and t.mentor_id = v_faculty_id))
                order by s.full_name), '[]'::jsonb)
       from public.user_profiles s
@@ -356,8 +356,8 @@ begin
       from (select category, count(*) as cnt from public.student_achievements
              where student_id = p_student_id group by category) a),
 
-    -- Ticket history + Feature 3 outcomes -----------------------------
-    'ticket_summary', (
+    -- Query history + Feature 3 outcomes -----------------------------
+    'query_summary', (
       select jsonb_build_object(
         'total',            count(*),
         'open',             count(*) filter (where status = 'Open'),
@@ -372,21 +372,21 @@ begin
                                   filter (where resolved_at is not null)::numeric, 1), 0),
         'avg_rating_given', coalesce(round(avg(satisfaction_rating)
                                   filter (where satisfaction_rating is not null)::numeric, 2), 0))
-      from public.support_tickets where student_id = p_student_id),
-    'tickets', (
+      from public.support_queries where student_id = p_student_id),
+    'queries', (
       select coalesce(jsonb_agg(jsonb_build_object(
-               'ticket_code', ticket_code, 'subject', subject, 'category', category,
+               'query_code', query_code, 'subject', subject, 'category', category,
                'status', status, 'resolution_status', resolution_status,
                'created_at', created_at, 'resolved_at', resolved_at,
                'satisfaction_rating', satisfaction_rating,
                'confirmation', student_confirmation,
                'confirmation_comment', student_confirmation_comment)
                order by created_at desc), '[]'::jsonb)
-      from public.support_tickets where student_id = p_student_id),
-    'monthly_ticket_trend', (
+      from public.support_queries where student_id = p_student_id),
+    'monthly_query_trend', (
       select coalesce(jsonb_agg(jsonb_build_object('month', month, 'count', cnt) order by month), '[]'::jsonb)
       from (select to_char(date_trunc('month', created_at), 'YYYY-MM') as month, count(*) as cnt
-              from public.support_tickets where student_id = p_student_id
+              from public.support_queries where student_id = p_student_id
              group by 1) m)
   ) into v_report;
 

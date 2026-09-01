@@ -399,7 +399,7 @@ grant select on public.survey_group_completion to authenticated;
 -- 8. The star mentee's view
 -- ---------------------------------------------------------------------
 -- Narrow read-only projection, the same approach as
--- get_mentor_group_tickets(): the representative can see who in their own
+-- get_mentor_group_queries(): the representative can see who in their own
 -- group has and has not answered, so they can chase people — and nothing
 -- else. No ratings, no answers, no email addresses.
 create or replace function public.get_mentor_group_survey_status()

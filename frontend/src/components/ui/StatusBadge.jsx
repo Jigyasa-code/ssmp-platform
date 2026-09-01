@@ -1,4 +1,4 @@
-const TICKET_STATUS_STYLES = {
+const QUERY_STATUS_STYLES = {
   Open: { className: 'bg-error-container text-on-error-container', icon: 'radio_button_checked' },
   'In Progress': { className: 'bg-warning-container text-on-warning-container', icon: 'autorenew' },
   Resolved: { className: 'bg-success-container text-on-success-container', icon: 'task_alt' }
@@ -18,7 +18,7 @@ const PRIORITY_STYLES = {
 };
 
 /**
- * Current categories first, then the three legacy values kept so tickets
+ * Current categories first, then the three legacy values kept so queries
  * raised before migration 0026 still render with their own colour rather
  * than falling through to the neutral default.
  */
@@ -34,8 +34,8 @@ const CATEGORY_STYLES = {
   Infrastructure: 'bg-surface-container-high text-on-surface-variant'
 };
 
-export function TicketStatusBadge({ status }) {
-  const style = TICKET_STATUS_STYLES[status] ?? TICKET_STATUS_STYLES.Open;
+export function QueryStatusBadge({ status }) {
+  const style = QUERY_STATUS_STYLES[status] ?? QUERY_STATUS_STYLES.Open;
   return (
     <span className={`chip ${style.className}`}>
       <span className="material-symbols-outlined text-[14px]" aria-hidden="true">{style.icon}</span>

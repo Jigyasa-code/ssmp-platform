@@ -20,8 +20,8 @@ export default function HodDashboardPage() {
 
   const loadExtras = useCallback(async () => {
     const [{ data: faculty }, { data: daily }] = await Promise.all([
-      supabase.from('faculty_performance_summary').select('*').order('resolved_tickets', { ascending: false }).limit(10),
-      supabase.from('ticket_daily_trend').select('*').order('day', { ascending: true }).limit(400)
+      supabase.from('faculty_performance_summary').select('*').order('resolved_queries', { ascending: false }).limit(10),
+      supabase.from('query_daily_trend').select('*').order('day', { ascending: true }).limit(400)
     ]);
     setLeaderboard(faculty ?? []);
 
@@ -29,8 +29,8 @@ export default function HodDashboardPage() {
     const byDay = new Map();
     for (const row of daily ?? []) {
       const current = byDay.get(row.day) ?? { raised: 0, resolved: 0 };
-      current.raised += row.tickets_created;
-      current.resolved += row.tickets_resolved;
+      current.raised += row.queries_created;
+      current.resolved += row.queries_resolved;
       byDay.set(row.day, current);
     }
     setTrend(
@@ -51,18 +51,18 @@ export default function HodDashboardPage() {
 
   const statusData = useMemo(
     () => [
-      { name: 'Open', value: metrics?.open_tickets ?? 0, color: CHART_COLORS.open },
-      { name: 'In Progress', value: metrics?.in_progress_tickets ?? 0, color: CHART_COLORS.inProgress },
-      { name: 'Resolved', value: metrics?.resolved_tickets ?? 0, color: CHART_COLORS.resolved }
+      { name: 'Open', value: metrics?.open_queries ?? 0, color: CHART_COLORS.open },
+      { name: 'In Progress', value: metrics?.in_progress_queries ?? 0, color: CHART_COLORS.inProgress },
+      { name: 'Resolved', value: metrics?.resolved_queries ?? 0, color: CHART_COLORS.resolved }
     ],
     [metrics]
   );
 
   const categoryData = useMemo(
     () => [
-      { name: 'Academic', value: metrics?.academic_tickets ?? 0, color: CHART_COLORS.academic },
-      { name: 'ERP/Tech', value: metrics?.erp_tech_tickets ?? 0, color: CHART_COLORS.erpTech },
-      { name: 'Infrastructure', value: metrics?.infrastructure_tickets ?? 0, color: CHART_COLORS.infrastructure }
+      { name: 'Academic', value: metrics?.academic_queries ?? 0, color: CHART_COLORS.academic },
+      { name: 'ERP/Tech', value: metrics?.erp_tech_queries ?? 0, color: CHART_COLORS.erpTech },
+      { name: 'Infrastructure', value: metrics?.infrastructure_queries ?? 0, color: CHART_COLORS.infrastructure }
     ],
     [metrics]
   );
@@ -95,8 +95,8 @@ export default function HodDashboardPage() {
               caption={`${metrics?.unassigned_students ?? 0} without a mentor`} />
             <StatCard label="Faculty mentors" value={metrics?.total_faculty ?? 0} icon="badge" tone="info"
               caption={`${metrics?.active_faculty ?? 0} active · ${metrics?.departed_faculty ?? 0} departed`} />
-            <StatCard label="Total tickets" value={metrics?.total_tickets ?? 0} icon="confirmation_number" tone="secondary"
-              caption={`${metrics?.resolved_tickets ?? 0} resolved`} />
+            <StatCard label="Total queries" value={metrics?.total_queries ?? 0} icon="confirmation_number" tone="secondary"
+              caption={`${metrics?.resolved_queries ?? 0} resolved`} />
             <StatCard label="Onboarding pending" value={metrics?.onboarding_pending ?? 0} icon="assignment_late"
               tone={metrics?.onboarding_pending ? 'warning' : 'success'} caption="Form A not submitted" />
           </div>
@@ -120,14 +120,14 @@ export default function HodDashboardPage() {
 
           <div className="mt-4 grid gap-4 lg:grid-cols-4">
             <Panel tab="Status mix" tabIcon="donut_small">
-              <DonutChart data={statusData} centerLabel="tickets" height={230} />
+              <DonutChart data={statusData} centerLabel="queries" height={230} />
             </Panel>
             <Panel tab="Category load" tabIcon="bar_chart">
               <CategoryBarChart data={categoryData} height={230} />
             </Panel>
             <Panel tab="Resolution rate" tabIcon="speed">
               <GaugeChart
-                value={percentage(metrics?.resolved_tickets, metrics?.total_tickets, 1)}
+                value={percentage(metrics?.resolved_queries, metrics?.total_queries, 1)}
                 label="resolved"
                 height={230}
               />
@@ -139,7 +139,7 @@ export default function HodDashboardPage() {
                   ['Avg resolution', formatHours(metrics?.avg_resolution_hours)],
                   ['Avg satisfaction', metrics?.avg_satisfaction ? `${metrics.avg_satisfaction}/5` : '—'],
                   ['Awaiting confirmation', String(metrics?.awaiting_confirmation ?? 0)],
-                  ['Reopened by students', String(metrics?.reopened_tickets ?? 0)]
+                  ['Reopened by students', String(metrics?.reopened_queries ?? 0)]
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-baseline justify-between gap-3">
                     <dt className="text-body-sm text-tertiary">{label}</dt>
@@ -150,8 +150,8 @@ export default function HodDashboardPage() {
             </Panel>
           </div>
 
-          <Panel tab="Ticket volume — last 30 days" tabIcon="show_chart" className="mt-4">
-            <AreaTrendChart data={trend} areaKey="raised" label="Tickets raised" height={240} />
+          <Panel tab="Query volume — last 30 days" tabIcon="show_chart" className="mt-4">
+            <AreaTrendChart data={trend} areaKey="raised" label="Queries raised" height={240} />
           </Panel>
 
           <Panel tab="Faculty response leaderboard" tabIcon="leaderboard" className="mt-4" bodyClassName=""
@@ -169,8 +169,8 @@ export default function HodDashboardPage() {
                   )
                 },
                 { key: 'mentee_count', header: 'Mentees', align: 'right' },
-                { key: 'total_tickets', header: 'Tickets', align: 'right' },
-                { key: 'resolved_tickets', header: 'Resolved', align: 'right' },
+                { key: 'total_queries', header: 'Queries', align: 'right' },
+                { key: 'resolved_queries', header: 'Resolved', align: 'right' },
                 {
                   key: 'avg_first_response_hours',
                   header: 'Avg 1st response',

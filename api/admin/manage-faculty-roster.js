@@ -65,18 +65,18 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
         .order('full_name');
       if (error) throw toClientError(error, 'Could not load the mentee list');
 
-      const { data: openTickets } = await asUser
-        .from('support_tickets')
+      const { data: openQueries } = await asUser
+        .from('support_queries')
         .select('student_id')
         .eq('mentor_id', facultyId)
         .neq('status', 'Resolved');
       const openByStudent = new Map();
-      for (const t of openTickets ?? []) {
+      for (const t of openQueries ?? []) {
         openByStudent.set(t.student_id, (openByStudent.get(t.student_id) ?? 0) + 1);
       }
 
       return sendSuccess(res, 'Mentee list retrieved', {
-        mentees: (data ?? []).map((m) => ({ ...m, open_tickets: openByStudent.get(m.id) ?? 0 }))
+        mentees: (data ?? []).map((m) => ({ ...m, open_queries: openByStudent.get(m.id) ?? 0 }))
       });
     }
 
@@ -135,17 +135,17 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
     });
     if (error) throw toClientError(error, 'Could not reassign the mentees');
 
-    // Open tickets keep pointing at the departing mentor unless we move
+    // Open queries keep pointing at the departing mentor unless we move
     // them too, which would silently orphan the conversation. Move only
     // the unresolved ones; resolved history stays with whoever handled it.
     if (payload.from_faculty_id) {
-      const { error: ticketError } = await admin
-        .from('support_tickets')
+      const { error: queryError } = await admin
+        .from('support_queries')
         .update({ mentor_id: payload.to_faculty_id })
         .in('student_id', payload.student_ids)
         .eq('mentor_id', payload.from_faculty_id)
         .neq('status', 'Resolved');
-      if (ticketError) console.error('[reassign] ticket handover failed:', ticketError.message);
+      if (queryError) console.error('[reassign] query handover failed:', queryError.message);
     }
 
     await recordAuditEntry(context, req, 'hod.reassign_mentees', {
