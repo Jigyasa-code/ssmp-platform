@@ -20,11 +20,11 @@
 -- WHAT A CLUSTER HEAD CANNOT SEE
 -- ---------------------------------------------------------------------
 -- No RLS policy in this file grants a Cluster Head read access to
--- user_profiles, support_tickets, Form A or anything else. Matching an
+-- user_profiles, support_queries, Form A or anything else. Matching an
 -- uploaded row to a student happens inside resolve_students_for_upload(),
 -- a SECURITY DEFINER function that returns a narrow projection (id,
 -- registration number, name, section) and nothing more — the same
--- technique get_mentor_group_tickets() uses for the star mentee.
+-- technique get_mentor_group_queries() uses for the star mentee.
 -- =====================================================================
 
 
@@ -618,7 +618,7 @@ $$;
 -- The ONLY window a Cluster Head has onto the student body. Returns four
 -- columns and no more: no email address is exposed unless it was the
 -- identifier they already typed into their own spreadsheet, no mentor, no
--- phone, no Form A, no tickets.
+-- phone, no Form A, no queries.
 create or replace function public.resolve_students_for_upload(p_identifiers text[])
 returns table (
   student_id      uuid,

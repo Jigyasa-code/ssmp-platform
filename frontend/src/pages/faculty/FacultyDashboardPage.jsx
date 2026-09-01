@@ -6,41 +6,41 @@ import Panel from '../../components/ui/Panel.jsx';
 import StatCard from '../../components/ui/StatCard.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import { SkeletonCards } from '../../components/ui/Skeleton.jsx';
-import { TicketStatusBadge, CategoryBadge, PriorityBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
+import { QueryStatusBadge, CategoryBadge, PriorityBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
 import { DonutChart, CategoryBarChart, GaugeChart } from '../../components/charts/Charts.jsx';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useDashboardMetrics } from '../../hooks/useDashboardMetrics.js';
-import { useRealtimeTickets } from '../../hooks/useRealtimeTickets.js';
+import { useRealtimeQueries } from '../../hooks/useRealtimeQueries.js';
 import { formatRelativeTime, formatHours, percentage } from '../../lib/formatters.js';
 import { CHART_COLORS } from '../../lib/constants.js';
 
 export default function FacultyDashboardPage() {
   const { profile } = useAuth();
   const { metrics, loading } = useDashboardMetrics();
-  const { tickets } = useRealtimeTickets({ pageSize: 8 });
+  const { queries } = useRealtimeQueries({ pageSize: 8 });
 
-  const needsAttention = tickets.filter(
+  const needsAttention = queries.filter(
     (t) => t.status === 'Open' || t.resolution_status === 'reopened'
   );
 
   const statusData = useMemo(
     () => [
-      { name: 'Open', value: metrics?.open_tickets ?? 0, color: CHART_COLORS.open },
-      { name: 'In Progress', value: metrics?.in_progress_tickets ?? 0, color: CHART_COLORS.inProgress },
-      { name: 'Resolved', value: metrics?.resolved_tickets ?? 0, color: CHART_COLORS.resolved }
+      { name: 'Open', value: metrics?.open_queries ?? 0, color: CHART_COLORS.open },
+      { name: 'In Progress', value: metrics?.in_progress_queries ?? 0, color: CHART_COLORS.inProgress },
+      { name: 'Resolved', value: metrics?.resolved_queries ?? 0, color: CHART_COLORS.resolved }
     ],
     [metrics]
   );
 
   const categoryData = useMemo(() => {
     const counts = { Academic: 0, 'ERP/Tech': 0, Infrastructure: 0 };
-    for (const ticket of tickets) counts[ticket.category] = (counts[ticket.category] ?? 0) + 1;
+    for (const query of queries) counts[query.category] = (counts[query.category] ?? 0) + 1;
     return [
       { name: 'Academic', value: counts.Academic, color: CHART_COLORS.academic },
       { name: 'ERP/Tech', value: counts['ERP/Tech'], color: CHART_COLORS.erpTech },
       { name: 'Infrastructure', value: counts.Infrastructure, color: CHART_COLORS.infrastructure }
     ];
-  }, [tickets]);
+  }, [queries]);
 
   const weekOverWeek = (metrics?.resolved_this_week ?? 0) - (metrics?.resolved_last_week ?? 0);
 
@@ -48,12 +48,12 @@ export default function FacultyDashboardPage() {
     <PortalShell>
       <PageHeader
         title={`Good to see you, ${profile?.full_name?.split(' ').slice(-1)[0] ?? 'Professor'}`}
-        subtitle="Your mentee group, your ticket queue and how you are tracking this week."
+        subtitle="Your mentee group, your query queue and how you are tracking this week."
         actions={
           <>
-            <Link to="/faculty/tickets" className="btn-secondary">
+            <Link to="/faculty/queries" className="btn-secondary">
               <span className="material-symbols-outlined text-[18px]">inbox</span>
-              Ticket queue
+              Query queue
             </Link>
             <Link to="/faculty/report" className="btn-primary">
               <span className="material-symbols-outlined text-[18px]">analytics</span>
@@ -70,10 +70,10 @@ export default function FacultyDashboardPage() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Assigned mentees" value={metrics?.mentee_count ?? 0} icon="groups" tone="primary"
               caption={`${metrics?.onboarding_pending ?? 0} yet to submit Form A`} />
-            <StatCard label="Open tickets" value={metrics?.open_tickets ?? 0} icon="pending" tone="error"
+            <StatCard label="Open queries" value={metrics?.open_queries ?? 0} icon="pending" tone="error"
               caption="waiting for your first reply" />
-            <StatCard label="In progress" value={metrics?.in_progress_tickets ?? 0} icon="autorenew" tone="warning" />
-            <StatCard label="Resolved" value={metrics?.resolved_tickets ?? 0} icon="task_alt" tone="success"
+            <StatCard label="In progress" value={metrics?.in_progress_queries ?? 0} icon="autorenew" tone="warning" />
+            <StatCard label="Resolved" value={metrics?.resolved_queries ?? 0} icon="task_alt" tone="success"
               caption={`${metrics?.resolved_this_week ?? 0} this week`} trend={weekOverWeek} />
           </div>
 
@@ -107,7 +107,7 @@ export default function FacultyDashboardPage() {
                 </div>
                 <div className="rounded bg-surface-container-low p-3">
                   <p className="text-label-sm text-tertiary">Reopened by students</p>
-                  <p className="text-headline-sm text-error">{metrics?.reopened_tickets ?? 0}</p>
+                  <p className="text-headline-sm text-error">{metrics?.reopened_queries ?? 0}</p>
                 </div>
                 <div className="rounded bg-surface-container-low p-3">
                   <p className="text-label-sm text-tertiary">Star mentee</p>
@@ -120,14 +120,14 @@ export default function FacultyDashboardPage() {
 
             <Panel tab="Resolution rate" tabIcon="speed">
               <GaugeChart
-                value={percentage(metrics?.resolved_tickets, metrics?.total_tickets, 1)}
+                value={percentage(metrics?.resolved_queries, metrics?.total_queries, 1)}
                 label="resolved"
                 height={210}
               />
             </Panel>
 
             <Panel tab="Status mix" tabIcon="donut_small">
-              <DonutChart data={statusData} centerLabel="tickets" height={210} />
+              <DonutChart data={statusData} centerLabel="queries" height={210} />
             </Panel>
           </div>
 
@@ -141,27 +141,27 @@ export default function FacultyDashboardPage() {
                 <EmptyState
                   icon="check_circle"
                   title="Nothing urgent right now"
-                  description="No unanswered or reopened tickets in your queue. Nice work."
+                  description="No unanswered or reopened queries in your queue. Nice work."
                 />
               ) : (
                 <ul className="divide-y divide-surface-container">
-                  {needsAttention.slice(0, 6).map((ticket) => (
-                    <li key={ticket.id}>
+                  {needsAttention.slice(0, 6).map((query) => (
+                    <li key={query.id}>
                       <Link
-                        to={`/faculty/tickets/${ticket.id}`}
+                        to={`/faculty/queries/${query.id}`}
                         className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-container-low"
                       >
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-label-md text-on-surface">{ticket.subject}</span>
+                          <span className="block truncate text-label-md text-on-surface">{query.subject}</span>
                           <span className="text-label-sm text-tertiary">
-                            {ticket.student?.full_name} · {ticket.ticket_code} ·{' '}
-                            {formatRelativeTime(ticket.last_message_at)}
+                            {query.student?.full_name} · {query.query_code} ·{' '}
+                            {formatRelativeTime(query.last_message_at)}
                           </span>
                         </span>
-                        <PriorityBadge priority={ticket.priority} />
-                        <CategoryBadge category={ticket.category} />
-                        <TicketStatusBadge status={ticket.status} />
-                        <ResolutionBadge resolutionStatus={ticket.resolution_status} />
+                        <PriorityBadge priority={query.priority} />
+                        <CategoryBadge category={query.category} />
+                        <QueryStatusBadge status={query.status} />
+                        <ResolutionBadge resolutionStatus={query.resolution_status} />
                       </Link>
                     </li>
                   ))}

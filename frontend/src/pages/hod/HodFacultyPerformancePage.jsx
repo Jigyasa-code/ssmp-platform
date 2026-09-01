@@ -15,8 +15,8 @@ import { CHART_COLORS } from '../../lib/constants.js';
 import { describeError, formatHours } from '../../lib/formatters.js';
 
 const SORTS = [
-  { value: 'resolved_tickets', label: 'Most resolved' },
-  { value: 'total_tickets', label: 'Most tickets' },
+  { value: 'resolved_queries', label: 'Most resolved' },
+  { value: 'total_queries', label: 'Most queries' },
   { value: 'mentee_count', label: 'Most mentees' },
   { value: 'avg_first_response_hours', label: 'Fastest first response', ascending: true },
   { value: 'resolution_rate_percent', label: 'Best resolution rate' },
@@ -27,7 +27,7 @@ export default function HodFacultyPerformancePage() {
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [sort, setSort] = useState('resolved_tickets');
+  const [sort, setSort] = useState('resolved_queries');
   const [search, setSearch] = useState('');
   const [downloading, setDownloading] = useState(null);
 
@@ -79,8 +79,8 @@ export default function HodFacultyPerformancePage() {
     () =>
       sorted.slice(0, 8).map((row) => ({
         name: row.faculty_name?.split(' ').slice(-1)[0] ?? '—',
-        resolved: row.resolved_tickets,
-        active: row.open_tickets + row.in_progress_tickets
+        resolved: row.resolved_queries,
+        active: row.open_queries + row.in_progress_queries
       })),
     [sorted]
   );
@@ -163,8 +163,8 @@ export default function HodFacultyPerformancePage() {
               { key: 'branch', header: 'Branch' },
               { key: 'employment_status', header: 'Status', render: (row) => <EmploymentBadge status={row.employment_status} /> },
               { key: 'mentee_count', header: 'Mentees', align: 'right' },
-              { key: 'total_tickets', header: 'Tickets', align: 'right' },
-              { key: 'resolved_tickets', header: 'Resolved', align: 'right' },
+              { key: 'total_queries', header: 'Queries', align: 'right' },
+              { key: 'resolved_queries', header: 'Resolved', align: 'right' },
               { key: 'reopened_resolutions', header: 'Reopened', align: 'right' },
               {
                 key: 'avg_first_response_hours',

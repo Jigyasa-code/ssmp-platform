@@ -122,7 +122,7 @@ This design system uses a logic-driven palette to manage complex information hie
 - **Secondary (Burnt Sienna):** A slightly more saturated and deep earth tone (#d0501a). Used for faculty-specific workflows and secondary actions that require professional distinction without the urgency of the primary color.
 - **Tertiary (Neutral Slate):** A sophisticated grayscale (#aaaaaa) used for administrative utility, subtle dividers, and non-brand specific system functions.
 - **Surface & Backgrounds:** Utilizes a pure white base (#ffffff) for the cleanest possible canvas, ensuring maximum contrast for data-heavy views and complex tables.
-- **Functional Colors:** Standardized Success, Warning, and Error (Red) are used strictly for system feedback and ticket statuses.
+- **Functional Colors:** Standardized Success, Warning, and Error (Red) are used strictly for system feedback and query statuses.
 
 ## Typography
 
@@ -172,4 +172,4 @@ The design system uses **Soft (Level 1)** roundedness.
 
 ### Input & Cards
 - **Input Fields:** Labeled on top, 1px border, 12px horizontal padding. Focus state uses a 2px primary ochre outline.
-- **Information Cards:** Header section with a subtle 1px bottom divider, followed by content. Footers are reserved for contextual actions (e.g., "View Ticket," "Approve").
+- **Information Cards:** Header section with a subtle 1px bottom divider, followed by content. Footers are reserved for contextual actions (e.g., "View Query," "Approve").

@@ -40,7 +40,7 @@ export default function StudentProfilePhotoPage() {
           </p>
           <h1 className="mt-1 text-headline-md text-on-surface">Add a profile photo</h1>
           <p className="mt-2 text-body-sm text-on-surface-variant">
-            Your mentor sees this next to your name on every ticket, so they know who they are talking to.
+            Your mentor sees this next to your name on every query, so they know who they are talking to.
             You can change it later from your profile.
           </p>
         </div>

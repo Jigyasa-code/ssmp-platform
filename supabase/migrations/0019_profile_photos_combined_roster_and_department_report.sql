@@ -43,7 +43,7 @@ create policy profile_photos_delete_own on storage.objects
   using (bucket_id = 'profile-photos' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- READ is open to any signed-in user, unlike the other buckets.
--- Reasoning: an avatar appears next to its owner's name in ticket threads,
+-- Reasoning: an avatar appears next to its owner's name in query threads,
 -- mentee tables and leaderboards, so scoping reads the way Form A uploads
 -- are scoped would leave most of them broken. A face photo is far less
 -- sensitive than a home address, the bucket is still private to the
@@ -89,11 +89,11 @@ begin
         'active_faculty',  (select count(*) from public.user_profiles where role = 'faculty' and employment_status = 'active'),
         'student_count',   (select count(*) from public.user_profiles where role = 'student'),
         'unassigned_students', (select count(*) from public.user_profiles where role = 'student' and assigned_mentor_id is null),
-        'total_tickets',   count(*),
-        'open_tickets',    count(*) filter (where status = 'Open'),
-        'in_progress_tickets', count(*) filter (where status = 'In Progress'),
-        'resolved_tickets',count(*) filter (where status = 'Resolved'),
-        'escalated_tickets', count(*) filter (where escalated_to_hod),
+        'total_queries',   count(*),
+        'open_queries',    count(*) filter (where status = 'Open'),
+        'in_progress_queries', count(*) filter (where status = 'In Progress'),
+        'resolved_queries',count(*) filter (where status = 'Resolved'),
+        'escalated_queries', count(*) filter (where escalated_to_hod),
         'avg_first_response_hours', coalesce(round(avg(extract(epoch from (first_response_at - created_at))/3600.0)
                                      filter (where first_response_at is not null)::numeric, 1), 0),
         'avg_resolution_hours', coalesce(round(avg(extract(epoch from (resolved_at - created_at))/3600.0)
@@ -103,7 +103,7 @@ begin
         'resolution_rate_percent',
             case when count(*) = 0 then 0
                  else round(100.0 * count(*) filter (where status = 'Resolved') / count(*), 1) end)
-      from public.support_tickets
+      from public.support_queries
       where created_at >= v_from and created_at < v_to),
 
     -- department-wide category mix (chart) ----------------------------
@@ -111,7 +111,7 @@ begin
       select coalesce(jsonb_agg(jsonb_build_object(
                'category', category, 'total', total, 'resolved', resolved) order by category), '[]'::jsonb)
       from (select category, count(*) as total, count(*) filter (where status = 'Resolved') as resolved
-              from public.support_tickets
+              from public.support_queries
              where created_at >= v_from and created_at < v_to
              group by category) c),
 
@@ -121,7 +121,7 @@ begin
         'open',        count(*) filter (where status = 'Open'),
         'in_progress', count(*) filter (where status = 'In Progress'),
         'resolved',    count(*) filter (where status = 'Resolved'))
-      from public.support_tickets
+      from public.support_queries
       where created_at >= v_from and created_at < v_to),
 
     -- monthly volume (chart) ------------------------------------------
@@ -132,13 +132,13 @@ begin
                    date_trunc('month', created_at)                    as sort_key,
                    count(*)                                           as created_count,
                    count(*) filter (where status = 'Resolved')        as resolved_count
-              from public.support_tickets
+              from public.support_queries
              where created_at >= v_from and created_at < v_to
              group by 1, 2 order by 2) m),
 
     -- one row per faculty member (the tabular half) --------------------
     'faculty', (
-      select coalesce(jsonb_agg(row order by (row ->> 'resolved_tickets')::int desc), '[]'::jsonb)
+      select coalesce(jsonb_agg(row order by (row ->> 'resolved_queries')::int desc), '[]'::jsonb)
       from (
         select jsonb_build_object(
           'id', f.id,
@@ -148,10 +148,10 @@ begin
           'employment_status', f.employment_status,
           'mentee_count', (select count(*) from public.user_profiles s
                             where s.assigned_mentor_id = f.id and s.role = 'student'),
-          'total_tickets',    count(t.id),
-          'open_tickets',     count(t.id) filter (where t.status = 'Open'),
-          'in_progress_tickets', count(t.id) filter (where t.status = 'In Progress'),
-          'resolved_tickets', count(t.id) filter (where t.status = 'Resolved'),
+          'total_queries',    count(t.id),
+          'open_queries',     count(t.id) filter (where t.status = 'Open'),
+          'in_progress_queries', count(t.id) filter (where t.status = 'In Progress'),
+          'resolved_queries', count(t.id) filter (where t.status = 'Resolved'),
           'reopened',         count(t.id) filter (where t.resolution_status = 'reopened'),
           'confirmed',        count(t.id) filter (where t.resolution_status = 'confirmed'),
           'avg_first_response_hours', coalesce(round(avg(extract(epoch from (t.first_response_at - t.created_at))/3600.0)
@@ -165,7 +165,7 @@ begin
                    else round(100.0 * count(t.id) filter (where t.status = 'Resolved') / count(t.id), 1) end
         ) as row
         from public.user_profiles f
-        left join public.support_tickets t
+        left join public.support_queries t
                on t.mentor_id = f.id and t.created_at >= v_from and t.created_at < v_to
         where f.role = 'faculty'
         group by f.id

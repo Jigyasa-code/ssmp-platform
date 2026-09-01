@@ -2,9 +2,9 @@
 -- 0007  Authorization helpers
 -- =====================================================================
 -- These are the database-level equivalents of the Express guards that the
--- old codebase had in ticket.controller.js:
---     isStudentOwner  ->  ticket.student_id = auth.uid()
---     isAssignedMentor->  public.is_mentor_of_ticket()
+-- old codebase had in query.controller.js:
+--     isStudentOwner  ->  query.student_id = auth.uid()
+--     isAssignedMentor->  public.is_mentor_of_query()
 --     isHod           ->  public.is_hod()
 -- The logic is unchanged; only its enforcement point moved from Node
 -- middleware into Postgres, where it also covers Realtime subscriptions
@@ -105,8 +105,8 @@ as $$
       or public.is_hod();
 $$;
 
--- Caller may read this ticket: owner, assigned mentor, or HOD.
-create or replace function public.can_access_ticket(p_ticket_id uuid)
+-- Caller may read this query: owner, assigned mentor, or HOD.
+create or replace function public.can_access_query(p_query_id uuid)
 returns boolean
 language sql
 stable
@@ -114,8 +114,8 @@ security definer
 set search_path = public, pg_temp
 as $$
   select exists (
-    select 1 from public.support_tickets t
-    where t.id = p_ticket_id
+    select 1 from public.support_queries t
+    where t.id = p_query_id
       and (
         t.student_id = auth.uid()          -- isStudentOwner
         or t.mentor_id = auth.uid()        -- isAssignedMentor
@@ -158,7 +158,7 @@ revoke all on function public.is_student()                       from public, an
 revoke all on function public.my_mentor_id()                      from public, anon;
 revoke all on function public.is_mentor_of(uuid)                 from public, anon;
 revoke all on function public.can_access_student(uuid)           from public, anon;
-revoke all on function public.can_access_ticket(uuid)            from public, anon;
+revoke all on function public.can_access_query(uuid)            from public, anon;
 revoke all on function public.can_view_student_gpa(uuid)         from public, anon;
 
 grant execute on function public.current_user_role()             to authenticated, service_role;
@@ -168,7 +168,7 @@ grant execute on function public.is_student()                    to authenticate
 grant execute on function public.my_mentor_id()                  to authenticated, service_role;
 grant execute on function public.is_mentor_of(uuid)              to authenticated, service_role;
 grant execute on function public.can_access_student(uuid)        to authenticated, service_role;
-grant execute on function public.can_access_ticket(uuid)         to authenticated, service_role;
+grant execute on function public.can_access_query(uuid)         to authenticated, service_role;
 grant execute on function public.can_view_student_gpa(uuid)      to authenticated, service_role;
 
 -- =====================================================================

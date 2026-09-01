@@ -61,26 +61,26 @@ begin
     end if;
   end loop;
 
-  -- sample tickets ----------------------------------------------------
-  insert into public.support_tickets (student_id, mentor_id, subject, category, priority, status)
+  -- sample queries ----------------------------------------------------
+  insert into public.support_queries (student_id, mentor_id, subject, category, priority, status)
   select v_student1, v_faculty1, 'Cannot log in to the ERP portal', 'ERP/Tech', 'High', 'Open'
-  where not exists (select 1 from public.support_tickets where subject = 'Cannot log in to the ERP portal');
+  where not exists (select 1 from public.support_queries where subject = 'Cannot log in to the ERP portal');
 
-  insert into public.support_tickets (student_id, mentor_id, subject, category, priority, status)
+  insert into public.support_queries (student_id, mentor_id, subject, category, priority, status)
   select v_student4, v_faculty3, 'Lab computer PC-12 not booting', 'Infrastructure', 'Medium', 'Open'
-  where not exists (select 1 from public.support_tickets where subject = 'Lab computer PC-12 not booting');
+  where not exists (select 1 from public.support_queries where subject = 'Lab computer PC-12 not booting');
 
-  insert into public.ticket_messages (ticket_id, sender_id, body)
+  insert into public.query_messages (query_id, sender_id, body)
   select t.id, t.student_id, 'The ERP portal says invalid credentials even though I reset my password twice.'
-    from public.support_tickets t
+    from public.support_queries t
    where t.subject = 'Cannot log in to the ERP portal'
-     and not exists (select 1 from public.ticket_messages m where m.ticket_id = t.id);
+     and not exists (select 1 from public.query_messages m where m.query_id = t.id);
 
-  insert into public.ticket_messages (ticket_id, sender_id, body)
+  insert into public.query_messages (query_id, sender_id, body)
   select t.id, t.student_id, 'PC 12 in the ECE lab does not boot, it only beeps.'
-    from public.support_tickets t
+    from public.support_queries t
    where t.subject = 'Lab computer PC-12 not booting'
-     and not exists (select 1 from public.ticket_messages m where m.ticket_id = t.id);
+     and not exists (select 1 from public.query_messages m where m.query_id = t.id);
 
   -- shared canned replies --------------------------------------------
   insert into public.canned_replies (owner_id, title, body, is_global)

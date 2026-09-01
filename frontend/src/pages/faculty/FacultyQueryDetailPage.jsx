@@ -7,20 +7,20 @@ import EmptyState from '../../components/ui/EmptyState.jsx';
 import { PageLoader } from '../../components/ui/Skeleton.jsx';
 import Modal, { ConfirmDialog } from '../../components/ui/Modal.jsx';
 import { SelectField, TextAreaField } from '../../components/ui/FormControls.jsx';
-import { TicketStatusBadge, CategoryBadge, PriorityBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
-import TicketConversation from '../../components/tickets/TicketConversation.jsx';
+import { QueryStatusBadge, CategoryBadge, PriorityBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
+import QueryConversation from '../../components/queries/QueryConversation.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
-import { useTicketThread } from '../../hooks/useRealtimeTickets.js';
+import { useQueryThread } from '../../hooks/useRealtimeQueries.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { formatDateTime, formatHours } from '../../lib/formatters.js';
-import { TICKET_PRIORITIES } from '../../lib/constants.js';
+import { QUERY_PRIORITIES } from '../../lib/constants.js';
 
 /** Must match max_resolution_rejections() in migration 0018. */
 const MAX_REJECTIONS = 3;
 
-export default function FacultyTicketDetailPage({ isHodView = false }) {
-  const { ticketId } = useParams();
-  const { ticket, messages, loading, error, reload, appendMessage } = useTicketThread(ticketId);
+export default function FacultyQueryDetailPage({ isHodView = false }) {
+  const { queryId } = useParams();
+  const { query, messages, loading, error, reload, appendMessage } = useQueryThread(queryId);
   const { run, pending } = useAsyncAction();
   const [resolveOpen, setResolveOpen] = useState(false);
   const [escalateOpen, setEscalateOpen] = useState(false);
@@ -39,8 +39,8 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
   const resolve = () =>
     run(
       async () => {
-        const { error: rpcError } = await supabase.rpc('resolve_support_ticket', {
-          p_ticket_id: ticket.id,
+        const { error: rpcError } = await supabase.rpc('resolve_support_query', {
+          p_query_id: query.id,
           p_note: null
         });
         if (rpcError) throw rpcError;
@@ -56,13 +56,13 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
 
   /**
    * After 3 rejections the mentor can hand the disagreement to the HOD
-   * rather than keep re-resolving a ticket the student will not accept.
+   * rather than keep re-resolving a query the student will not accept.
    */
   const escalate = () =>
     run(
       async () => {
-        const { error: rpcError } = await supabase.rpc('escalate_ticket_to_hod', {
-          p_ticket_id: ticket.id,
+        const { error: rpcError } = await supabase.rpc('escalate_query_to_hod', {
+          p_query_id: query.id,
           p_note: escalationNote.trim() || null
         });
         if (rpcError) throw rpcError;
@@ -81,25 +81,25 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
     run(
       async () => {
         const { error: updateError } = await supabase
-          .from('support_tickets')
+          .from('support_queries')
           .update({ priority })
-          .eq('id', ticket.id);
+          .eq('id', query.id);
         if (updateError) throw updateError;
       },
       { successMessage: `Priority set to ${priority}.`, onSuccess: reload }
     );
 
-  if (loading) return <PortalShell><PageLoader label="Loading ticket..." /></PortalShell>;
+  if (loading) return <PortalShell><PageLoader label="Loading query..." /></PortalShell>;
 
-  if (error || !ticket) {
+  if (error || !query) {
     return (
       <PortalShell>
         <EmptyState
           icon="error"
-          title="Ticket not available"
-          description={error ?? 'This ticket does not exist, or it is not assigned to you.'}
+          title="Query not available"
+          description={error ?? 'This query does not exist, or it is not assigned to you.'}
           action={
-            <Link to={isHodView ? '/hod/tickets' : '/faculty/tickets'} className="btn-primary">
+            <Link to={isHodView ? '/hod/queries' : '/faculty/queries'} className="btn-primary">
               Back to the queue
             </Link>
           }
@@ -108,18 +108,18 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
     );
   }
 
-  const canResolve = ticket.status !== 'Resolved' || ticket.resolution_status === 'reopened';
+  const canResolve = query.status !== 'Resolved' || query.resolution_status === 'reopened';
 
   return (
     <PortalShell>
       <PageHeader
         breadcrumb={
-          <Link to={isHodView ? '/hod/tickets' : '/faculty/tickets'} className="hover:text-primary hover:underline">
-            ← {isHodView ? 'All tickets' : 'Ticket queue'}
+          <Link to={isHodView ? '/hod/queries' : '/faculty/queries'} className="hover:text-primary hover:underline">
+            ← {isHodView ? 'All queries' : 'Query queue'}
           </Link>
         }
-        title={ticket.subject}
-        subtitle={`${ticket.ticket_code} · raised by ${ticket.student?.full_name} on ${formatDateTime(ticket.created_at)}`}
+        title={query.subject}
+        subtitle={`${query.query_code} · raised by ${query.student?.full_name} on ${formatDateTime(query.created_at)}`}
         actions={
           canResolve && (
             <button type="button" className="btn-primary" onClick={() => setResolveOpen(true)} disabled={pending}>
@@ -131,28 +131,28 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <TicketStatusBadge status={ticket.status} />
-        <ResolutionBadge resolutionStatus={ticket.resolution_status} />
-        <CategoryBadge category={ticket.category} />
-        <PriorityBadge priority={ticket.priority} />
+        <QueryStatusBadge status={query.status} />
+        <ResolutionBadge resolutionStatus={query.resolution_status} />
+        <CategoryBadge category={query.category} />
+        <PriorityBadge priority={query.priority} />
       </div>
 
-      {ticket.resolution_status === 'reopened' && (
+      {query.resolution_status === 'reopened' && (
         <div className="mb-4 rounded-lg border-l-4 border-error bg-error-container/50 p-4">
           <p className="text-label-md text-on-surface">
-            The student reopened this ticket
-            {ticket.reopen_count > 1 ? ` (${ticket.reopen_count} times)` : ''}
+            The student reopened this query
+            {query.reopen_count > 1 ? ` (${query.reopen_count} times)` : ''}
           </p>
           <p className="mt-1 text-body-sm text-on-surface-variant">
-            {ticket.student_confirmation_comment || 'They reported the issue is not resolved.'}
+            {query.student_confirmation_comment || 'They reported the issue is not resolved.'}
           </p>
         </div>
       )}
 
-      {ticket.reopen_count >= MAX_REJECTIONS && !ticket.escalated_to_hod && (
+      {query.reopen_count >= MAX_REJECTIONS && !query.escalated_to_hod && (
         <div className="mb-4 rounded-lg border-l-4 border-warning bg-warning-container/50 p-4">
           <p className="text-label-md text-on-surface">
-            This ticket has been rejected {ticket.reopen_count} times
+            This query has been rejected {query.reopen_count} times
           </p>
           <p className="mt-1 text-body-sm text-on-surface-variant">
             The student cannot reject it again. If you believe the issue is resolved, refer it to the Head of
@@ -165,20 +165,20 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
         </div>
       )}
 
-      {ticket.escalated_to_hod && (
+      {query.escalated_to_hod && (
         <div className="mb-4 rounded-lg border-l-4 border-info bg-info-container/50 p-4">
           <p className="text-label-md text-on-surface">Referred to the Head of Department</p>
           <p className="mt-1 text-body-sm text-on-surface-variant">
-            Sent on {formatDateTime(ticket.escalated_at)}.
-            {ticket.escalation_note ? ` Note: ${ticket.escalation_note}` : ''}
+            Sent on {formatDateTime(query.escalated_at)}.
+            {query.escalation_note ? ` Note: ${query.escalation_note}` : ''}
           </p>
         </div>
       )}
 
-      {ticket.resolution_status === 'pending_confirmation' && (
+      {query.resolution_status === 'pending_confirmation' && (
         <div className="mb-4 rounded-lg border-l-4 border-info bg-info-container/50 p-4">
           <p className="text-body-sm text-on-surface-variant">
-            Waiting for {ticket.student?.full_name} to confirm the fix. The ticket closes once they answer yes.
+            Waiting for {query.student?.full_name} to confirm the fix. The query closes once they answer yes.
           </p>
         </div>
       )}
@@ -186,13 +186,13 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
       <div className="grid gap-4 lg:grid-cols-3">
         <Panel tab="Conversation" tabIcon="forum" className="lg:col-span-2" bodyClassName="">
           <div className="h-[600px]">
-            <TicketConversation
-              ticket={ticket}
+            <QueryConversation
+              query={query}
               messages={messages}
               onPosted={reload}
               onOptimisticMessage={appendMessage}
               cannedReplies={cannedReplies}
-              readOnly={ticket.resolution_status === 'confirmed'}
+              readOnly={query.resolution_status === 'confirmed'}
             />
           </div>
         </Panel>
@@ -201,12 +201,12 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
           <Panel tab="Student" tabIcon="person">
             <dl className="space-y-3 text-body-sm">
               {[
-                ['Name', ticket.student?.full_name],
-                ['Registration no.', ticket.student?.login_id],
-                ['Email', ticket.student?.email],
-                ['Section', ticket.student?.section],
-                ['Branch', ticket.student?.branch],
-                ['Semester', ticket.student?.semester_label]
+                ['Name', query.student?.full_name],
+                ['Registration no.', query.student?.login_id],
+                ['Email', query.student?.email],
+                ['Section', query.student?.section],
+                ['Branch', query.student?.branch],
+                ['Semester', query.student?.semester_label]
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
@@ -214,33 +214,33 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
                 </div>
               ))}
             </dl>
-            {!isHodView && ticket.student?.id && (
-              <Link to={`/faculty/mentees/${ticket.student.id}`} className="btn-secondary btn-sm mt-4 w-full">
+            {!isHodView && query.student?.id && (
+              <Link to={`/faculty/mentees/${query.student.id}`} className="btn-secondary btn-sm mt-4 w-full">
                 Open mentee profile
               </Link>
             )}
           </Panel>
 
-          <Panel tab="Ticket controls" tabIcon="tune">
+          <Panel tab="Query controls" tabIcon="tune">
             <SelectField
               label="Priority"
               name="priority"
-              value={ticket.priority}
+              value={query.priority}
               onChange={(event) => changePriority(event.target.value)}
-              options={TICKET_PRIORITIES}
+              options={QUERY_PRIORITIES}
               disabled={pending}
             />
             <dl className="mt-4 space-y-3 text-body-sm">
               {[
-                ['First response', ticket.first_response_at ? formatDateTime(ticket.first_response_at) : 'Not yet'],
+                ['First response', query.first_response_at ? formatDateTime(query.first_response_at) : 'Not yet'],
                 ['Time to first response', formatHours(
-                  ticket.first_response_at
-                    ? (new Date(ticket.first_response_at) - new Date(ticket.created_at)) / 3600000
+                  query.first_response_at
+                    ? (new Date(query.first_response_at) - new Date(query.created_at)) / 3600000
                     : 0
                 )],
-                ['Resolved on', ticket.resolved_at ? formatDateTime(ticket.resolved_at) : 'Not yet'],
-                ['Times reopened', String(ticket.reopen_count ?? 0)],
-                ['Student rating', ticket.satisfaction_rating ? `${ticket.satisfaction_rating}/5` : 'Not rated']
+                ['Resolved on', query.resolved_at ? formatDateTime(query.resolved_at) : 'Not yet'],
+                ['Times reopened', String(query.reopen_count ?? 0)],
+                ['Student rating', query.satisfaction_rating ? `${query.satisfaction_rating}/5` : 'Not rated']
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between gap-3">
                   <dt className="text-tertiary">{label}</dt>
@@ -256,8 +256,8 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
         open={escalateOpen}
         onClose={() => setEscalateOpen(false)}
         size="sm"
-        title="Refer this ticket to the HOD?"
-        description={`${ticket.student?.full_name} has rejected the resolution ${ticket.reopen_count} times.`}
+        title="Refer this query to the HOD?"
+        description={`${query.student?.full_name} has rejected the resolution ${query.reopen_count} times.`}
         footer={
           <>
             <button type="button" className="btn-ghost" onClick={() => setEscalateOpen(false)} disabled={pending}>
@@ -276,7 +276,7 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
           value={escalationNote}
           onChange={(event) => setEscalationNote(event.target.value)}
           placeholder="e.g. The ERP password was reset and verified working on 6 August; the student still reports it is broken."
-          hint="This is sent to every HOD along with the ticket. The student is told the ticket was referred, but not shown this note."
+          hint="This is sent to every HOD along with the query. The student is told the query was referred, but not shown this note."
         />
       </Modal>
 
@@ -285,9 +285,9 @@ export default function FacultyTicketDetailPage({ isHodView = false }) {
         onClose={() => setResolveOpen(false)}
         onConfirm={resolve}
         pending={pending}
-        title="Mark this ticket resolved?"
+        title="Mark this query resolved?"
         confirmLabel="Mark resolved"
-        message={`${ticket.student?.full_name} will be asked to confirm whether the issue is actually fixed. If they say no, the ticket reopens and comes back to you.`}
+        message={`${query.student?.full_name} will be asked to confirm whether the issue is actually fixed. If they say no, the query reopens and comes back to you.`}
       />
     </PortalShell>
   );

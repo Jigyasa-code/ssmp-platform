@@ -21,7 +21,7 @@
 -- ---------------------------------------------------------------------
 -- A Cluster Head does exactly two things: upload attendance (every 15
 -- days) and upload backlog/GPA data (every 6 months). They get their own
--- portal and deliberately have NO access to tickets, and no access to
+-- portal and deliberately have NO access to queries, and no access to
 -- student profiles beyond the narrow projection needed to match an
 -- uploaded row to the right student (see resolve_students_for_upload()
 -- in migration 0021).

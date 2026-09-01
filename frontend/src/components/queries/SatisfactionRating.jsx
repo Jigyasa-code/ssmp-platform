@@ -2,22 +2,22 @@ import { useState } from 'react';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 
-export default function SatisfactionRating({ ticket, onRated }) {
+export default function SatisfactionRating({ query, onRated }) {
   const { run, pending } = useAsyncAction();
   const [hovered, setHovered] = useState(0);
 
-  if (ticket.status !== 'Resolved') return null;
+  if (query.status !== 'Resolved') return null;
 
-  if (ticket.satisfaction_rating) {
+  if (query.satisfaction_rating) {
     return (
       <p className="flex items-center gap-1.5 text-body-sm text-on-surface-variant">
         You rated this
-        <span className="flex" aria-label={`${ticket.satisfaction_rating} out of 5`}>
+        <span className="flex" aria-label={`${query.satisfaction_rating} out of 5`}>
           {[1, 2, 3, 4, 5].map((star) => (
             <span
               key={star}
               className="material-symbols-outlined text-[18px] text-warning"
-              style={{ fontVariationSettings: star <= ticket.satisfaction_rating ? "'FILL' 1" : "'FILL' 0" }}
+              style={{ fontVariationSettings: star <= query.satisfaction_rating ? "'FILL' 1" : "'FILL' 0" }}
               aria-hidden="true"
             >
               star
@@ -31,8 +31,8 @@ export default function SatisfactionRating({ ticket, onRated }) {
   const submit = (rating) =>
     run(
       async () => {
-        const { error } = await supabase.rpc('rate_support_ticket', {
-          p_ticket_id: ticket.id,
+        const { error } = await supabase.rpc('rate_support_query', {
+          p_query_id: query.id,
           p_rating: rating
         });
         if (error) throw error;

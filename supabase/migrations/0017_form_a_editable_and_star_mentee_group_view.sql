@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0017  Form A becomes student-editable  +  star mentee group ticket view
+-- 0017  Form A becomes student-editable  +  star mentee group query view
 -- =====================================================================
 -- CHANGE 1 — Form A is no longer locked after submission.
 --   Students correct their own record from their profile page; no HOD
@@ -8,9 +8,9 @@
 --   record behaves like ordinary profile data.
 --
 -- CHANGE 2 — the star mentee (student representative) gets a read-only
---   list of every ticket raised inside their mentor group.
+--   list of every query raised inside their mentor group.
 --   Deliberately exposed through a narrow function rather than a policy:
---   the projection omits ticket ids, message bodies, emails and
+--   the projection omits query ids, message bodies, emails and
 --   registration numbers, so the representative can see WHAT the group is
 --   raising without being able to open a thread, reply, resolve, or read
 --   another student's profile.
@@ -164,8 +164,8 @@ revoke all on function public.submit_student_form_a(jsonb) from public, anon;
 grant execute on function public.submit_student_form_a(jsonb) to authenticated;
 
 
--- ── 2. Star mentee: read-only view of the mentor group's tickets ──────
-create or replace function public.get_mentor_group_tickets()
+-- ── 2. Star mentee: read-only view of the mentor group's queries ──────
+create or replace function public.get_mentor_group_queries()
 returns jsonb
 language plpgsql
 stable
@@ -181,18 +181,18 @@ begin
     raise exception 'Not permitted' using errcode = '42501';
   end if;
   if not v_me.is_star_mentee then
-    raise exception 'Only the student representative can view the group ticket list'
+    raise exception 'Only the student representative can view the group query list'
       using errcode = '42501';
   end if;
   if v_me.assigned_mentor_id is null then
     return '[]'::jsonb;
   end if;
 
-  -- Narrow projection on purpose. No ticket id (so no thread can be
+  -- Narrow projection on purpose. No query id (so no thread can be
   -- opened), no message bodies, no email, no registration number.
   return coalesce((
     select jsonb_agg(jsonb_build_object(
-             'ticket_code',       t.ticket_code,
+             'query_code',       t.query_code,
              'subject',           t.subject,
              'category',          t.category,
              'priority',          t.priority,
@@ -204,18 +204,18 @@ begin
              'section',           s.section,
              'is_mine',           (t.student_id = auth.uid())
            ) order by t.last_message_at desc)
-      from public.support_tickets t
+      from public.support_queries t
       join public.user_profiles s on s.id = t.student_id
      where t.mentor_id = v_me.assigned_mentor_id
   ), '[]'::jsonb);
 end;
 $$;
 
-comment on function public.get_mentor_group_tickets is
-  'Feature 7 companion — read-only ticket list for the star mentee. Returns a deliberately narrow projection so the representative cannot open threads, reply, resolve, or read another student''s profile.';
+comment on function public.get_mentor_group_queries is
+  'Feature 7 companion — read-only query list for the star mentee. Returns a deliberately narrow projection so the representative cannot open threads, reply, resolve, or read another student''s profile.';
 
-revoke all on function public.get_mentor_group_tickets() from public, anon;
-grant execute on function public.get_mentor_group_tickets() to authenticated;
+revoke all on function public.get_mentor_group_queries() from public, anon;
+grant execute on function public.get_mentor_group_queries() to authenticated;
 
 
 -- ── 3. Tell the new representative what the role actually unlocks ─────
@@ -231,10 +231,10 @@ begin
       new.id, new.star_mentee_assigned_by, 'star_mentee_assigned',
       'You are now the student representative',
       'Your mentor has marked you as the star mentee for your mentor group. '
-      || 'A new "Group Tickets" section has been added to your portal, where you can '
-      || 'see the tickets raised by students in your group. It is view-only — you '
+      || 'A new "Group Queries" section has been added to your portal, where you can '
+      || 'see the queries raised by students in your group. It is view-only — you '
       || 'cannot reply, resolve, or open a student''s profile.',
-      null, '/student/group-tickets'
+      null, '/student/group-queries'
     );
   end if;
   return new;

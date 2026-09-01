@@ -4,7 +4,7 @@
 
 -- ── Realtime ──────────────────────────────────────────────────────────
 -- Realtime respects RLS: a subscriber only receives rows their SELECT
--- policy already allows. This is what makes a ticket raised in the
+-- policy already allows. This is what makes a query raised in the
 -- student portal pop up in the faculty portal with no refresh.
 do $$
 begin
@@ -20,7 +20,7 @@ declare
   t text;
 begin
   foreach t in array array[
-    'support_tickets', 'ticket_messages', 'notifications',
+    'support_queries', 'query_messages', 'notifications',
     'user_profiles', 'student_achievements'
   ] loop
     if not exists (
@@ -34,8 +34,8 @@ end $$;
 
 -- REPLICA IDENTITY FULL so UPDATE events carry the old row too, which the
 -- client needs to tell "status changed" from "someone typed a message".
-alter table public.support_tickets      replica identity full;
-alter table public.ticket_messages      replica identity full;
+alter table public.support_queries      replica identity full;
+alter table public.query_messages      replica identity full;
 alter table public.notifications        replica identity full;
 alter table public.student_achievements replica identity full;
 

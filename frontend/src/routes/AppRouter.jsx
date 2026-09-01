@@ -24,20 +24,20 @@ import NotFoundPage from '../pages/NotFoundPage.jsx';
 
 // Code-split every portal so a student never downloads the HOD screens.
 const StudentDashboardPage = lazy(() => import('../pages/student/StudentDashboardPage.jsx'));
-const StudentTicketsPage = lazy(() => import('../pages/student/StudentTicketsPage.jsx'));
-const StudentTicketDetailPage = lazy(() => import('../pages/student/StudentTicketDetailPage.jsx'));
+const StudentQueriesPage = lazy(() => import('../pages/student/StudentQueriesPage.jsx'));
+const StudentQueryDetailPage = lazy(() => import('../pages/student/StudentQueryDetailPage.jsx'));
 const StudentOnboardingFormPage = lazy(() => import('../pages/student/StudentOnboardingFormPage.jsx'));
 const StudentAcademicsPage = lazy(() => import('../pages/student/StudentAcademicsPage.jsx'));
 const StudentAchievementsPage = lazy(() => import('../pages/student/StudentAchievementsPage.jsx'));
 const StudentProfilePage = lazy(() => import('../pages/student/StudentProfilePage.jsx'));
-const StudentGroupTicketsPage = lazy(() => import('../pages/student/StudentGroupTicketsPage.jsx'));
+const StudentGroupQueriesPage = lazy(() => import('../pages/student/StudentGroupQueriesPage.jsx'));
 const StudentProfilePhotoPage = lazy(() => import('../pages/student/StudentProfilePhotoPage.jsx'));
 const StudentSurveyPage = lazy(() => import('../pages/student/StudentSurveyPage.jsx'));
 const StudentSurveyTrackingPage = lazy(() => import('../pages/student/StudentSurveyTrackingPage.jsx'));
 
 const FacultyDashboardPage = lazy(() => import('../pages/faculty/FacultyDashboardPage.jsx'));
-const FacultyTicketQueuePage = lazy(() => import('../pages/faculty/FacultyTicketQueuePage.jsx'));
-const FacultyTicketDetailPage = lazy(() => import('../pages/faculty/FacultyTicketDetailPage.jsx'));
+const FacultyQueryQueuePage = lazy(() => import('../pages/faculty/FacultyQueryQueuePage.jsx'));
+const FacultyQueryDetailPage = lazy(() => import('../pages/faculty/FacultyQueryDetailPage.jsx'));
 const FacultyMenteesPage = lazy(() => import('../pages/faculty/FacultyMenteesPage.jsx'));
 const FacultyMenteeDetailPage = lazy(() => import('../pages/faculty/FacultyMenteeDetailPage.jsx'));
 const FacultyActivityReportPage = lazy(() => import('../pages/faculty/FacultyActivityReportPage.jsx'));
@@ -121,31 +121,31 @@ export default function AppRouter() {
           }
         />
         <Route
-          path="/student/tickets"
+          path="/student/queries"
           element={
             <Protected role="student">
               <RequireOnboarding>
-                <StudentTicketsPage />
+                <StudentQueriesPage />
               </RequireOnboarding>
             </Protected>
           }
         />
         <Route
-          path="/student/tickets/:ticketId"
+          path="/student/queries/:queryId"
           element={
             <Protected role="student">
               <RequireOnboarding>
-                <StudentTicketDetailPage />
+                <StudentQueryDetailPage />
               </RequireOnboarding>
             </Protected>
           }
         />
         <Route
-          path="/student/group-tickets"
+          path="/student/group-queries"
           element={
             <Protected role="student">
               <RequireOnboarding>
-                <StudentGroupTicketsPage />
+                <StudentGroupQueriesPage />
               </RequireOnboarding>
             </Protected>
           }
@@ -203,8 +203,8 @@ export default function AppRouter() {
 
         {/* ── Faculty portal ─────────────────────────────────────────── */}
         <Route path="/faculty" element={<Protected role="faculty"><FacultyDashboardPage /></Protected>} />
-        <Route path="/faculty/tickets" element={<Protected role="faculty"><FacultyTicketQueuePage /></Protected>} />
-        <Route path="/faculty/tickets/:ticketId" element={<Protected role="faculty"><FacultyTicketDetailPage /></Protected>} />
+        <Route path="/faculty/queries" element={<Protected role="faculty"><FacultyQueryQueuePage /></Protected>} />
+        <Route path="/faculty/queries/:queryId" element={<Protected role="faculty"><FacultyQueryDetailPage /></Protected>} />
         <Route path="/faculty/mentees" element={<Protected role="faculty"><FacultyMenteesPage /></Protected>} />
         <Route path="/faculty/mentees/:studentId" element={<Protected role="faculty"><FacultyMenteeDetailPage /></Protected>} />
         <Route path="/faculty/at-risk" element={<Protected role="faculty"><FacultyAtRiskPage /></Protected>} />
@@ -213,8 +213,8 @@ export default function AppRouter() {
 
         {/* ── HOD portal ─────────────────────────────────────────────── */}
         <Route path="/hod" element={<Protected role="hod"><HodDashboardPage /></Protected>} />
-        <Route path="/hod/tickets" element={<Protected role="hod"><FacultyTicketQueuePage isHodView /></Protected>} />
-        <Route path="/hod/tickets/:ticketId" element={<Protected role="hod"><FacultyTicketDetailPage isHodView /></Protected>} />
+        <Route path="/hod/queries" element={<Protected role="hod"><FacultyQueryQueuePage isHodView /></Protected>} />
+        <Route path="/hod/queries/:queryId" element={<Protected role="hod"><FacultyQueryDetailPage isHodView /></Protected>} />
         <Route path="/hod/performance" element={<Protected role="hod"><HodFacultyPerformancePage /></Protected>} />
         <Route path="/hod/reports" element={<Protected role="hod"><FacultyActivityReportPage isHodView /></Protected>} />
         <Route path="/hod/roster" element={<Protected role="hod"><HodFacultyRosterPage /></Protected>} />

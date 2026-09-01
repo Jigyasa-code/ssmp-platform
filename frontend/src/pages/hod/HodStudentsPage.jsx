@@ -25,7 +25,7 @@ export default function HodStudentsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const [{ data: rows, error }, { data: faculty }] = await Promise.all([
-      supabase.from('student_ticket_summary').select('*').order('student_name'),
+      supabase.from('student_query_summary').select('*').order('student_name'),
       supabase.from('user_profiles').select('id, full_name').eq('role', 'faculty')
     ]);
     if (error) toast.error(describeError(error));
@@ -43,7 +43,7 @@ export default function HodStudentsPage() {
     return students.filter((student) => {
       if (filter === 'unassigned' && student.assigned_mentor_id) return false;
       if (filter === 'pending_form_a' && student.form_a_completed) return false;
-      if (filter === 'with_open' && student.open_tickets + student.in_progress_tickets === 0) return false;
+      if (filter === 'with_open' && student.open_queries + student.in_progress_queries === 0) return false;
       if (!term) return true;
       return (
         student.student_name?.toLowerCase().includes(term) ||
@@ -58,7 +58,7 @@ export default function HodStudentsPage() {
       total: students.length,
       unassigned: students.filter((s) => !s.assigned_mentor_id).length,
       pendingForm: students.filter((s) => !s.form_a_completed).length,
-      withOpen: students.filter((s) => s.open_tickets + s.in_progress_tickets > 0).length
+      withOpen: students.filter((s) => s.open_queries + s.in_progress_queries > 0).length
     }),
     [students]
   );
@@ -82,7 +82,7 @@ export default function HodStudentsPage() {
           tone={summary.unassigned ? 'error' : 'success'} />
         <StatCard label="Form A pending" value={summary.pendingForm} icon="assignment_late"
           tone={summary.pendingForm ? 'warning' : 'success'} />
-        <StatCard label="With active tickets" value={summary.withOpen} icon="pending_actions" tone="info" />
+        <StatCard label="With active queries" value={summary.withOpen} icon="pending_actions" tone="info" />
       </div>
 
       <Panel tab="Filters" tabIcon="filter_alt" className="mb-4">
@@ -94,7 +94,7 @@ export default function HodStudentsPage() {
             { value: 'all', label: 'All', count: students.length },
             { value: 'unassigned', label: 'No mentor', count: summary.unassigned },
             { value: 'pending_form_a', label: 'Form A pending', count: summary.pendingForm },
-            { value: 'with_open', label: 'Active tickets', count: summary.withOpen }
+            { value: 'with_open', label: 'Active queries', count: summary.withOpen }
           ]}
         />
       </Panel>
@@ -138,7 +138,7 @@ export default function HodStudentsPage() {
                     <span className="chip bg-warning-container text-on-warning-container">Pending</span>
                   )
               },
-              { key: 'total_tickets', header: 'Tickets', align: 'right' }
+              { key: 'total_queries', header: 'Queries', align: 'right' }
             ]}
             rows={filtered}
             rowKey={(row) => row.student_id}

@@ -2,7 +2,7 @@
  * NotificationProvider
  * Subscribes to the notifications table over Supabase Realtime. This is
  * the mechanism that makes the three portals feel connected: a student
- * raising a ticket, a faculty resolving one, or the HOD reassigning a
+ * raising a query, a faculty resolving one, or the HOD reassigning a
  * mentor all land here within a second, with no polling.
  */
 

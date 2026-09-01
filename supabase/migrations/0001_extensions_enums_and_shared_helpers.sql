@@ -19,18 +19,18 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create type public.ticket_category as enum ('Academic', 'ERP/Tech', 'Infrastructure');
+  create type public.query_category as enum ('Academic', 'ERP/Tech', 'Infrastructure');
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create type public.ticket_status as enum ('Open', 'In Progress', 'Resolved');
+  create type public.query_status as enum ('Open', 'In Progress', 'Resolved');
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create type public.ticket_priority as enum ('Low', 'Medium', 'High', 'Urgent');
+  create type public.query_priority as enum ('Low', 'Medium', 'High', 'Urgent');
 exception when duplicate_object then null; end $$;
 
--- Feature 3 — student confirmation loop after faculty marks a ticket resolved
+-- Feature 3 — student confirmation loop after faculty marks a query resolved
 do $$ begin
   create type public.resolution_status as enum ('none', 'pending_confirmation', 'confirmed', 'reopened');
 exception when duplicate_object then null; end $$;
@@ -62,12 +62,12 @@ exception when duplicate_object then null; end $$;
 
 do $$ begin
   create type public.notification_type as enum (
-    'ticket_created',
-    'ticket_message',
-    'ticket_resolution_pending',
-    'ticket_confirmed',
-    'ticket_reopened',
-    'ticket_rated',
+    'query_created',
+    'query_message',
+    'query_resolution_pending',
+    'query_confirmed',
+    'query_reopened',
+    'query_rated',
     'mentor_reassigned',
     'star_mentee_assigned',
     'achievement_verified',
