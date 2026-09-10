@@ -175,6 +175,32 @@ export const AT_RISK_MEETING_STATUS_LABELS = {
   cancelled: 'Cancelled'
 };
 
+/**
+ * Counselling request states. A plain CHECK constraint in migration 0029,
+ * not an enum — three fixed values driving a chip colour did not justify
+ * their own migration file for the enum ordering hazard (§11.5).
+ *
+ * Student and mentor read the same row differently: "Sent" is what the
+ * student needs to know, "Needs a reply" is what the mentor needs to do.
+ */
+export const COUNSELLING_STATUS = {
+  open: {
+    studentLabel: 'Sent',
+    mentorLabel: 'Needs a reply',
+    className: 'bg-error-container text-on-error-container'
+  },
+  acknowledged: {
+    studentLabel: 'Mentor replied',
+    mentorLabel: 'In conversation',
+    className: 'bg-warning-container text-on-warning-container'
+  },
+  closed: {
+    studentLabel: 'Closed',
+    mentorLabel: 'Closed',
+    className: 'bg-success-container text-on-success-container'
+  }
+};
+
 export const EMPLOYMENT_STATUS_LABELS = {
   active: 'Active',
   on_leave: 'On leave',
@@ -225,6 +251,7 @@ export const NAVIGATION = {
       icon: 'description',
       when: (profile) => Boolean(profile?.is_star_mentee)
     },
+    { to: '/student/counselling', label: 'Counselling', icon: 'volunteer_activism' },
     { to: '/student/achievements', label: 'Achievements', icon: 'military_tech' },
     { to: '/student/profile', label: 'My Profile', icon: 'account_circle' }
   ],
@@ -233,6 +260,7 @@ export const NAVIGATION = {
     { to: '/faculty/tickets', label: 'Ticket Queue', icon: 'inbox' },
     { to: '/faculty/mentees', label: 'My Mentees', icon: 'groups' },
     { to: '/faculty/at-risk', label: 'At-Risk Students', icon: 'e911_emergency' },
+    { to: '/faculty/counselling', label: 'Counselling', icon: 'volunteer_activism' },
     { to: '/faculty/cr-reports', label: 'CR Reports', icon: 'description' },
     { to: '/faculty/report', label: 'My Report', icon: 'analytics' },
     { to: '/faculty/profile', label: 'My Profile', icon: 'account_circle' }

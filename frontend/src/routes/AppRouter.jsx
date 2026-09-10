@@ -35,6 +35,7 @@ const StudentProfilePhotoPage = lazy(() => import('../pages/student/StudentProfi
 const StudentSurveyPage = lazy(() => import('../pages/student/StudentSurveyPage.jsx'));
 const StudentSurveyTrackingPage = lazy(() => import('../pages/student/StudentSurveyTrackingPage.jsx'));
 const StudentCrReportPage = lazy(() => import('../pages/student/StudentCrReportPage.jsx'));
+const StudentCounsellingPage = lazy(() => import('../pages/student/StudentCounsellingPage.jsx'));
 
 const FacultyDashboardPage = lazy(() => import('../pages/faculty/FacultyDashboardPage.jsx'));
 const FacultyTicketQueuePage = lazy(() => import('../pages/faculty/FacultyTicketQueuePage.jsx'));
@@ -45,6 +46,7 @@ const FacultyActivityReportPage = lazy(() => import('../pages/faculty/FacultyAct
 const FacultyProfilePage = lazy(() => import('../pages/faculty/FacultyProfilePage.jsx'));
 const FacultyAtRiskPage = lazy(() => import('../pages/faculty/FacultyAtRiskPage.jsx'));
 const FacultyCrReportsPage = lazy(() => import('../pages/faculty/FacultyCrReportsPage.jsx'));
+const FacultyCounsellingPage = lazy(() => import('../pages/faculty/FacultyCounsellingPage.jsx'));
 
 const HodDashboardPage = lazy(() => import('../pages/hod/HodDashboardPage.jsx'));
 const HodFacultyPerformancePage = lazy(() => import('../pages/hod/HodFacultyPerformancePage.jsx'));
@@ -194,6 +196,16 @@ export default function AppRouter() {
           }
         />
         <Route
+          path="/student/counselling"
+          element={
+            <Protected role="student">
+              <RequireOnboarding>
+                <StudentCounsellingPage />
+              </RequireOnboarding>
+            </Protected>
+          }
+        />
+        <Route
           path="/student/achievements"
           element={
             <Protected role="student">
@@ -221,6 +233,7 @@ export default function AppRouter() {
         <Route path="/faculty/mentees" element={<Protected role="faculty"><FacultyMenteesPage /></Protected>} />
         <Route path="/faculty/mentees/:studentId" element={<Protected role="faculty"><FacultyMenteeDetailPage /></Protected>} />
         <Route path="/faculty/at-risk" element={<Protected role="faculty"><FacultyAtRiskPage /></Protected>} />
+        <Route path="/faculty/counselling" element={<Protected role="faculty"><FacultyCounsellingPage /></Protected>} />
         <Route path="/faculty/cr-reports" element={<Protected role="faculty"><FacultyCrReportsPage /></Protected>} />
         <Route path="/faculty/report" element={<Protected role="faculty"><FacultyActivityReportPage /></Protected>} />
         <Route path="/faculty/profile" element={<Protected role="faculty"><FacultyProfilePage /></Protected>} />

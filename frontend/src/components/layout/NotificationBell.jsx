@@ -23,7 +23,8 @@ const TYPE_ICONS = {
   at_risk_cleared: 'verified',
   survey_published: 'ballot',
   survey_reminder: 'notifications_active',
-  academic_data_uploaded: 'cloud_upload'
+  academic_data_uploaded: 'cloud_upload',
+  counselling_request: 'volunteer_activism'
 };
 
 export default function NotificationBell() {
