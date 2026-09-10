@@ -1,13 +1,17 @@
 /**
  * POST /api/cluster-head/upload-academic-data
  *
- * The Cluster Head's only write path. One file rather than three because
- * of the Vercel function budget (§11.6) — the `action` field selects which
- * kind of upload this is:
+ * The Cluster Head's write path. One file rather than four because of the
+ * Vercel function budget (§11.6) — the `action` field selects which kind
+ * of upload this is:
  *
- *   { action: 'attendance', course_id, section, period_start, period_end, filename, file_base64 }
- *   { action: 'gpa',        semester_number, filename, file_base64 }
+ *   { action: 'attendance', filename, file_base64 }
+ *   { action: 'gpa',        semester_number?, filename, file_base64 }
  *   { action: 'backlog',    semester_number, exam_session?, filename, file_base64 }
+ *   { action: 'mentor-map', filename, file_base64 }
+ *
+ * Attendance takes nothing but the file: the course code, course name,
+ * reporting window and every section are read out of the export itself.
  *
  * NO DATE GATE
  * ---------------------------------------------------------------------
@@ -39,7 +43,11 @@ import {
   clusterHeadUploadSchema,
   assertBodySize
 } from '../_lib/input-validation.js';
-import { parseAcademicDataFile, parseAttendanceExport } from '../_lib/spreadsheet-parser.js';
+import {
+  parseAcademicDataFile,
+  parseAttendanceExport,
+  parseMentorMappingFile
+} from '../_lib/spreadsheet-parser.js';
 
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
 
@@ -90,8 +98,11 @@ export default withApiDefaults(['POST'], async (req, res) => {
   let rpcArgs;
 
   if (body.action === 'attendance') {
-    // Everything about the upload — course, section, dates — is read out
-    // of the export's own header. Nothing is supplied by the client.
+    // Course, dates and every section are read out of the export's own
+    // header and rows. Nothing is supplied by the client. meta.section is
+    // only a fallback for a single-section export that fills the header
+    // in — the consolidated one leaves it blank and puts the section on
+    // each row instead.
     const { meta, records } = await parseAttendanceExport(buffer, body.filename);
     rows = records;
     rpcName = 'record_attendance_batch';
@@ -104,6 +115,10 @@ export default withApiDefaults(['POST'], async (req, res) => {
       p_filename: body.filename,
       p_rows: records
     };
+  } else if (body.action === 'mentor-map') {
+    rows = await parseMentorMappingFile(buffer, body.filename);
+    rpcName = 'map_students_to_mentors';
+    rpcArgs = { p_rows: rows };
   } else if (body.action === 'gpa') {
     rows = await parseAcademicDataFile(buffer, body.filename, 'gpa');
     rpcName = 'record_gpa_batch';
@@ -140,10 +155,23 @@ export default withApiDefaults(['POST'], async (req, res) => {
 
   const matched = data?.matched ?? 0;
   const failed = data?.failed ?? 0;
-  // Naming the course back to the Cluster Head is how they confirm the
-  // file they picked was the one they meant, given they no longer choose
-  // it from a dropdown.
-  const scope = data?.course_code ? ` for ${data.course_code} section ${data.section}` : '';
+  // Naming the course and the sections back to the Cluster Head is how
+  // they confirm the file they picked was the one they meant, given they
+  // no longer choose either from a dropdown.
+  const scope = data?.course_code
+    ? ` for ${data.course_code}${data.section ? ` (section ${data.section})` : ''}`
+    : '';
+
+  if (body.action === 'mentor-map') {
+    const unchanged = data?.unchanged ?? 0;
+    return sendSuccess(
+      res,
+      `${matched} student(s) mapped to their mentor.` +
+        (unchanged ? ` ${unchanged} were already correct.` : '') +
+        (failed ? ` ${failed} could not be matched.` : ''),
+      data ?? {}
+    );
+  }
 
   sendSuccess(
     res,

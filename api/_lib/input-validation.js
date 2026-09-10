@@ -145,10 +145,21 @@ export const backlogUploadSchema = z.object({
   ...uploadFileSchema
 });
 
+/**
+ * The departmental Mentor Mentee List: Registration No. -> Mentor Email.
+ * Nothing else in that file is read — including the mentor phone column,
+ * which is routinely blank or half filled.
+ */
+export const mentorMapUploadSchema = z.object({
+  action: z.literal('mentor-map'),
+  ...uploadFileSchema
+});
+
 export const clusterHeadUploadSchema = z.discriminatedUnion('action', [
   attendanceUploadSchema,
   gpaUploadSchema,
-  backlogUploadSchema
+  backlogUploadSchema,
+  mentorMapUploadSchema
 ]);
 
 /** On-demand trigger for anything that normally runs on the 15-day cycle. */

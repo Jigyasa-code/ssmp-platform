@@ -27,11 +27,22 @@ const HEADER_ALIASES = {
   full_name: ['name', 'full name', 'student name', 'faculty name', 'staff name'],
   login_id: ['reg no', 'reg. no', 'reg no.', 'registration no', 'registration number',
              'roll no', 'roll number', 'faculty id', 'employee id', 'staff id', 'id'],
-  branch: ['branch', 'dept', 'department', 'discipline'],
+  branch: ['branch', 'dept', 'department', 'discipline',
+           'program', 'program name', 'programme', 'programme name'],
   section: ['section', 'sec'],
   semester_label: ['semester', 'sem', 'semester label'],
-  phone: ['phone', 'mobile', 'mobile no', 'contact', 'contact no'],
+  phone: ['phone', 'mobile', 'mobile no', 'mobile number', 'contact', 'contact no'],
   mentor_email: ['mentor email', 'faculty email', 'assigned mentor', 'mentor'],
+  /**
+   * Guardian contact, straight off the Registered Students export. The
+   * At-Risk page has always had a Parent Contact column reading Form A,
+   * which is blank until the student fills one in — this is what makes
+   * that column useful from day one.
+   */
+  parent_name:   ["father's name", 'father name', 'parent name', 'guardian name'],
+  parent_mobile: ["father's number", 'father number', "father's mobile", "father's contact",
+                  'parent number', 'parent mobile', 'guardian number', 'guardian mobile'],
+  parent_email:  ["father's email", 'father email', 'parent email', 'guardian email'],
   /**
    * Optional. When present, this becomes the account's initial password
    * instead of a generated one, so the HOD can hand out a password they
@@ -56,8 +67,24 @@ export function classifyRole(value) {
   return null;
 }
 
+/**
+ * One header normaliser for all four column maps below.
+ *
+ * The trailing trim() matters: "Registration No." becomes "registration
+ * no " once the dot is turned into a space, and without the second trim
+ * it matches nothing — which is exactly how the real ERP and roster
+ * exports spell that column.
+ */
+function cleanHeader(raw) {
+  return String(raw ?? '')
+    .toLowerCase()
+    .replace(/[._]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normaliseHeader(raw) {
-  const cleaned = String(raw ?? '').trim().toLowerCase().replace(/[._]/g, ' ').replace(/\s+/g, ' ');
+  const cleaned = cleanHeader(raw);
   for (const [canonical, aliases] of Object.entries(HEADER_ALIASES)) {
     if (aliases.includes(cleaned)) return canonical;
   }
@@ -255,7 +282,7 @@ const ACADEMIC_HEADER_ALIASES = {
 const CLEARED_WORDS = ['yes', 'y', 'true', 'cleared', 'pass', 'passed', '1'];
 
 function normaliseAcademicHeader(raw) {
-  const cleaned = String(raw ?? '').trim().toLowerCase().replace(/[._]/g, ' ').replace(/\s+/g, ' ');
+  const cleaned = cleanHeader(raw);
   for (const [canonical, aliases] of Object.entries(ACADEMIC_HEADER_ALIASES)) {
     if (aliases.includes(cleaned)) return canonical;
   }
@@ -344,16 +371,29 @@ export async function parseAcademicDataFile(buffer, filename, kind) {
 // The ERP "Class Attendance" export
 // =====================================================================
 /**
- * Shape of the file (see migration 0025 for why it is handled specially):
+ * Shape of the real "Consolidated Attendance" export:
  *
- *   Class Attendance | Academic Year: 26-27 | Academic Session: JUL-NOV 2026
- *   Faculty Name:-Amita Nandal | From Date: 23/07/2026 | To Date: 12/08/2026
- *   Course Code: IIS3120 | Course Name: DIGITAL IMAGE ... | Section: A
- *   S.No. | Registration No. | Name | Section | Total Class | Present | Absent | %
- *   1     | 2428010116       | ...  | A       | 12          | 9       | 3      | 75
+ *   Consolidated Attendance | Academic Year: 26-27 | Academic Session: JUL-NOV 2026
+ *                           | From Date: 23/07/2026 | To Date:18/08/2026
+ *   Course Code: DOA2099 | Course Name: PRINCIPLES OF MANAGEMENT | Section:
+ *   S.No. | Registration No. | Name | Faculty Name | Course Code | Section | Total Class | Present | Absent | %
+ *   1     | 2502050231       | ...  | Ritika Bhatia| DOA2099     | B       | 8           | 7       | 1      | 87.00
  *
- * The course, section and reporting window all come from the header block,
- * so nothing has to be typed in by hand. The "%" column is taken verbatim.
+ * Two things this file does that the earlier hand-made sample did not:
+ *
+ *   1. EVERY SECTION OF THE COURSE IS IN ONE FILE, and the header's
+ *      "Section:" is blank. The section is a per-row column (B..N here,
+ *      "R 3" in other exports). Reading it from the header put all 2,500
+ *      students in whichever section happened to be listed first.
+ *
+ *   2. A STUDENT CAN APPEAR MORE THAN ONCE — same course, same section,
+ *      different lecturer, different class count (187 of them do here).
+ *      Their real attendance is the combined figure, so rows are summed
+ *      per registration number rather than one silently overwriting the
+ *      other via ON CONFLICT. 4/4 + 0/2 is 66.7%, not 100% and not 0%.
+ *
+ * The "%" column is still taken verbatim wherever a student has exactly
+ * one row, so the portal never disagrees with the ERP.
  */
 
 /** Pulls "Course Code: IIS3120" style pairs out of the header cells. */
@@ -361,7 +401,11 @@ function headerValue(cells, ...labels) {
   for (const cell of cells) {
     for (const label of labels) {
       // Tolerates "Label: value", "Label :-value", "Label:-value".
-      const match = new RegExp(`${label}\\s*:?\\s*-?\\s*(.+)$`, 'i').exec(cell);
+      //
+      // The value must START with something that is not punctuation. With
+      // a plain (.+) the optional colon backtracks on an EMPTY field and
+      // the separator becomes the value: "Section:" returned ":".
+      const match = new RegExp(`${label}\\s*:?\\s*-?\\s*([^\\s:-].*)$`, 'i').exec(cell);
       if (match && match[1].trim()) return match[1].trim();
     }
   }
@@ -388,7 +432,7 @@ const ATTENDANCE_COLUMNS = {
 };
 
 function matchAttendanceColumn(raw) {
-  const cleaned = String(raw ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const cleaned = cleanHeader(raw);
   for (const [canonical, aliases] of Object.entries(ATTENDANCE_COLUMNS)) {
     if (aliases.includes(cleaned)) return canonical;
   }
@@ -436,7 +480,9 @@ export async function parseAttendanceExport(buffer, filename) {
     throw new ApiError('No "Course Code:" line found in the file header.', 400);
   }
 
-  const records = [];
+  // Registration number is the key, not the row number: a student can be
+  // listed more than once for the same course.
+  const byStudent = new Map();
   for (let r = headerIndex + 1; r < rows.length; r += 1) {
     const raw = Object.create(null);
     for (let c = 0; c < headerMap.length; c += 1) {
@@ -447,29 +493,62 @@ export async function parseAttendanceExport(buffer, filename) {
     }
     if (!raw.identifier) continue;
 
+    const key = raw.identifier.toLowerCase();
     const percent = Number(String(raw.attendance_percent ?? '').replace('%', '').trim());
-    records.push({
-      rowNumber: r + 1,
-      identifier: raw.identifier,
-      // Total class / present are carried through for reference only. The
-      // percentage is what the portal displays and what the at-risk rule
-      // reads — see migration 0025.
-      classes_held: raw.classes_held ?? '',
-      classes_attended: raw.classes_attended ?? '',
-      attendance_percent: Number.isFinite(percent) ? String(percent) : ''
-    });
+    const held = Number(raw.classes_held);
+    const attended = Number(raw.classes_attended);
+    const seen = byStudent.get(key);
 
-    // A per-row Section overrides the header for that student, which the
-    // export does use when one class is split.
-    if (!meta.section && raw.section) meta.section = raw.section;
+    if (!seen) {
+      byStudent.set(key, {
+        rowNumber: r + 1,
+        identifier: raw.identifier,
+        section: raw.section ?? meta.section ?? '',
+        heldSum: Number.isFinite(held) ? held : null,
+        attendedSum: Number.isFinite(attended) ? attended : null,
+        percent: Number.isFinite(percent) ? percent : null
+      });
+      continue;
+    }
+
+    // Second row for this student. Combining the raw counts is the only
+    // honest answer — averaging two percentages taken over different
+    // class counts is not the same number.
+    if (Number.isFinite(held) && Number.isFinite(attended) && seen.heldSum != null) {
+      seen.heldSum += held;
+      seen.attendedSum += attended;
+      seen.percent = seen.heldSum > 0
+        ? Math.round((seen.attendedSum * 10000) / seen.heldSum) / 100
+        : 0;
+    } else if (Number.isFinite(percent) && seen.percent != null) {
+      // No usable counts on one of the rows — fall back to the mean, and
+      // stop pretending we still have a verbatim ERP figure.
+      seen.percent = Math.round(((seen.percent + percent) / 2) * 100) / 100;
+      seen.heldSum = null;
+      seen.attendedSum = null;
+    }
+    if (!seen.section && raw.section) seen.section = raw.section;
   }
+
+  const records = [...byStudent.values()].map((s) => ({
+    rowNumber: s.rowNumber,
+    identifier: s.identifier,
+    section: s.section,
+    classes_held: s.heldSum == null ? '' : String(s.heldSum),
+    classes_attended: s.attendedSum == null ? '' : String(s.attendedSum),
+    attendance_percent: s.percent == null ? '' : String(s.percent)
+  }));
 
   if (!records.length) {
     throw new ApiError('The attendance table has a header but no student rows.', 400);
   }
-  if (!meta.section) {
-    throw new ApiError('No "Section:" found in the file header or in the table.', 400);
+  if (!meta.section && !records.some((r) => r.section)) {
+    throw new ApiError(
+      'No section found — the file header has no "Section:" line and the table has no Section column.',
+      400
+    );
   }
+  meta.sections = [...new Set(records.map((r) => r.section).filter(Boolean))].sort();
 
   // A file with no dates still records fine; the window just defaults to
   // the day of upload rather than blocking a valid roll call.
@@ -478,6 +557,65 @@ export async function parseAttendanceExport(buffer, filename) {
   meta.period_end = meta.period_end ?? meta.period_start;
 
   return { meta, records };
+}
+
+// =====================================================================
+// Mentor–mentee mapping
+// =====================================================================
+/**
+ * The departmental "Mentor Mentee List" sheet:
+ *
+ *   S.No. | Registration No. | Name | Mentor Name | Mentor Phone No. | Mentor Email
+ *
+ * Only two columns matter. The mentor is identified by EMAIL, because
+ * that is what matches a faculty account — "Dr Bagesh Kumar" spelled
+ * three different ways across three files would not. Mentor Phone No. is
+ * ignored on purpose: it is often blank or half filled, and the mentor's
+ * own profile is where their number belongs.
+ */
+export async function parseMentorMappingFile(buffer, filename) {
+  const rows = await readSheetRows(buffer, filename);
+  if (rows.length < 2) {
+    throw new ApiError('The file needs a header row and at least one data row.', 400);
+  }
+  if (rows.length - 1 > MAX_ROWS) {
+    throw new ApiError(`Too many rows (${rows.length - 1}). Split the file into batches of ${MAX_ROWS}.`, 400);
+  }
+
+  const headerMap = rows[0].map((cell) => {
+    const cleaned = cleanHeader(cell);
+    if (['mentor email', 'faculty email', 'mentor email id', 'mentor mail'].includes(cleaned)) return 'mentor_email';
+    if (HEADER_ALIASES.login_id.includes(cleaned)) return 'identifier';
+    if (['email', 'email id', 'e-mail', 'student email'].includes(cleaned)) return 'identifier';
+    return null;
+  });
+
+  if (!headerMap.includes('identifier') || !headerMap.includes('mentor_email')) {
+    throw new ApiError(
+      'The file needs a "Registration No." column and a "Mentor Email" column.',
+      400
+    );
+  }
+
+  const records = [];
+  for (let r = 1; r < rows.length; r += 1) {
+    const raw = Object.create(null);
+    for (let c = 0; c < headerMap.length; c += 1) {
+      const key = headerMap[c];
+      if (!key || raw[key]) continue;
+      const value = String(rows[r][c] ?? '').trim();
+      if (value) raw[key] = value;
+    }
+    if (!raw.identifier && !raw.mentor_email) continue;
+    records.push({
+      rowNumber: r + 1,
+      identifier: raw.identifier ?? '',
+      mentor_email: raw.mentor_email ?? ''
+    });
+  }
+
+  if (!records.length) throw new ApiError('No usable rows were found in that file.', 400);
+  return records;
 }
 
 // =====================================================================

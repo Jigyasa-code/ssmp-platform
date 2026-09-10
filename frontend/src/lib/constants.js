@@ -219,6 +219,12 @@ export const NAVIGATION = {
       icon: 'fact_check',
       when: (profile) => Boolean(profile?.is_star_mentee)
     },
+    {
+      to: '/student/cr-report',
+      label: 'CR Report',
+      icon: 'description',
+      when: (profile) => Boolean(profile?.is_star_mentee)
+    },
     { to: '/student/achievements', label: 'Achievements', icon: 'military_tech' },
     { to: '/student/profile', label: 'My Profile', icon: 'account_circle' }
   ],
@@ -227,6 +233,7 @@ export const NAVIGATION = {
     { to: '/faculty/tickets', label: 'Ticket Queue', icon: 'inbox' },
     { to: '/faculty/mentees', label: 'My Mentees', icon: 'groups' },
     { to: '/faculty/at-risk', label: 'At-Risk Students', icon: 'e911_emergency' },
+    { to: '/faculty/cr-reports', label: 'CR Reports', icon: 'description' },
     { to: '/faculty/report', label: 'My Report', icon: 'analytics' },
     { to: '/faculty/profile', label: 'My Profile', icon: 'account_circle' }
   ],
@@ -239,17 +246,20 @@ export const NAVIGATION = {
     { to: '/hod/semester', label: 'Semester Setup', icon: 'event_note' },
     { to: '/hod/students', label: 'Students', icon: 'school' },
     { to: '/hod/at-risk', label: 'At-Risk Students', icon: 'e911_emergency' },
+    { to: '/hod/cr-reports', label: 'CR Reports', icon: 'description' },
     { to: '/hod/operations', label: 'Scheduled Jobs', icon: 'settings_suggest' },
     { to: '/hod/profile', label: 'My Profile', icon: 'account_circle' }
   ],
-  // Deliberately short. A Cluster Head uploads two kinds of data and does
-  // nothing else — no tickets, no student profiles, no reports.
+  // Deliberately short. A Cluster Head uploads data and creates the
+  // accounts that data attaches to — no tickets, no student profiles, no
+  // reports.
   cluster_head: [
     { to: '/cluster-head', label: 'Home', icon: 'home', end: true },
     { to: '/cluster-head/attendance', label: 'Upload Attendance', icon: 'fact_check' },
     { to: '/cluster-head/gpa', label: 'Upload GPA', icon: 'grade' },
     { to: '/cluster-head/backlogs', label: 'Upload Backlogs', icon: 'assignment_late' },
     { to: '/cluster-head/courses', label: 'My Subjects', icon: 'menu_book' },
+    { to: '/cluster-head/rosters', label: 'Rosters & Mentors', icon: 'group_add' },
     { to: '/cluster-head/profile', label: 'My Profile', icon: 'account_circle' }
   ]
 };

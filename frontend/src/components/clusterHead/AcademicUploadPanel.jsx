@@ -33,6 +33,17 @@ export default function AcademicUploadPanel({
   tabIcon,
   hint,
   buildPayload,
+  // Roster imports post somewhere else but do everything else the same
+  // way — pick a file, send it, show what matched and what did not.
+  endpoint = '/cluster-head/upload-academic-data',
+  // The roster endpoint reports created/skipped/failed instead of
+  // matched/failed, so each caller says what its own numbers mean.
+  summarise = (data) => [
+    { label: 'Rows in file', value: data.total_rows ?? 0 },
+    { label: 'Recorded', value: data.matched ?? 0 },
+    { label: 'Not matched', value: data.failed ?? 0 },
+    { label: 'Students re-checked', value: data.students_reevaluated ?? 0 }
+  ],
   disabled,
   disabledReason,
   submitLabel = 'Upload file',
@@ -52,7 +63,7 @@ export default function AcademicUploadPanel({
         if (!file) throw new Error('Choose a file first.');
         const base64 = await fileToBase64(file);
         const payload = buildPayload({ filename: file.name, file_base64: base64 });
-        return apiClient.post('/cluster-head/upload-academic-data', payload);
+        return apiClient.post(endpoint, payload);
       },
       {
         successMessage: 'Upload recorded.',
@@ -64,7 +75,11 @@ export default function AcademicUploadPanel({
       }
     );
 
-  const errors = Array.isArray(result?.row_errors) ? result.row_errors : [];
+  // Academic uploads report per-row problems as row_errors; the roster
+  // endpoint calls the same thing failed. Same shape, same table.
+  const errors = Array.isArray(result?.row_errors)
+    ? result.row_errors
+    : Array.isArray(result?.failed) ? result.failed : [];
 
   return (
     <>
@@ -106,12 +121,7 @@ export default function AcademicUploadPanel({
       {result && (
         <Panel className="mt-4" tab="Last upload" tabIcon="task_alt">
           <div className="grid gap-3 sm:grid-cols-4">
-            {[
-              { label: 'Rows in file', value: result.total_rows ?? 0 },
-              { label: 'Recorded', value: result.matched ?? 0 },
-              { label: 'Not matched', value: result.failed ?? 0 },
-              { label: 'Students re-checked', value: result.students_reevaluated ?? 0 }
-            ].map((item) => (
+            {summarise(result).map((item) => (
               <div key={item.label} className="rounded-xl bg-surface-container-low p-4">
                 <p className="text-headline-sm text-on-surface">{item.value}</p>
                 <p className="mt-1 text-label-sm uppercase tracking-wide text-tertiary">{item.label}</p>
@@ -126,7 +136,11 @@ export default function AcademicUploadPanel({
                 dense
                 columns={[
                   { key: 'row', header: 'Row', align: 'right' },
-                  { key: 'identifier', header: 'Reg. no. / email' },
+                  {
+                    key: 'identifier',
+                    header: 'Reg. no. / email',
+                    render: (row) => row.identifier || row.email || '—'
+                  },
                   { key: 'reason', header: 'Reason' }
                 ]}
                 rows={errors.map((error, index) => ({ ...error, key: `${error.row}-${index}` }))}

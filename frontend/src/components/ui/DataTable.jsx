@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import EmptyState from './EmptyState.jsx';
 
 /** Header and body cell must always get the SAME alignment class. */
@@ -11,7 +12,13 @@ function alignmentClass(align) {
  * Simple, accessible data table. Columns declare a render function so
  * cells stay presentational and the table itself stays generic.
  */
-export default function DataTable({ columns, rows, rowKey, emptyState, onRowClick, footer, dense }) {
+export default function DataTable({
+  columns, rows, rowKey, emptyState, onRowClick, footer, dense,
+  // Return a node to show a detail panel under that row, or null for the
+  // rows that are collapsed. The caller owns which is which, so this adds
+  // no state here and changes nothing for tables that omit it.
+  renderExpanded
+}) {
   if (!rows.length) {
     return emptyState ?? <EmptyState title="Nothing to show" description="There are no records here yet." />;
   }
@@ -30,19 +37,30 @@ export default function DataTable({ columns, rows, rowKey, emptyState, onRowClic
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr
-                key={rowKey(row)}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={`${onRowClick ? 'cursor-pointer' : ''} ${dense ? '[&>td]:py-1.5' : ''}`}
-              >
-                {columns.map((column) => (
-                  <td key={column.key} className={alignmentClass(column.align)}>
-                    {column.render ? column.render(row) : (row[column.key] ?? '—')}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const expanded = renderExpanded ? renderExpanded(row) : null;
+              return (
+                <Fragment key={rowKey(row)}>
+                  <tr
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    className={`${onRowClick ? 'cursor-pointer' : ''} ${dense ? '[&>td]:py-1.5' : ''}`}
+                  >
+                    {columns.map((column) => (
+                      <td key={column.key} className={alignmentClass(column.align)}>
+                        {column.render ? column.render(row) : (row[column.key] ?? '—')}
+                      </td>
+                    ))}
+                  </tr>
+                  {expanded && (
+                    <tr>
+                      <td colSpan={columns.length} className="p-0">
+                        {expanded}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

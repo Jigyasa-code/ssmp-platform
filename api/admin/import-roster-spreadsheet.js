@@ -1,6 +1,7 @@
 /**
  * POST /api/admin/import-roster-spreadsheet
- * HOD-only. Parses an uploaded faculty or student roster (.csv / .xlsx),
+ * Cluster Head or HOD. Parses an uploaded faculty or student roster
+ * (.csv / .xlsx / the ERP's HTML .xls),
  * creates Supabase Auth accounts, links students to their mentor and
  * records the batch (successes and per-row failures) for the audit trail.
  *
@@ -24,7 +25,10 @@ export default withApiDefaults(['POST'], async (req, res) => {
   assertBodySize(req);
 
   const context = await requireAuthenticatedUser(req);
-  requireRole(context, 'hod');
+  // Roster upload moved to the Cluster Head portal — they are the ones
+  // holding the departmental files. The HOD keeps access so the office
+  // can correct an import without borrowing an account.
+  requireRole(context, 'cluster_head', 'hod');
   await enforceRateLimit(context, { key: 'roster-import', max: 10, windowSeconds: 300 });
 
   const body = parseOrThrow(rosterImportSchema, req.body ?? {});
@@ -179,8 +183,21 @@ export default withApiDefaults(['POST'], async (req, res) => {
         continue;
       }
 
-      if (mentorId) {
-        await admin.from('user_profiles').update({ assigned_mentor_id: mentorId }).eq('id', data.user.id);
+      /**
+       * Guardian contact and the mentor link are one UPDATE. The roster
+       * is where the parent's number actually comes from — the At-Risk
+       * page's Parent Contact column reads Form A first and falls back
+       * to this, so it stops saying "Not on Form A" for everyone.
+       */
+      const profilePatch = {};
+      if (mentorId) profilePatch.assigned_mentor_id = mentorId;
+      if (rowRole === 'student') {
+        if (record.parent_name) profilePatch.parent_name = sanitizeSingleLine(record.parent_name, 120);
+        if (/^[0-9]{10}$/.test(record.parent_mobile ?? '')) profilePatch.parent_mobile = record.parent_mobile;
+        if (record.parent_email) profilePatch.parent_email = sanitizeSingleLine(record.parent_email, 255).toLowerCase();
+      }
+      if (Object.keys(profilePatch).length) {
+        await admin.from('user_profiles').update(profilePatch).eq('id', data.user.id);
       }
       if (rowRole === 'faculty') {
         facultyByEmail.set(email, { id: data.user.id, email, full_name: record.full_name, employment_status: 'active' });

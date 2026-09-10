@@ -28,7 +28,7 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
-import { describeError, formatDateTime } from '../../lib/formatters.js';
+import { describeError, formatDateTime, initialsOf } from '../../lib/formatters.js';
 import { AT_RISK_MEETING_STATUS_LABELS } from '../../lib/constants.js';
 
 function ReasonChips({ row }) {
@@ -50,6 +50,116 @@ function ReasonChips({ row }) {
   );
 }
 
+/**
+ * The two things a mentor asks next: WHICH subjects, and WHICH semester.
+ * Both come from views that already exist and are already RLS-scoped to
+ * this student — student_attendance_overview is one row per course
+ * (latest period), and can_view_student_gpa() gates the GPA rows.
+ *
+ * Fetched on expand rather than up front: a mentor opens one or two of
+ * these, not twenty, and the roster query stays a single round trip.
+ */
+function RiskDetail({ studentId }) {
+  const [state, setState] = useState({ loading: true, subjects: [], gpas: [] });
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      supabase
+        .from('student_attendance_overview')
+        .select('course_id, course_code, course_name, section_label, attendance_percent')
+        .eq('student_id', studentId)
+        .lt('attendance_percent', 75)
+        .order('attendance_percent'),
+      supabase
+        .from('student_semester_gpas')
+        .select('semester_number, gpa')
+        .eq('student_id', studentId)
+        .order('semester_number')
+    ]).then(([subjects, gpas]) => {
+      if (!active) return;
+      setState({ loading: false, subjects: subjects.data ?? [], gpas: gpas.data ?? [] });
+    });
+    return () => { active = false; };
+  }, [studentId]);
+
+  if (state.loading) {
+    return <p className="px-4 py-6 text-body-sm text-tertiary">Loading the breakdown...</p>;
+  }
+
+  return (
+    <div className="grid gap-4 bg-surface-container-low p-4 lg:grid-cols-2">
+      <Panel tab={`Subjects with low attendance (${state.subjects.length})`} tabIcon="bar_chart" bodyClassName="">
+        <DataTable
+          dense
+          columns={[
+            { key: 'course_code', header: 'Subject code' },
+            { key: 'course_name', header: 'Subject name' },
+            { key: 'section_label', header: 'Section', align: 'center' },
+            {
+              key: 'attendance_percent',
+              header: 'Attendance',
+              align: 'right',
+              render: (row) => (
+                <span className="text-error">
+                  {Number(row.attendance_percent).toFixed(1)}%
+                </span>
+              )
+            }
+          ]}
+          rows={state.subjects}
+          rowKey={(row) => row.course_id}
+          emptyState={
+            <EmptyState
+              icon="fact_check"
+              title="No subject below 75%"
+              description="This student was flagged on GPA or backlogs rather than attendance."
+            />
+          }
+        />
+      </Panel>
+
+      <Panel tab="Semester-wise GPA" tabIcon="school" bodyClassName="">
+        <DataTable
+          dense
+          columns={[
+            { key: 'semester_number', header: 'Semester', render: (row) => `Semester ${row.semester_number}` },
+            {
+              key: 'gpa',
+              header: 'GPA',
+              align: 'right',
+              render: (row) => (
+                <span className={Number(row.gpa) < 6 ? 'text-error' : 'text-on-surface'}>
+                  {Number(row.gpa).toFixed(2)}
+                </span>
+              )
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (row) =>
+                Number(row.gpa) < 6 ? (
+                  <span className="chip bg-error-container text-on-error-container">Low GPA</span>
+                ) : (
+                  <span className="chip bg-success-container text-on-success-container">Good</span>
+                )
+            }
+          ]}
+          rows={state.gpas}
+          rowKey={(row) => row.semester_number}
+          emptyState={
+            <EmptyState
+              icon="school"
+              title="No GPA on record"
+              description="Nothing has been published for this student yet."
+            />
+          }
+        />
+      </Panel>
+    </div>
+  );
+}
+
 export default function FacultyAtRiskPage({ isHodView = false }) {
   const { profile } = useAuth();
   const toast = useToast();
@@ -58,6 +168,7 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState(null);
 
   const basePath = isHodView ? '/hod/students' : '/faculty/mentees';
 
@@ -112,41 +223,26 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
       key: 'student_name',
       header: 'Student',
       render: (row) => (
-        <Link to={`${basePath}/${row.student_id}`} className="text-on-surface hover:text-primary hover:underline">
-          <span className="block">{row.student_name}</span>
-          <span className="text-label-sm text-tertiary">{row.registration_no ?? row.email}</span>
-        </Link>
+        <span className="flex items-center gap-3">
+          <span
+            aria-hidden="true"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-fixed text-label-sm font-semibold text-on-primary-fixed"
+          >
+            {initialsOf(row.student_name)}
+          </span>
+          <Link
+            to={`${basePath}/${row.student_id}`}
+            className="min-w-0 text-on-surface hover:text-primary hover:underline"
+          >
+            {row.student_name}
+          </Link>
+        </span>
       )
     },
-    { key: 'section', header: 'Section', align: 'center' },
     {
-      key: 'attendance_percent',
-      header: 'Attendance',
-      align: 'right',
-      render: (row) =>
-        row.attendance_percent == null ? (
-          <span className="text-tertiary">No data</span>
-        ) : (
-          <span className={row.low_attendance ? 'text-error' : 'text-on-surface'}>
-            {Number(row.attendance_percent).toFixed(1)}%
-          </span>
-        )
-    },
-    {
-      key: 'latest_gpa',
-      header: 'GPA',
-      align: 'right',
-      render: (row) =>
-        row.latest_gpa == null ? (
-          <span className="text-tertiary">No data</span>
-        ) : (
-          <span className={row.low_gpa ? 'text-error' : 'text-on-surface'}>
-            {Number(row.latest_gpa).toFixed(2)}
-            {row.latest_gpa_semester ? (
-              <span className="ml-1 text-label-sm text-tertiary">S{row.latest_gpa_semester}</span>
-            ) : null}
-          </span>
-        )
+      key: 'registration_no',
+      header: 'Registration no.',
+      render: (row) => row.registration_no ?? row.email
     },
     {
       key: 'backlog_count',
@@ -201,18 +297,39 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
     {
       key: 'actions',
       header: '',
-      render: (row) =>
-        row.open_meeting_id ? (
+      align: 'right',
+      render: (row) => (
+        <span className="flex items-center justify-end gap-1">
+          {row.open_meeting_id && (
+            <button
+              type="button"
+              className="btn-ghost btn-sm"
+              onClick={() => markMeetingDone(row)}
+              disabled={pending}
+            >
+              <span className="material-symbols-outlined text-[16px]">check</span>
+              Mark done
+            </button>
+          )}
           <button
             type="button"
-            className="btn-ghost btn-sm"
-            onClick={() => markMeetingDone(row)}
-            disabled={pending}
+            className="rounded p-1.5 text-tertiary hover:bg-surface-container hover:text-on-surface"
+            aria-expanded={expanded === row.student_id}
+            aria-label={
+              expanded === row.student_id
+                ? `Hide the breakdown for ${row.student_name}`
+                : `Show why ${row.student_name} is flagged`
+            }
+            onClick={() =>
+              setExpanded((current) => (current === row.student_id ? null : row.student_id))
+            }
           >
-            <span className="material-symbols-outlined text-[16px]">check</span>
-            Mark done
+            <span className="material-symbols-outlined text-[20px]">
+              {expanded === row.student_id ? 'expand_less' : 'expand_more'}
+            </span>
           </button>
-        ) : null
+        </span>
+      )
     }
   ];
 
@@ -266,13 +383,16 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
       )}
 
       {loading ? (
-        <SkeletonTable rows={6} columns={9} />
+        <SkeletonTable rows={6} columns={7} />
       ) : (
         <Panel bodyClassName="">
           <DataTable
             columns={columns}
             rows={filtered}
             rowKey={(row) => row.student_id}
+            renderExpanded={(row) =>
+              expanded === row.student_id ? <RiskDetail studentId={row.student_id} /> : null
+            }
             emptyState={
               <EmptyState
                 icon="verified"

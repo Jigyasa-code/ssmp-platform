@@ -34,6 +34,7 @@ const StudentGroupTicketsPage = lazy(() => import('../pages/student/StudentGroup
 const StudentProfilePhotoPage = lazy(() => import('../pages/student/StudentProfilePhotoPage.jsx'));
 const StudentSurveyPage = lazy(() => import('../pages/student/StudentSurveyPage.jsx'));
 const StudentSurveyTrackingPage = lazy(() => import('../pages/student/StudentSurveyTrackingPage.jsx'));
+const StudentCrReportPage = lazy(() => import('../pages/student/StudentCrReportPage.jsx'));
 
 const FacultyDashboardPage = lazy(() => import('../pages/faculty/FacultyDashboardPage.jsx'));
 const FacultyTicketQueuePage = lazy(() => import('../pages/faculty/FacultyTicketQueuePage.jsx'));
@@ -43,6 +44,7 @@ const FacultyMenteeDetailPage = lazy(() => import('../pages/faculty/FacultyMente
 const FacultyActivityReportPage = lazy(() => import('../pages/faculty/FacultyActivityReportPage.jsx'));
 const FacultyProfilePage = lazy(() => import('../pages/faculty/FacultyProfilePage.jsx'));
 const FacultyAtRiskPage = lazy(() => import('../pages/faculty/FacultyAtRiskPage.jsx'));
+const FacultyCrReportsPage = lazy(() => import('../pages/faculty/FacultyCrReportsPage.jsx'));
 
 const HodDashboardPage = lazy(() => import('../pages/hod/HodDashboardPage.jsx'));
 const HodFacultyPerformancePage = lazy(() => import('../pages/hod/HodFacultyPerformancePage.jsx'));
@@ -59,6 +61,7 @@ const ClusterHeadGpaPage = lazy(() => import('../pages/clusterHead/ClusterHeadGp
 const ClusterHeadBacklogPage = lazy(() => import('../pages/clusterHead/ClusterHeadBacklogPage.jsx'));
 const ClusterHeadCoursesPage = lazy(() => import('../pages/clusterHead/ClusterHeadCoursesPage.jsx'));
 const ClusterHeadProfilePage = lazy(() => import('../pages/clusterHead/ClusterHeadProfilePage.jsx'));
+const ClusterHeadRosterPage = lazy(() => import('../pages/clusterHead/ClusterHeadRosterPage.jsx'));
 
 /** Sends a signed-in user to their own portal root. */
 function HomeRedirect() {
@@ -181,6 +184,16 @@ export default function AppRouter() {
           }
         />
         <Route
+          path="/student/cr-report"
+          element={
+            <Protected role="student">
+              <RequireOnboarding>
+                <StudentCrReportPage />
+              </RequireOnboarding>
+            </Protected>
+          }
+        />
+        <Route
           path="/student/achievements"
           element={
             <Protected role="student">
@@ -208,6 +221,7 @@ export default function AppRouter() {
         <Route path="/faculty/mentees" element={<Protected role="faculty"><FacultyMenteesPage /></Protected>} />
         <Route path="/faculty/mentees/:studentId" element={<Protected role="faculty"><FacultyMenteeDetailPage /></Protected>} />
         <Route path="/faculty/at-risk" element={<Protected role="faculty"><FacultyAtRiskPage /></Protected>} />
+        <Route path="/faculty/cr-reports" element={<Protected role="faculty"><FacultyCrReportsPage /></Protected>} />
         <Route path="/faculty/report" element={<Protected role="faculty"><FacultyActivityReportPage /></Protected>} />
         <Route path="/faculty/profile" element={<Protected role="faculty"><FacultyProfilePage /></Protected>} />
 
@@ -222,6 +236,7 @@ export default function AppRouter() {
         <Route path="/hod/students" element={<Protected role="hod"><HodStudentsPage /></Protected>} />
         <Route path="/hod/students/:studentId" element={<Protected role="hod"><FacultyMenteeDetailPage isHodView /></Protected>} />
         <Route path="/hod/at-risk" element={<Protected role="hod"><FacultyAtRiskPage isHodView /></Protected>} />
+        <Route path="/hod/cr-reports" element={<Protected role="hod"><FacultyCrReportsPage isHodView /></Protected>} />
         <Route path="/hod/operations" element={<Protected role="hod"><HodOperationsPage /></Protected>} />
         <Route path="/hod/profile" element={<Protected role="hod"><HodProfilePage /></Protected>} />
 
@@ -262,6 +277,14 @@ export default function AppRouter() {
           element={
             <Protected role="cluster_head">
               <RequireClusterHeadSetup><ClusterHeadBacklogPage /></RequireClusterHeadSetup>
+            </Protected>
+          }
+        />
+        <Route
+          path="/cluster-head/rosters"
+          element={
+            <Protected role="cluster_head">
+              <RequireClusterHeadSetup><ClusterHeadRosterPage /></RequireClusterHeadSetup>
             </Protected>
           }
         />
