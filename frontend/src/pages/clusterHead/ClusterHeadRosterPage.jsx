@@ -1,9 +1,10 @@
 /**
  * ClusterHeadRosterPage
- * Student roster · faculty roster · mentor–mentee mapping, in that order,
- * because that is the order they have to happen in: a student cannot be
- * mapped to a mentor who has no account, and a mentor cannot be mapped to
- * a student who has no account.
+ * Student roster · faculty roster · mentor–mentee mapping. The student
+ * roster still has to come first — the mapping matches students on their
+ * registration number and cannot invent one. The faculty roster no
+ * longer has to: the mapping creates an account for any mentor it names
+ * who does not have one, because that file already carries their email.
  *
  * Moved here from the HOD's Semester setup screen — the Cluster Head is
  * the one holding these files. The endpoint is unchanged and still runs
@@ -35,6 +36,7 @@ const rosterSummary = (data) => [
 const mentorSummary = (data) => [
   { label: 'Rows in file', value: data.total_rows ?? 0 },
   { label: 'Mapped', value: data.matched ?? 0 },
+  { label: 'Mentor accounts created', value: data.mentors_created ?? 0 },
   { label: 'Already correct', value: data.unchanged ?? 0 },
   { label: 'Problems', value: data.failed ?? 0 }
 ];
@@ -68,6 +70,11 @@ export default function ClusterHeadRosterPage() {
     if (data?.created?.length) setCredentials(data.created);
   };
 
+  const sharedPassword =
+    credentials?.length && credentials.every((row) => row.temporary_password === credentials[0].temporary_password)
+      ? credentials[0].temporary_password
+      : null;
+
   const downloadCredentials = () => {
     const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const csv = [
@@ -96,9 +103,18 @@ export default function ClusterHeadRosterPage() {
         <Panel className="mb-4" tab="Credentials — download this now" tabIcon="key">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-body-sm text-on-surface-variant">
-              {credentials.length} account{credentials.length === 1 ? '' : 's'} created. Temporary passwords
-              are shown only in this download; every account is forced to set a new password at first
-              sign-in.
+              {credentials.length} account{credentials.length === 1 ? '' : 's'} created.{' '}
+              {sharedPassword ? (
+                <>
+                  They all start on <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-label-md text-on-surface">{sharedPassword}</code> and are
+                  forced to choose their own at first sign-in.
+                </>
+              ) : (
+                <>
+                  Temporary passwords are shown only in this download; every account is forced to set a new
+                  password at first sign-in.
+                </>
+              )}
             </p>
             <div className="flex gap-2">
               <button type="button" className="btn-primary" onClick={downloadCredentials}>
@@ -157,7 +173,7 @@ export default function ClusterHeadRosterPage() {
           title="3 · Mentor–mentee mapping"
           tabIcon="supervisor_account"
           summarise={mentorSummary}
-          hint="CSV or XLSX. Columns: Registration No. and Mentor Email. The Mentor Phone No. column is ignored."
+          hint="CSV or XLSX. Columns: Registration No. and Mentor Email. Optional: Mentor Name, used to name any account this creates. The Mentor Phone No. column is ignored."
           submitLabel="Map students to mentors"
           buildPayload={({ filename, file_base64 }) => ({
             action: 'mentor-map',
@@ -170,13 +186,18 @@ export default function ClusterHeadRosterPage() {
       <Panel className="mt-4" tab="How the three fit together" tabIcon="info">
         <ul className="space-y-2 text-body-sm text-on-surface-variant">
           <li>
-            <strong className="text-on-surface">Order matters.</strong> The mapping matches on accounts
-            that already exist, so upload both rosters before it. A row it cannot match is listed back to
-            you with the reason rather than being skipped silently.
+            <strong className="text-on-surface">Upload the student roster first.</strong> The mapping
+            matches students on their registration number, so they have to exist. A row it cannot match is
+            listed back to you with the reason rather than being skipped silently.
           </li>
           <li>
-            <strong className="text-on-surface">Students sign in with their Email Id</strong> from the
-            roster, using the temporary password in the download above.
+            <strong className="text-on-surface">Mentors do not have to exist.</strong> Any mentor email in
+            the mapping file that has no account gets one, on the same temporary password, and can sign in
+            with that address straight away.
+          </li>
+          <li>
+            <strong className="text-on-surface">Everyone signs in with their email</strong> and the shared
+            temporary password, then has to set their own before they can reach anything else.
           </li>
           <li>
             <strong className="text-on-surface">Re-uploading is safe.</strong> An email that already has

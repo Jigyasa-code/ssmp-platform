@@ -41,8 +41,11 @@ import {
 import {
   parseOrThrow,
   clusterHeadUploadSchema,
+  emailSchema,
+  sanitizeSingleLine,
   assertBodySize
 } from '../_lib/input-validation.js';
+import { env } from '../_lib/environment.js';
 import {
   parseAcademicDataFile,
   parseAttendanceExport,
@@ -67,6 +70,58 @@ function toClientError(error, fallback) {
     );
   }
   return new ApiError(message || fallback, 400);
+}
+
+/**
+ * Gives every mentor named in the mapping file an account, so the file can
+ * be uploaded on its own instead of only after a faculty roster.
+ *
+ * The mapping RPC matches mentors by email against existing profiles and
+ * fails any row it cannot match — which meant this file, which already
+ * carries every mentor's address, could not be the thing that introduced
+ * them. Creating the missing ones first turns those failures into logins.
+ *
+ * Addresses go through emailSchema, so the allowed-domain rule applies:
+ * an outside address in the spreadsheet cannot mint itself a faculty
+ * account. An address that already belongs to a student or the HOD is
+ * rejected by Supabase and reported as a row problem rather than being
+ * quietly promoted.
+ */
+async function createMissingMentors(admin, rows) {
+  const wanted = new Map();
+  for (const row of rows) {
+    const parsed = emailSchema.safeParse(row.mentor_email ?? '');
+    if (!parsed.success || wanted.has(parsed.data)) continue;
+    wanted.set(parsed.data, sanitizeSingleLine(row.mentor_name, 120));
+  }
+  if (!wanted.size) return { created: 0, errors: [] };
+
+  // Compared in JS rather than with .in(): user_profiles stores the email
+  // as it was given and only the unique INDEX is lowercased, so a mentor
+  // saved as "Bagesh.Kumar@..." has to match "bagesh.kumar@...".
+  const { data: faculty } = await admin.from('user_profiles').select('email').eq('role', 'faculty');
+  const known = new Set((faculty ?? []).map((f) => f.email.toLowerCase()));
+
+  let created = 0;
+  const errors = [];
+  for (const [email, name] of wanted) {
+    if (known.has(email)) continue;
+    const { error } = await admin.auth.admin.createUser({
+      email,
+      password: env.TEMPORARY_PASSWORD,
+      email_confirm: true,
+      user_metadata: {
+        role: 'faculty',
+        full_name: name || email.split('@')[0],
+        department: 'IoT & IS',
+        must_change_password: true
+      },
+      app_metadata: { role: 'faculty' }
+    });
+    if (error) errors.push({ email, reason: error.message });
+    else created += 1;
+  }
+  return { created, errors };
 }
 
 export default withApiDefaults(['POST'], async (req, res) => {
@@ -96,6 +151,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
   let rows;
   let rpcName;
   let rpcArgs;
+  let mentors = { created: 0, errors: [] };
 
   if (body.action === 'attendance') {
     // Course, dates and every section are read out of the export's own
@@ -117,6 +173,8 @@ export default withApiDefaults(['POST'], async (req, res) => {
     };
   } else if (body.action === 'mentor-map') {
     rows = await parseMentorMappingFile(buffer, body.filename);
+    // Before the mapping, not after: the RPC needs the accounts to exist.
+    mentors = await createMissingMentors(context.admin, rows);
     rpcName = 'map_students_to_mentors';
     rpcArgs = { p_rows: rows };
   } else if (body.action === 'gpa') {
@@ -149,7 +207,10 @@ export default withApiDefaults(['POST'], async (req, res) => {
       filename: body.filename,
       total_rows: data?.total_rows ?? rows.length,
       matched: data?.matched ?? 0,
-      failed: data?.failed ?? 0
+      failed: data?.failed ?? 0,
+      // Account creation is privileged; it belongs in the audit trail
+      // even when the upload itself was routine.
+      mentor_accounts_created: mentors.created
     }
   });
 
@@ -167,9 +228,16 @@ export default withApiDefaults(['POST'], async (req, res) => {
     return sendSuccess(
       res,
       `${matched} student(s) mapped to their mentor.` +
+        (mentors.created
+          ? ` ${mentors.created} mentor account(s) created — they sign in with the temporary password.`
+          : '') +
         (unchanged ? ` ${unchanged} were already correct.` : '') +
         (failed ? ` ${failed} could not be matched.` : ''),
-      data ?? {}
+      {
+        ...(data ?? {}),
+        mentors_created: mentors.created,
+        mentor_errors: mentors.errors
+      }
     );
   }
 

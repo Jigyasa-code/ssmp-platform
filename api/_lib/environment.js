@@ -75,6 +75,21 @@ export const env = {
   },
   get IS_PRODUCTION() {
     return optional('VERCEL_ENV', optional('NODE_ENV', 'development')) === 'production';
+  },
+  /**
+   * The password every account is created with — rosters, the mentor
+   * mapping and the provisioning endpoint all use this one, so the
+   * department can announce a single value instead of handing out a
+   * different random string per person.
+   *
+   * It is only a way to distribute a first sign-in: must_change_password
+   * is set on every account and RouteGuards refuses to let anyone past
+   * /change-password until they pick their own. It is optional rather
+   * than hard-coded because the default is in a public repository —
+   * set SSMP_TEMPORARY_PASSWORD in Vercel to use a value that is not.
+   */
+  get TEMPORARY_PASSWORD() {
+    return optional('SSMP_TEMPORARY_PASSWORD', 'SsmpDemo@2026');
   }
 };
 

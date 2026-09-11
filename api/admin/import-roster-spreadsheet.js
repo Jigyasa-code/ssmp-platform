@@ -16,7 +16,8 @@
  */
 import { withApiDefaults, sendSuccess, ApiError } from '../_lib/http-response.js';
 import { requireAuthenticatedUser, requireRole, enforceRateLimit, recordAuditEntry } from '../_lib/request-guards.js';
-import { parseOrThrow, rosterImportSchema, emailSchema, generateTemporaryPassword, assertBodySize, sanitizeSingleLine } from '../_lib/input-validation.js';
+import { parseOrThrow, rosterImportSchema, emailSchema, assertBodySize, sanitizeSingleLine } from '../_lib/input-validation.js';
+import { env } from '../_lib/environment.js';
 import { parseRosterFile, classifyRole } from '../_lib/spreadsheet-parser.js';
 
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
@@ -138,16 +139,15 @@ export default withApiDefaults(['POST'], async (req, res) => {
       }
 
       /**
-       * A "Password" column in the roster sets the account's initial
-       * password, so the HOD hands out one they already chose instead of a
-       * random string they have to read off a CSV. A blank cell still gets
-       * a generated password, which keeps every existing roster working.
+       * Everyone starts on env.TEMPORARY_PASSWORD, so the department
+       * announces one value rather than distributing 2,500 different
+       * ones. A "Password" column in the roster still overrides it per
+       * row, for the cohort that was told something else.
        *
-       * This replaces the *generation* of the password, not the rule that
-       * follows it: must_change_password stays true below, so the account
-       * is still forced onto "Set your password" at first sign-in. A
-       * shared password sitting in a spreadsheet is a way to distribute a
-       * first login, not a credential to keep.
+       * Either way must_change_password stays true below, so the account
+       * is forced onto "Set your password" at first sign-in. A shared
+       * password is a way to distribute a first login, not a credential
+       * to keep.
        */
       const suppliedPassword = String(record.password ?? '').trim();
       if (suppliedPassword && suppliedPassword.length < 8) {
@@ -158,7 +158,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
         });
         continue;
       }
-      const temporaryPassword = suppliedPassword || generateTemporaryPassword();
+      const temporaryPassword = suppliedPassword || env.TEMPORARY_PASSWORD;
 
       const { data, error } = await admin.auth.admin.createUser({
         email,

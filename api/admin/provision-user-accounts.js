@@ -12,7 +12,8 @@
  */
 import { withApiDefaults, sendSuccess, ApiError } from '../_lib/http-response.js';
 import { requireAuthenticatedUser, requireRole, enforceRateLimit, recordAuditEntry } from '../_lib/request-guards.js';
-import { parseOrThrow, provisionBatchSchema, generateTemporaryPassword, assertBodySize } from '../_lib/input-validation.js';
+import { parseOrThrow, provisionBatchSchema, assertBodySize } from '../_lib/input-validation.js';
+import { env } from '../_lib/environment.js';
 
 export default withApiDefaults(['POST'], async (req, res) => {
   assertBodySize(req, 2 * 1024 * 1024);
@@ -41,7 +42,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
         continue;
       }
 
-      const temporaryPassword = generateTemporaryPassword();
+      const temporaryPassword = env.TEMPORARY_PASSWORD;
       const { data, error } = await admin.auth.admin.createUser({
         email: account.email,
         password: temporaryPassword,

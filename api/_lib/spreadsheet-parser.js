@@ -585,6 +585,10 @@ export async function parseMentorMappingFile(buffer, filename) {
   const headerMap = rows[0].map((cell) => {
     const cleaned = cleanHeader(cell);
     if (['mentor email', 'faculty email', 'mentor email id', 'mentor mail'].includes(cleaned)) return 'mentor_email';
+    // Only the qualified spellings. A bare "Name" in this file is the
+    // student's, and claiming it here would name every mentor account
+    // after their first mentee.
+    if (['mentor name', 'faculty name', 'mentor'].includes(cleaned)) return 'mentor_name';
     if (HEADER_ALIASES.login_id.includes(cleaned)) return 'identifier';
     if (['email', 'email id', 'e-mail', 'student email'].includes(cleaned)) return 'identifier';
     return null;
@@ -610,7 +614,10 @@ export async function parseMentorMappingFile(buffer, filename) {
     records.push({
       rowNumber: r + 1,
       identifier: raw.identifier ?? '',
-      mentor_email: raw.mentor_email ?? ''
+      mentor_email: raw.mentor_email ?? '',
+      // Optional: only used when this upload has to create the mentor's
+      // account. Blank falls back to the email's local part.
+      mentor_name: raw.mentor_name ?? ''
     });
   }
 

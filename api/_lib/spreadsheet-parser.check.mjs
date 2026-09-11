@@ -80,7 +80,7 @@ await check('the header section still works as a fallback', async () => {
 
 console.log('\nMentor mentee list');
 
-await check('maps registration number to mentor email and ignores the phone', async () => {
+await check('maps registration number to mentor email and name, ignoring the phone', async () => {
   const records = await parseMentorMappingFile(enc(
     `<table>
        ${row(['S.No.', 'Registration No.', 'Name', 'Mentor Name', 'Mentor Phone No.', 'Mentor Email'])}
@@ -94,6 +94,15 @@ await check('maps registration number to mentor email and ignores the phone', as
   assert.equal(records[0].mentor_email, 'bagesh.kumar@jaipur.manipal.edu');
   assert.equal(records[1].mentor_email, 'chandrapalsingh.dangi@jaipur.manipal.edu');
   assert.equal(records[1].identifier, '2502051127', 'a blank mentor phone does not shift the columns');
+
+  // The mentor account this upload may have to create is named from here.
+  assert.equal(records[0].mentor_name, 'Dr Bagesh Kumar');
+  assert.equal(records[1].mentor_name, 'Mr Chandrapal Singh Dangi');
+  assert.equal(
+    records[0].mentor_name !== 'SAVI SAINI',
+    true,
+    'the student "Name" column must not be read as the mentor name'
+  );
 });
 
 console.log(failures ? `\n${failures} check(s) failed\n` : '\nAll checks passed\n');

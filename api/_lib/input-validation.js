@@ -208,19 +208,3 @@ export function sanitizeSingleLine(value, maxLength = 200) {
     .slice(0, maxLength);
 }
 
-/** Generates a password that satisfies Supabase's default policy. */
-export function generateTemporaryPassword() {
-  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const lower = 'abcdefghijkmnopqrstuvwxyz';
-  const digits = '23456789';
-  const symbols = '!@#$%&*';
-  const all = upper + lower + digits + symbols;
-  const pick = (set) => set[Math.floor(Math.random() * set.length)];
-  const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)];
-  while (chars.length < 14) chars.push(pick(all));
-  for (let i = chars.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join('');
-}
