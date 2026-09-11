@@ -1,7 +1,7 @@
 /**
  * Mentee detail — everything a mentor needs about one student in one
  * place: Form A (Feature 1), GPA if shared (Feature 2), achievements with
- * verification (Feature 6), star toggle (Feature 7) and the full ticket
+ * verification (Feature 6), star toggle (Feature 7) and the full query
  * history, plus a one-click PDF (Feature 5).
  */
 
@@ -14,7 +14,7 @@ import StatCard from '../../components/ui/StatCard.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import DataTable from '../../components/ui/DataTable.jsx';
 import { PageLoader } from '../../components/ui/Skeleton.jsx';
-import { TicketStatusBadge, CategoryBadge } from '../../components/ui/StatusBadge.jsx';
+import { QueryStatusBadge, CategoryBadge } from '../../components/ui/StatusBadge.jsx';
 import { TrendLineChart, DonutChart } from '../../components/charts/Charts.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { apiClient } from '../../lib/apiClient.js';
@@ -115,7 +115,7 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
     );
   }
 
-  const { student, form_a: formA, ticket_summary: tickets, gpa_stats: gpaStats } = dossier;
+  const { student, form_a: formA, query_summary: queries, gpa_stats: gpaStats } = dossier;
   const backPath = isHodView ? '/hod/students' : '/faculty/mentees';
 
   const gpaChart = (dossier.semester_gpas ?? []).map((g) => ({
@@ -124,9 +124,9 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
   }));
 
   const categoryChart = [
-    { name: 'Academic', value: tickets.academic, color: CHART_COLORS.academic },
-    { name: 'ERP/Tech', value: tickets.erp_tech, color: CHART_COLORS.erpTech },
-    { name: 'Infrastructure', value: tickets.infrastructure, color: CHART_COLORS.infrastructure }
+    { name: 'Academic', value: queries.academic, color: CHART_COLORS.academic },
+    { name: 'ERP/Tech', value: queries.erp_tech, color: CHART_COLORS.erpTech },
+    { name: 'Infrastructure', value: queries.infrastructure, color: CHART_COLORS.infrastructure }
   ];
 
   return (
@@ -168,11 +168,11 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
           tone={dossier.gpa_shared ? 'primary' : 'slate'}
           caption={dossier.gpa_shared ? `${gpaStats?.semesters_recorded ?? 0} semesters recorded` : 'student has hidden GPA'}
         />
-        <StatCard label="Tickets raised" value={tickets.total} icon="confirmation_number" tone="secondary"
-          caption={`${tickets.resolved} resolved`} />
+        <StatCard label="Queries raised" value={queries.total} icon="confirmation_number" tone="secondary"
+          caption={`${queries.resolved} resolved`} />
         <StatCard label="Achievements" value={dossier.achievements.length} icon="military_tech" tone="success"
           caption={`${dossier.achievements.filter((a) => a.verified).length} verified`} />
-        <StatCard label="Avg resolution" value={formatHours(tickets.avg_resolution_hours)} icon="timer" tone="info" />
+        <StatCard label="Avg resolution" value={formatHours(queries.avg_resolution_hours)} icon="timer" tone="info" />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
@@ -193,8 +193,8 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
           )}
         </Panel>
 
-        <Panel tab="Ticket mix" tabIcon="donut_small">
-          <DonutChart data={categoryChart} centerLabel="tickets" height={260} />
+        <Panel tab="Query mix" tabIcon="donut_small">
+          <DonutChart data={categoryChart} centerLabel="queries" height={260} />
         </Panel>
       </div>
 
@@ -276,19 +276,19 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
           )}
         </Panel>
 
-        <Panel tab="Ticket history" tabIcon="history" bodyClassName="">
+        <Panel tab="Query history" tabIcon="history" bodyClassName="">
           <DataTable
             dense
             columns={[
-              { key: 'ticket_code', header: 'Ref' },
+              { key: 'query_code', header: 'Ref' },
               { key: 'subject', header: 'Subject' },
               { key: 'category', header: 'Category', render: (row) => <CategoryBadge category={row.category} /> },
-              { key: 'status', header: 'Status', render: (row) => <TicketStatusBadge status={row.status} /> },
+              { key: 'status', header: 'Status', render: (row) => <QueryStatusBadge status={row.status} /> },
               { key: 'created_at', header: 'Raised', render: (row) => formatDate(row.created_at) }
             ]}
-            rows={dossier.tickets ?? []}
-            rowKey={(row) => row.ticket_code}
-            emptyState={<EmptyState icon="inbox" title="No tickets" description="This student has not raised any tickets." />}
+            rows={dossier.queries ?? []}
+            rowKey={(row) => row.query_code}
+            emptyState={<EmptyState icon="inbox" title="No queries" description="This student has not raised any queries." />}
           />
         </Panel>
       </div>

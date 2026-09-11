@@ -1,10 +1,10 @@
 /**
- * FEATURE 7 companion — the star mentee's read-only view of every ticket
+ * FEATURE 7 companion — the star mentee's read-only view of every query
  * raised inside their mentor group.
  *
  * Strictly view-only, and enforced in the database rather than here: the
- * get_mentor_group_tickets() function returns a narrow projection with no
- * ticket ids, no message bodies, no emails and no registration numbers, so
+ * get_mentor_group_queries() function returns a narrow projection with no
+ * query ids, no message bodies, no emails and no registration numbers, so
  * there is nothing to click through to. The representative can see what
  * their group is struggling with; they cannot reply, resolve, or open a
  * classmate's profile.
@@ -20,27 +20,27 @@ import DataTable from '../../components/ui/DataTable.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import { SkeletonTable } from '../../components/ui/Skeleton.jsx';
 import { SelectField } from '../../components/ui/FormControls.jsx';
-import { TicketStatusBadge, CategoryBadge, PriorityBadge } from '../../components/ui/StatusBadge.jsx';
+import { QueryStatusBadge, CategoryBadge, PriorityBadge } from '../../components/ui/StatusBadge.jsx';
 import { CategoryBarChart, DonutChart } from '../../components/charts/Charts.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
-import { CHART_COLORS, TICKET_CATEGORIES, TICKET_STATUSES } from '../../lib/constants.js';
+import { CHART_COLORS, QUERY_CATEGORIES, QUERY_STATUSES } from '../../lib/constants.js';
 import { describeError, formatRelativeTime } from '../../lib/formatters.js';
 
-export default function StudentGroupTicketsPage() {
+export default function StudentGroupQueriesPage() {
   const { profile } = useAuth();
   const toast = useToast();
-  const [tickets, setTickets] = useState([]);
+  const [queries, setQueries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('All');
   const [category, setCategory] = useState('All');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.rpc('get_mentor_group_tickets');
+    const { data, error } = await supabase.rpc('get_mentor_group_queries');
     if (error) toast.error(describeError(error));
-    setTickets(data ?? []);
+    setQueries(data ?? []);
     setLoading(false);
   }, [toast]);
 
@@ -48,12 +48,12 @@ export default function StudentGroupTicketsPage() {
     if (profile?.is_star_mentee) load();
   }, [profile?.is_star_mentee, load]);
 
-  // Live: a classmate raising a ticket shows up without a refresh.
+  // Live: a classmate raising a query shows up without a refresh.
   useEffect(() => {
     if (!profile?.is_star_mentee) return undefined;
     const channel = supabase
-      .channel('group-tickets')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => load())
+      .channel('group-queries')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_queries' }, () => load())
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -62,16 +62,16 @@ export default function StudentGroupTicketsPage() {
 
   const filtered = useMemo(
     () =>
-      tickets.filter(
+      queries.filter(
         (t) => (status === 'All' || t.status === status) && (category === 'All' || t.category === category)
       ),
-    [tickets, status, category]
+    [queries, status, category]
   );
 
   const charts = useMemo(() => {
-    const count = (key, value) => tickets.filter((t) => t[key] === value).length;
+    const count = (key, value) => queries.filter((t) => t[key] === value).length;
     return {
-      category: TICKET_CATEGORIES.map((name, index) => ({
+      category: QUERY_CATEGORIES.map((name, index) => ({
         name,
         value: count('category', name),
         color: [CHART_COLORS.academic, CHART_COLORS.erpTech, CHART_COLORS.infrastructure][index]
@@ -82,7 +82,7 @@ export default function StudentGroupTicketsPage() {
         { name: 'Resolved', value: count('status', 'Resolved'), color: CHART_COLORS.resolved }
       ]
     };
-  }, [tickets]);
+  }, [queries]);
 
   // Not the representative (or no longer) — nothing to show.
   if (profile && !profile.is_star_mentee) return <Navigate to="/student" replace />;
@@ -90,21 +90,21 @@ export default function StudentGroupTicketsPage() {
   return (
     <PortalShell>
       <PageHeader
-        title="Group tickets"
-        subtitle={`Every ticket raised by students mentored by ${profile?.mentor?.full_name ?? 'your mentor'}. View-only.`}
+        title="Group queries"
+        subtitle={`Every query raised by students mentored by ${profile?.mentor?.full_name ?? 'your mentor'}. View-only.`}
       />
 
       <div className="mb-4 flex items-start gap-3 rounded-lg border-l-4 border-info bg-info-container/50 p-4">
         <span className="material-symbols-outlined text-[22px] text-info" aria-hidden="true">info</span>
         <p className="text-body-sm text-on-surface-variant">
           You can see this because your mentor made you the <strong>student representative</strong>. It is a
-          read-only overview — you cannot reply to these tickets, resolve them, or open another student&apos;s
+          read-only overview — you cannot reply to these queries, resolve them, or open another student&apos;s
           profile.
         </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Tickets in the group" value={tickets.length} icon="groups" tone="primary" />
+        <StatCard label="Queries in the group" value={queries.length} icon="groups" tone="primary" />
         <StatCard label="Open" value={charts.status[0].value} icon="pending" tone="error" />
         <StatCard label="In progress" value={charts.status[1].value} icon="autorenew" tone="warning" />
         <StatCard label="Resolved" value={charts.status[2].value} icon="task_alt" tone="success" />
@@ -115,7 +115,7 @@ export default function StudentGroupTicketsPage() {
           <CategoryBarChart data={charts.category} height={230} />
         </Panel>
         <Panel tab="By status" tabIcon="donut_small">
-          <DonutChart data={charts.status} centerLabel="tickets" height={230} />
+          <DonutChart data={charts.status} centerLabel="queries" height={230} />
         </Panel>
       </div>
 
@@ -126,14 +126,14 @@ export default function StudentGroupTicketsPage() {
             className="w-full sm:w-56"
             value={status}
             onChange={(event) => setStatus(event.target.value)}
-            options={['All', ...TICKET_STATUSES]}
+            options={['All', ...QUERY_STATUSES]}
           />
           <SelectField
             label="Category"
             className="w-full sm:w-56"
             value={category}
             onChange={(event) => setCategory(event.target.value)}
-            options={['All', ...TICKET_CATEGORIES]}
+            options={['All', ...QUERY_CATEGORIES]}
           />
         </div>
       </Panel>
@@ -145,9 +145,9 @@ export default function StudentGroupTicketsPage() {
           <DataTable
             columns={[
               {
-                key: 'ticket_code',
+                key: 'query_code',
                 header: 'Ref',
-                render: (row) => <span className="font-semibold text-primary">{row.ticket_code}</span>
+                render: (row) => <span className="font-semibold text-primary">{row.query_code}</span>
               },
               {
                 key: 'subject',
@@ -171,7 +171,7 @@ export default function StudentGroupTicketsPage() {
               },
               { key: 'category', header: 'Category', render: (row) => <CategoryBadge category={row.category} /> },
               { key: 'priority', header: 'Priority', render: (row) => <PriorityBadge priority={row.priority} /> },
-              { key: 'status', header: 'Status', render: (row) => <TicketStatusBadge status={row.status} /> },
+              { key: 'status', header: 'Status', render: (row) => <QueryStatusBadge status={row.status} /> },
               {
                 key: 'last_message_at',
                 header: 'Last update',
@@ -179,15 +179,15 @@ export default function StudentGroupTicketsPage() {
               }
             ]}
             rows={filtered}
-            rowKey={(row) => row.ticket_code}
+            rowKey={(row) => row.query_code}
             emptyState={
               <EmptyState
                 icon="inbox"
-                title={tickets.length ? 'Nothing matches these filters' : 'No tickets in your group yet'}
+                title={queries.length ? 'Nothing matches these filters' : 'No queries in your group yet'}
                 description={
-                  tickets.length
+                  queries.length
                     ? 'Try a different status or category.'
-                    : 'When students in your mentor group raise tickets, they will appear here.'
+                    : 'When students in your mentor group raise queries, they will appear here.'
                 }
               />
             }

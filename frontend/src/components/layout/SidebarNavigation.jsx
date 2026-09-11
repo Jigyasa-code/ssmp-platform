@@ -23,7 +23,7 @@ const ROLE_SUBTITLE = {
 
 export default function SidebarNavigation({ role, profile, isOpen, onToggle, onNavigate }) {
   const { signOut } = useAuth();
-  // `when` lets an item appear only for some users — e.g. Group Tickets,
+  // `when` lets an item appear only for some users — e.g. Group Queries,
   // which only the star mentee can see.
   const items = (NAVIGATION[role] ?? []).filter((item) => (item.when ? item.when(profile) : true));
 

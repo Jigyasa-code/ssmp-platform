@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Student Support & Mentorship Portal (Academic Nexus) \u2014 Supabase + React + Vercel",
+  "description": "Student Mentorship Portal (Academic Nexus) \u2014 Supabase + React + Vercel",
   "engines": {
     "node": ">=20.0.0"
   },

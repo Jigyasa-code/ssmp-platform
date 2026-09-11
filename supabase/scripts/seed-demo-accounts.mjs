@@ -3,7 +3,7 @@
  * seed-demo-accounts.mjs
  * ---------------------------------------------------------------------
  * Creates the demo accounts (1 HOD, 3 faculty, 4 students, 2 cluster
- * heads), assigns mentors, raises a few sample tickets, and loads the
+ * heads), assigns mentors, raises a few sample queries, and loads the
  * Cluster Head sample data so every dashboard — including the At-Risk
  * Students page and the survey tracking — has something in it on first
  * login.
@@ -86,7 +86,7 @@ const DEMO_ACCOUNTS = [
   ...SAMPLE_CLUSTER_HEADS.map((spec) => ({ ...spec, role: 'cluster_head' }))
 ];
 
-const SAMPLE_TICKETS = [
+const SAMPLE_QUERIES = [
   {
     student: 'john.doe@muj.manipal.edu',
     subject: 'Cannot log in to the ERP portal',
@@ -174,14 +174,14 @@ async function main() {
     console.log(`  ${spec.full_name} -> ${spec.mentor}`);
   }
 
-  console.log('\nCreating sample tickets');
-  for (const t of SAMPLE_TICKETS) {
+  console.log('\nCreating sample queries');
+  for (const t of SAMPLE_QUERIES) {
     const studentId = idByEmail[t.student];
     const mentorEmail = DEMO_ACCOUNTS.find((a) => a.email === t.student).mentor;
     const mentorId = idByEmail[mentorEmail];
 
     const { data: dupe } = await db
-      .from('support_tickets')
+      .from('support_queries')
       .select('id')
       .eq('student_id', studentId)
       .eq('subject', t.subject)
@@ -191,8 +191,8 @@ async function main() {
       continue;
     }
 
-    const { data: ticket, error } = await db
-      .from('support_tickets')
+    const { data: query, error } = await db
+      .from('support_queries')
       .insert({
         student_id: studentId,
         mentor_id: mentorId,
@@ -204,35 +204,35 @@ async function main() {
       .single();
     if (error) throw error;
 
-    const messages = [{ ticket_id: ticket.id, sender_id: studentId, body: t.description }];
+    const messages = [{ query_id: query.id, sender_id: studentId, body: t.description }];
     for (const r of t.replies) {
       messages.push({
-        ticket_id: ticket.id,
+        query_id: query.id,
         sender_id: r.from === 'mentor' ? mentorId : studentId,
         body: r.body
       });
     }
-    const { error: msgErr } = await db.from('ticket_messages').insert(messages);
+    const { error: msgErr } = await db.from('query_messages').insert(messages);
     if (msgErr) throw msgErr;
 
     if (t.replies.length) {
       await db
-        .from('support_tickets')
+        .from('support_queries')
         .update({ status: 'In Progress', first_response_at: new Date().toISOString() })
-        .eq('id', ticket.id);
+        .eq('id', query.id);
     }
     if (t.resolve) {
       await db
-        .from('support_tickets')
+        .from('support_queries')
         .update({
           status: 'Resolved',
           resolution_status: 'pending_confirmation',
           resolved_by: mentorId,
           resolved_at: new Date().toISOString()
         })
-        .eq('id', ticket.id);
+        .eq('id', query.id);
     }
-    console.log(`  + ${ticket.ticket_code}  ${t.subject}`);
+    console.log(`  + ${query.query_code}  ${t.subject}`);
   }
 
   console.log('\nAdding shared canned replies for faculty');

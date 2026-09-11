@@ -5,7 +5,7 @@
  * never changes once filed; Section B is a repeatable block where each
  * raised issue becomes its own trackable entity.
  *
- * Each of those entities is a support ticket. Not a lookalike — the same
+ * Each of those entities is a support query. Not a lookalike — the same
  * table, so the mentor works them in the queue they already use, the
  * three-rejection cap applies, every hop is notified by the existing
  * triggers, and this page's follow-up list is a plain query rather than a
@@ -21,12 +21,12 @@ import EmptyState from '../../components/ui/EmptyState.jsx';
 import StatCard from '../../components/ui/StatCard.jsx';
 import { SkeletonCards } from '../../components/ui/Skeleton.jsx';
 import { TextField, TextAreaField, SelectField } from '../../components/ui/FormControls.jsx';
-import { TicketStatusBadge, CategoryBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
+import { QueryStatusBadge, CategoryBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
-import { TICKET_CATEGORIES } from '../../lib/constants.js';
+import { QUERY_CATEGORIES } from '../../lib/constants.js';
 import { describeError, formatDate, formatRelativeTime } from '../../lib/formatters.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -52,18 +52,18 @@ export default function StudentCrReportPage() {
     setLoading(true);
     // RLS scopes both: the rep sees the meetings they filed and the
     // action items raised in them.
-    const [{ data: moms, error }, { data: tickets }] = await Promise.all([
+    const [{ data: moms, error }, { data: queries }] = await Promise.all([
       supabase.from('mom_records').select('*').order('meeting_date', { ascending: false }).limit(20),
       supabase
-        .from('support_tickets')
-        .select('id, mom_id, ticket_code, subject, category, status, resolution_status, last_message_at')
+        .from('support_queries')
+        .select('id, mom_id, query_code, subject, category, status, resolution_status, last_message_at')
         .not('mom_id', 'is', null)
         .order('created_at')
     ]);
     if (error) toast.error(describeError(error));
 
     const byMom = new Map();
-    for (const t of tickets ?? []) {
+    for (const t of queries ?? []) {
       if (!byMom.has(t.mom_id)) byMom.set(t.mom_id, []);
       byMom.get(t.mom_id).push(t);
     }
@@ -162,7 +162,7 @@ export default function StudentCrReportPage() {
           </p>
           <p className="mt-0.5 text-body-sm text-on-surface-variant">
             Open the issue below and either acknowledge it or reopen it with a comment — the same
-            confirmation step as any other ticket.
+            confirmation step as any other query.
           </p>
         </div>
       )}
@@ -243,7 +243,7 @@ export default function StudentCrReportPage() {
                 <SelectField
                   label="Category"
                   name={`${item.key}-category`}
-                  options={TICKET_CATEGORIES}
+                  options={QUERY_CATEGORIES}
                   value={item.category}
                   onChange={(event) => updateItem(item.key, 'category', event.target.value)}
                 />
@@ -312,17 +312,17 @@ export default function StudentCrReportPage() {
                     <li key={item.id} className="flex flex-wrap items-center gap-2 py-3">
                       <span className="min-w-0 flex-1">
                         <a
-                          href={`/student/tickets/${item.id}`}
+                          href={`/student/queries/${item.id}`}
                           className="block truncate text-label-md text-on-surface hover:text-primary hover:underline"
                         >
                           {item.subject}
                         </a>
                         <span className="text-label-sm text-tertiary">
-                          {item.ticket_code} · updated {formatRelativeTime(item.last_message_at)}
+                          {item.query_code} · updated {formatRelativeTime(item.last_message_at)}
                         </span>
                       </span>
                       <CategoryBadge category={item.category} />
-                      <TicketStatusBadge status={item.status} />
+                      <QueryStatusBadge status={item.status} />
                       <ResolutionBadge resolutionStatus={item.resolution_status} />
                     </li>
                   ))}

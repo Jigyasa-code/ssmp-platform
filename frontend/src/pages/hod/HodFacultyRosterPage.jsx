@@ -3,7 +3,7 @@
  *
  * Flow: mark a faculty member as departed -> the portal surfaces their
  * full mentee list -> pick target mentors from the reserve pool (with live
- * capacity) -> confirm -> mentees and their unresolved tickets move over,
+ * capacity) -> confirm -> mentees and their unresolved queries move over,
  * everyone involved is notified, and the move is written to the audit log.
  */
 
@@ -297,7 +297,7 @@ export default function HodFacultyRosterPage() {
         onClose={() => setReassignFor(null)}
         size="lg"
         title={`Reassign mentees from ${reassignFor?.full_name ?? ''}`}
-        description="Select the students to move and choose their new mentor. Unresolved tickets move with them."
+        description="Select the students to move and choose their new mentor. Unresolved queries move with them."
         footer={
           <>
             <button type="button" className="btn-ghost" onClick={() => setReassignFor(null)} disabled={pending}>
@@ -366,9 +366,9 @@ export default function HodFacultyRosterPage() {
                         {mentee.login_id ?? '—'} · Section {mentee.section ?? '—'} · {mentee.branch ?? '—'}
                       </span>
                     </span>
-                    {mentee.open_tickets > 0 && (
+                    {mentee.open_queries > 0 && (
                       <span className="chip bg-warning-container text-on-warning-container">
-                        {mentee.open_tickets} open
+                        {mentee.open_queries} open
                       </span>
                     )}
                     {mentee.is_star_mentee && (

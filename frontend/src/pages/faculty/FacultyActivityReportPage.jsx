@@ -228,10 +228,10 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
       ) : (
         <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Tickets handled" value={summary.total_tickets} icon="confirmation_number" tone="primary"
-          caption={`${summary.resolved_tickets} resolved`} />
+        <StatCard label="Queries handled" value={summary.total_queries} icon="confirmation_number" tone="primary"
+          caption={`${summary.resolved_queries} resolved`} />
         <StatCard label="Resolution rate" value={`${summary.resolution_rate_percent}%`} icon="task_alt" tone="success"
-          caption={`${summary.open_tickets + summary.in_progress_tickets} still active`} />
+          caption={`${summary.open_queries + summary.in_progress_queries} still active`} />
         <StatCard label="Avg first response" value={formatHours(summary.avg_first_response_hours)} icon="bolt" tone="warning"
           caption="time to first reply" />
         <StatCard label="Avg resolution" value={formatHours(summary.avg_resolution_hours)} icon="timer" tone="info"
@@ -239,14 +239,14 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-4">
-        <Panel tab="Tickets by category" tabIcon="bar_chart" className="lg:col-span-2">
+        <Panel tab="Queries by category" tabIcon="bar_chart" className="lg:col-span-2">
           <CategoryBarChart data={charts.category} height={250} />
         </Panel>
         <Panel tab="Student confirmation" tabIcon="how_to_reg" className="lg:col-span-2">
           <DonutChart
             data={charts.confirmation}
             height={250}
-            centerLabel="tickets"
+            centerLabel="queries"
             subtitle="Feature 3 — did the student agree the issue was fixed?"
           />
         </Panel>
@@ -264,7 +264,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
           <GaugeChart
             value={Number(summary.avg_satisfaction) || 0}
             max={5}
-            label={`from ${summary.rated_tickets} ratings`}
+            label={`from ${summary.rated_queries} ratings`}
             height={230}
             color={CHART_COLORS.secondary}
           />
@@ -301,7 +301,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
             ]}
             rows={report.by_category ?? []}
             rowKey={(row) => row.category}
-            emptyState={<EmptyState icon="bar_chart" title="No tickets in this period" />}
+            emptyState={<EmptyState icon="bar_chart" title="No queries in this period" />}
           />
         </Panel>
 
@@ -317,7 +317,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
                 header: 'Form A',
                 render: (row) => (row.form_a_completed ? 'Yes' : 'Pending')
               },
-              { key: 'ticket_count', header: 'Tickets', align: 'right' }
+              { key: 'query_count', header: 'Queries', align: 'right' }
             ]}
             rows={report.mentees ?? []}
             rowKey={(row) => row.id}
@@ -356,21 +356,21 @@ function DepartmentReportBody({ report }) {
   }));
 
   const loadByFaculty = [...(report.faculty ?? [])]
-    .sort((a, b) => b.total_tickets - a.total_tickets)
+    .sort((a, b) => b.total_queries - a.total_queries)
     .slice(0, 8)
     .map((f) => ({
       name: f.name.split(' ').slice(-1)[0],
-      resolved: f.resolved_tickets,
-      active: f.open_tickets + f.in_progress_tickets
+      resolved: f.resolved_queries,
+      active: f.open_queries + f.in_progress_queries
     }));
 
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Tickets raised" value={summary.total_tickets} icon="confirmation_number" tone="primary"
-          caption={`${summary.resolved_tickets} resolved`} />
+        <StatCard label="Queries raised" value={summary.total_queries} icon="confirmation_number" tone="primary"
+          caption={`${summary.resolved_queries} resolved`} />
         <StatCard label="Resolution rate" value={`${summary.resolution_rate_percent}%`} icon="task_alt" tone="success"
-          caption={`${summary.open_tickets + summary.in_progress_tickets} still active`} />
+          caption={`${summary.open_queries + summary.in_progress_queries} still active`} />
         <StatCard label="Avg first response" value={formatHours(summary.avg_first_response_hours)} icon="bolt" tone="warning" />
         <StatCard label="Avg resolution" value={formatHours(summary.avg_resolution_hours)} icon="timer" tone="info" />
         <StatCard label="Faculty" value={summary.faculty_count} icon="badge" tone="secondary"
@@ -379,16 +379,16 @@ function DepartmentReportBody({ report }) {
           caption={`${summary.unassigned_students} unassigned`} />
         <StatCard label="Satisfaction" value={summary.avg_satisfaction ? `${summary.avg_satisfaction}/5` : '—'}
           icon="grade" tone="warning" />
-        <StatCard label="Referred to HOD" value={summary.escalated_tickets} icon="flag"
-          tone={summary.escalated_tickets ? 'error' : 'slate'} />
+        <StatCard label="Referred to HOD" value={summary.escalated_queries} icon="flag"
+          tone={summary.escalated_queries ? 'error' : 'slate'} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Panel tab="Tickets by category" tabIcon="bar_chart">
+        <Panel tab="Queries by category" tabIcon="bar_chart">
           <CategoryBarChart data={categoryData} height={250} />
         </Panel>
         <Panel tab="Status mix" tabIcon="donut_small">
-          <DonutChart data={statusData} height={250} centerLabel="tickets" />
+          <DonutChart data={statusData} height={250} centerLabel="queries" />
         </Panel>
       </div>
 
@@ -431,8 +431,8 @@ function DepartmentReportBody({ report }) {
             { key: 'branch', header: 'Branch' },
             { key: 'employment_status', header: 'Status', render: (row) => <EmploymentBadge status={row.employment_status} /> },
             { key: 'mentee_count', header: 'Mentees', align: 'right' },
-            { key: 'total_tickets', header: 'Tickets', align: 'right' },
-            { key: 'resolved_tickets', header: 'Resolved', align: 'right' },
+            { key: 'total_queries', header: 'Queries', align: 'right' },
+            { key: 'resolved_queries', header: 'Resolved', align: 'right' },
             { key: 'reopened', header: 'Reopened', align: 'right' },
             {
               key: 'avg_first_response_hours',

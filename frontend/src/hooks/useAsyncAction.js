@@ -15,7 +15,9 @@ export function useAsyncAction() {
       setPending(true);
       try {
         const result = await action();
-        if (successMessage) toast.success(successMessage);
+        // A function gets the action's result, so a toast can quote a count.
+        if (successMessage)
+          toast.success(typeof successMessage === 'function' ? successMessage(result) : successMessage);
         if (onSuccess) await onSuccess(result);
         return result;
       } catch (error) {

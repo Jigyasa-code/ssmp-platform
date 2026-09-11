@@ -4,12 +4,12 @@ import { useNotifications } from '../../context/NotificationProvider.jsx';
 import { formatRelativeTime } from '../../lib/formatters.js';
 
 const TYPE_ICONS = {
-  ticket_created: 'add_circle',
-  ticket_message: 'chat',
-  ticket_resolution_pending: 'help',
-  ticket_confirmed: 'task_alt',
-  ticket_reopened: 'replay',
-  ticket_rated: 'star',
+  query_created: 'add_circle',
+  query_message: 'chat',
+  query_resolution_pending: 'help',
+  query_confirmed: 'task_alt',
+  query_reopened: 'replay',
+  query_rated: 'star',
   mentor_reassigned: 'swap_horiz',
   star_mentee_assigned: 'workspace_premium',
   achievement_verified: 'verified',
@@ -17,7 +17,7 @@ const TYPE_ICONS = {
   account_provisioned: 'person_add',
   // Added in migration 0018 but never given an icon, so it silently fell
   // back to the generic bell.
-  ticket_escalated: 'priority_high',
+  query_escalated: 'priority_high',
   student_at_risk: 'e911_emergency',
   at_risk_meeting_required: 'event_available',
   at_risk_cleared: 'verified',

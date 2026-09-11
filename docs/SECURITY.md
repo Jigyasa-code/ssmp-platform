@@ -6,11 +6,11 @@ Every control in the platform, why it is there, and the trade-offs that were tak
 
 ## 1. The security boundary is the database, not the UI
 
-The original Express backend enforced authorization in `ticket.controller.js`:
+The original Express backend enforced authorization in `query.controller.js`:
 
 ```js
-const isStudentOwner   = ticket.studentId._id.toString() === req.user._id.toString();
-const isAssignedMentor = ticket.mentorId._id.toString() === req.user._id.toString();
+const isStudentOwner   = query.studentId._id.toString() === req.user._id.toString();
+const isAssignedMentor = query.mentorId._id.toString() === req.user._id.toString();
 const isHod            = req.user.role === 'hod';
 if (!isStudentOwner && !isAssignedMentor && !isHod) return sendError(res, '...', 403);
 ```
@@ -20,7 +20,7 @@ That logic is **preserved exactly**. It moved from Node middleware into Postgres
 `supabase/migrations/0008_row_level_security_policies.sql`:
 
 ```sql
-create policy tickets_select_participants on public.support_tickets
+create policy queries_select_participants on public.support_queries
   for select to authenticated
   using (
     student_id = auth.uid()      -- isStudentOwner
@@ -33,7 +33,7 @@ create policy tickets_select_participants on public.support_tickets
 
 ### Why `ENABLE` and not `FORCE`
 
-`FORCE ROW LEVEL SECURITY` also subjects the table owner to the policies. Every `SECURITY DEFINER` function runs as the owner and legitimately writes rows no client-facing policy allows — system messages on a ticket, notifications, the ticket state machine. With `FORCE`, all of those would fail.
+`FORCE ROW LEVEL SECURITY` also subjects the table owner to the policies. Every `SECURITY DEFINER` function runs as the owner and legitimately writes rows no client-facing policy allows — system messages on a query, notifications, the query state machine. With `FORCE`, all of those would fail.
 
 `ENABLE` already blocks the only two roles a client can ever authenticate as (`anon` and `authenticated`), which is the entire threat model. This is the standard Supabase pattern and the choice is documented inline in the migration.
 
@@ -61,15 +61,15 @@ That third flag is transaction-local and is always cleared by the function that 
 
 ## 3. State transitions are functions, not raw UPDATEs
 
-Anything with side effects goes through a `SECURITY DEFINER` RPC that re-checks authorisation itself. This makes it impossible to, say, resolve a ticket without the student being asked to confirm it.
+Anything with side effects goes through a `SECURITY DEFINER` RPC that re-checks authorisation itself. This makes it impossible to, say, resolve a query without the student being asked to confirm it.
 
 | Function | Guard |
 |---|---|
-| `create_support_ticket` | student only, own id, own assigned mentor, ≤20 unresolved tickets |
-| `post_ticket_message` | owner, assigned mentor or HOD |
-| `resolve_support_ticket` | assigned mentor or HOD (students cannot resolve their own) |
-| `confirm_ticket_resolution` | **student owner only** — the whole point of Feature 3 |
-| `rate_support_ticket` | student owner, resolved ticket, once only |
+| `create_support_query` | student only, own id, own assigned mentor, ≤20 unresolved queries |
+| `post_query_message` | owner, assigned mentor or HOD |
+| `resolve_support_query` | assigned mentor or HOD (students cannot resolve their own) |
+| `confirm_query_resolution` | **student owner only** — the whole point of Feature 3 |
+| `rate_support_query` | student owner, resolved query, once only |
 | `submit_student_form_a` | student only, refuses if already locked |
 | `unlock_student_form_a` | HOD only |
 | `upsert_semester_gpa`, `set_gpa_sharing` | student only, own record |
@@ -81,7 +81,7 @@ Anything with side effects goes through a `SECURITY DEFINER` RPC that re-checks 
 
 Every one pins `search_path = public, pg_temp` so a malicious schema on the path cannot hijack it, and is revoked from `public` and `anon` before being granted to `authenticated`.
 
-`ticket_messages` and `notifications` have **no INSERT policy at all** — they can only be written by these functions and by triggers. A client cannot fabricate a notification or post a message that skips the side effects.
+`query_messages` and `notifications` have **no INSERT policy at all** — they can only be written by these functions and by triggers. A client cannot fabricate a notification or post a message that skips the side effects.
 
 ---
 
@@ -108,7 +108,7 @@ Two clients with very different trust levels (`api/_lib/supabase-clients.js`):
 
 The read paths in `manage-faculty-roster.js` deliberately use the *user* client even though the caller is the HOD and would pass the policy anyway — defence in depth.
 
-Only five operations use the admin client, and all of them genuinely require it: creating auth accounts, roster import, moving tickets during reassignment, writing audit entries, and consuming rate-limit counters.
+Only five operations use the admin client, and all of them genuinely require it: creating auth accounts, roster import, moving queries during reassignment, writing audit entries, and consuming rate-limit counters.
 
 ---
 
@@ -171,7 +171,7 @@ An in-memory counter rate-limits nothing when your functions are stateless and h
 
 The limiter **fails open** — if the counter itself errors, a legitimate request is not blocked, and the error is logged.
 
-Application-level abuse guards sit alongside: max 20 unresolved tickets per student, max 500 students per reassignment, 5000 rows per import.
+Application-level abuse guards sit alongside: max 20 unresolved queries per student, max 500 students per reassignment, 5000 rows per import.
 
 ---
 
@@ -203,7 +203,7 @@ Recorded: account provisioning, roster imports (with per-row failures), faculty 
 - `must_change_password` forces a new password on first sign-in — enforced in the routing layer, so it cannot be skipped by typing a URL.
 - The password screen requires 10+ characters with upper, lower, digit and symbol.
 - Supabase Auth handles hashing (bcrypt), refresh-token rotation and reuse detection.
-- Deactivating an account (`is_active = false`) blocks sign-in and every ticket-creating RPC.
+- Deactivating an account (`is_active = false`) blocks sign-in and every query-creating RPC.
 
 ---
 

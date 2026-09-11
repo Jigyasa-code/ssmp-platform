@@ -58,14 +58,14 @@ export default function LoginPage() {
           <img src={mujLogo} alt="Manipal University Jaipur" className="h-14 w-auto object-contain" />
         </div>
         <div>
-          <h1 className="max-w-lg text-display-lg leading-tight">Student Support &amp; Mentorship Portal</h1>
+          <h1 className="max-w-lg text-display-lg leading-tight">Student Mentorship Portal</h1>
           <p className="mt-4 max-w-md text-body-lg text-primary-fixed">
             One place for students, faculty mentors and the department head to raise, track and resolve
             academic support requests.
           </p>
           <ul className="mt-8 space-y-3 text-body-md text-primary-fixed">
             {[
-              ['confirmation_number', 'Raise and track tickets in real time'],
+              ['confirmation_number', 'Raise and track queries in real time'],
               ['groups', 'Stay connected with your assigned mentor'],
               ['analytics', 'Analytical reports for faculty and the HOD']
             ].map(([icon, text]) => (

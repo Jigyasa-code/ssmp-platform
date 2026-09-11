@@ -15,25 +15,25 @@ export const ROLE_LABELS = {
 };
 
 /**
- * The categories a ticket can be raised under. Mirrors the ticket_category
+ * The categories a query can be raised under. Mirrors the query_category
  * enum (§10.9) — every value here must exist in Postgres, which is what
  * migration 0026 adds.
  *
  * The legacy values 'Academic', 'ERP/Tech' and 'Infrastructure' are
  * deliberately absent. They are still valid in the database (an enum value
- * cannot be dropped, and old tickets carry them), so historical tickets
+ * cannot be dropped, and old queries carry them), so historical queries
  * still display and still read back correctly — they just cannot be chosen
  * any more, here or in the filter pills that share this list.
  */
-export const TICKET_CATEGORIES = [
+export const QUERY_CATEGORIES = [
   'Academics',
   'Examination',
   'Behavioural',
   'Administrative',
   'Others'
 ];
-export const TICKET_STATUSES = ['Open', 'In Progress', 'Resolved'];
-export const TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
+export const QUERY_STATUSES = ['Open', 'In Progress', 'Resolved'];
+export const QUERY_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
 
 export const RESOLUTION_STATUS_LABELS = {
   none: 'Not resolved',
@@ -230,10 +230,10 @@ export const CHART_COLORS = {
 export const NAVIGATION = {
   student: [
     { to: '/student', label: 'Home', icon: 'home', end: true },
-    { to: '/student/tickets', label: 'My Tickets', icon: 'confirmation_number' },
+    { to: '/student/queries', label: 'My Queries', icon: 'confirmation_number' },
     {
-      to: '/student/group-tickets',
-      label: 'Group Tickets',
+      to: '/student/group-queries',
+      label: 'Group Queries',
       icon: 'groups',
       when: (profile) => Boolean(profile?.is_star_mentee)
     },
@@ -257,7 +257,7 @@ export const NAVIGATION = {
   ],
   faculty: [
     { to: '/faculty', label: 'Home', icon: 'home', end: true },
-    { to: '/faculty/tickets', label: 'Ticket Queue', icon: 'inbox' },
+    { to: '/faculty/queries', label: 'Query Queue', icon: 'inbox' },
     { to: '/faculty/mentees', label: 'My Mentees', icon: 'groups' },
     { to: '/faculty/at-risk', label: 'At-Risk Students', icon: 'e911_emergency' },
     { to: '/faculty/counselling', label: 'Counselling', icon: 'volunteer_activism' },
@@ -267,11 +267,10 @@ export const NAVIGATION = {
   ],
   hod: [
     { to: '/hod', label: 'Home', icon: 'home', end: true },
-    { to: '/hod/tickets', label: 'All Tickets', icon: 'inbox' },
+    { to: '/hod/queries', label: 'All Queries', icon: 'inbox' },
     { to: '/hod/performance', label: 'Faculty Performance', icon: 'leaderboard' },
     { to: '/hod/reports', label: 'Faculty Reports', icon: 'analytics' },
     { to: '/hod/roster', label: 'Faculty Roster', icon: 'badge' },
-    { to: '/hod/semester', label: 'Semester Setup', icon: 'event_note' },
     { to: '/hod/students', label: 'Students', icon: 'school' },
     { to: '/hod/at-risk', label: 'At-Risk Students', icon: 'e911_emergency' },
     { to: '/hod/cr-reports', label: 'CR Reports', icon: 'description' },
@@ -279,7 +278,7 @@ export const NAVIGATION = {
     { to: '/hod/profile', label: 'My Profile', icon: 'account_circle' }
   ],
   // Deliberately short. A Cluster Head uploads data and creates the
-  // accounts that data attaches to — no tickets, no student profiles, no
+  // accounts that data attaches to — no queries, no student profiles, no
   // reports.
   cluster_head: [
     { to: '/cluster-head', label: 'Home', icon: 'home', end: true },

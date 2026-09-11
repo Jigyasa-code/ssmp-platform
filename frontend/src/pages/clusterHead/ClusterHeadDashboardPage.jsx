@@ -2,7 +2,7 @@
  * ClusterHeadDashboardPage
  * Deliberately sparse. A Cluster Head's whole job is two kinds of upload,
  * so the home screen is their subject list, their recent uploads, and
- * shortcuts into the three upload screens. No tickets, no students, no
+ * shortcuts into the three upload screens. No queries, no students, no
  * reports — none of that is theirs to see.
  */
 

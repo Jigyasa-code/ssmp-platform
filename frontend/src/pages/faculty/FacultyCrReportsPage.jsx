@@ -5,9 +5,9 @@
  * minutes. They act on individual items in place, and the minutes stay
  * exactly as the representative wrote them.
  *
- * "Update Status" is two calls that already existed for tickets, because
- * the items ARE tickets: set_ticket_in_progress() and, with the mandatory
- * remarks, resolve_support_ticket(). Resolving hands it to the rep to
+ * "Update Status" is two calls that already existed for queries, because
+ * the items ARE queries: set_query_in_progress() and, with the mandatory
+ * remarks, resolve_support_query(). Resolving hands it to the rep to
  * confirm or reopen — the mentor does not get to close their own work.
  *
  * Mounted twice with isHodView, like the other four shared pages.
@@ -23,7 +23,7 @@ import EmptyState from '../../components/ui/EmptyState.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import { SkeletonCards } from '../../components/ui/Skeleton.jsx';
 import { SelectField, TextAreaField } from '../../components/ui/FormControls.jsx';
-import { TicketStatusBadge, CategoryBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
+import { QueryStatusBadge, CategoryBadge, ResolutionBadge } from '../../components/ui/StatusBadge.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
@@ -41,22 +41,22 @@ export default function FacultyCrReportsPage({ isHodView = false }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data: moms, error }, { data: tickets }] = await Promise.all([
+    const [{ data: moms, error }, { data: queries }] = await Promise.all([
       supabase
         .from('mom_records')
         .select('*, reporter:reported_by (full_name, login_id)')
         .order('meeting_date', { ascending: false })
         .limit(20),
       supabase
-        .from('support_tickets')
-        .select('id, mom_id, ticket_code, subject, category, status, resolution_status, last_message_at, reopen_count')
+        .from('support_queries')
+        .select('id, mom_id, query_code, subject, category, status, resolution_status, last_message_at, reopen_count')
         .not('mom_id', 'is', null)
         .order('created_at')
     ]);
     if (error) toast.error(describeError(error));
 
     const byMom = new Map();
-    for (const t of tickets ?? []) {
+    for (const t of queries ?? []) {
       if (!byMom.has(t.mom_id)) byMom.set(t.mom_id, []);
       byMom.get(t.mom_id).push(t);
     }
@@ -78,15 +78,15 @@ export default function FacultyCrReportsPage({ isHodView = false }) {
     run(
       async () => {
         if (nextStatus === 'In Progress') {
-          const { error } = await supabase.rpc('set_ticket_in_progress', { p_ticket_id: target.id });
+          const { error } = await supabase.rpc('set_query_in_progress', { p_query_id: target.id });
           if (error) throw error;
           return;
         }
         // Resolving REQUIRES remarks — the brief's "mandatory input", and
         // the database enforces the rest of the transition.
         if (!remarks.trim()) throw new Error('Add the resolution remarks before marking this resolved.');
-        const { error } = await supabase.rpc('resolve_support_ticket', {
-          p_ticket_id: target.id,
+        const { error } = await supabase.rpc('resolve_support_query', {
+          p_query_id: target.id,
           p_note: remarks.trim()
         });
         if (error) throw error;
@@ -177,18 +177,18 @@ export default function FacultyCrReportsPage({ isHodView = false }) {
                       <li key={item.id} className="flex flex-wrap items-center gap-2 py-3">
                         <span className="min-w-0 flex-1">
                           <Link
-                            to={`${isHodView ? '/hod' : '/faculty'}/tickets/${item.id}`}
+                            to={`${isHodView ? '/hod' : '/faculty'}/queries/${item.id}`}
                             className="block truncate text-label-md text-on-surface hover:text-primary hover:underline"
                           >
                             {item.subject}
                           </Link>
                           <span className="text-label-sm text-tertiary">
-                            {item.ticket_code} · updated {formatRelativeTime(item.last_message_at)}
+                            {item.query_code} · updated {formatRelativeTime(item.last_message_at)}
                             {item.reopen_count > 0 ? ` · reopened ${item.reopen_count}×` : ''}
                           </span>
                         </span>
                         <CategoryBadge category={item.category} />
-                        <TicketStatusBadge status={item.status} />
+                        <QueryStatusBadge status={item.status} />
                         <ResolutionBadge resolutionStatus={item.resolution_status} />
                         {!closed && (
                           <button

@@ -13,7 +13,8 @@ import DataTable from '../../components/ui/DataTable.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import StatCard from '../../components/ui/StatCard.jsx';
 import { SkeletonTable } from '../../components/ui/Skeleton.jsx';
-import { ConfirmDialog } from '../../components/ui/Modal.jsx';
+import Modal, { ConfirmDialog } from '../../components/ui/Modal.jsx';
+import { TextField } from '../../components/ui/FormControls.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
@@ -22,7 +23,7 @@ import { apiClient } from '../../lib/apiClient.js';
 import { describeError, formatDate } from '../../lib/formatters.js';
 
 export default function FacultyMenteesPage() {
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const toast = useToast();
   const { run, pending } = useAsyncAction();
 
@@ -32,17 +33,19 @@ export default function FacultyMenteesPage() {
   const [search, setSearch] = useState('');
   const [starTarget, setStarTarget] = useState(null);
   const [downloading, setDownloading] = useState(null);
+  const [deptOpen, setDeptOpen] = useState(false);
+  const [deptForm, setDeptForm] = useState({ department: '', hod_email: '' });
 
   const load = useCallback(async () => {
     setLoading(true);
 
-    // Two independent reads, so they go in parallel: the ticket rollup the
+    // Two independent reads, so they go in parallel: the query rollup the
     // page has always shown, plus completion status for the survey cycle
     // that is currently open (the mentor-facing half of the 15-day pulse
     // check — the student rep sees the same numbers from their side).
     const [summaryResult, surveyResult] = await Promise.all([
       supabase
-        .from('student_ticket_summary')
+        .from('student_query_summary')
         .select('*')
         .eq('assigned_mentor_id', profile.id)
         .order('student_name'),
@@ -85,6 +88,29 @@ export default function FacultyMenteesPage() {
           : `${starTarget.student_name} is now your student representative.`,
         onSuccess: () => {
           setStarTarget(null);
+          load();
+        }
+      }
+    );
+
+  // Department is stamped on every mentee in one RPC; the HOD email is
+  // what every later "Raise to HOD" is routed to.
+  const saveDepartment = () =>
+    run(
+      async () => {
+        const { data, error } = await supabase.rpc('set_mentor_department_and_hod', {
+          p_department: deptForm.department.trim(),
+          p_hod_email: deptForm.hod_email.trim()
+        });
+        if (error) throw error;
+        return data ?? 0;
+      },
+      {
+        successMessage: (updated) =>
+          `Saved. ${updated} mentee${updated === 1 ? '' : 's'} updated.`,
+        onSuccess: async () => {
+          setDeptOpen(false);
+          await refreshProfile();
           load();
         }
       }
@@ -183,12 +209,12 @@ export default function FacultyMenteesPage() {
         );
       }
     },
-    { key: 'total_tickets', header: 'Tickets', align: 'right' },
+    { key: 'total_queries', header: 'Queries', align: 'right' },
     {
       key: 'open',
       header: 'Open',
       align: 'right',
-      render: (row) => (row.open_tickets + row.in_progress_tickets) || '—'
+      render: (row) => (row.open_queries + row.in_progress_queries) || '—'
     },
     {
       key: 'actions',
@@ -212,6 +238,22 @@ export default function FacultyMenteesPage() {
       <PageHeader
         title="My mentees"
         subtitle="Your assigned mentor group. Star one student as your group representative."
+        actions={
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setDeptForm({
+                department: profile?.department ?? '',
+                hod_email: profile?.hod_email ?? ''
+              });
+              setDeptOpen(true);
+            }}
+          >
+            <span className="material-symbols-outlined text-[18px]">apartment</span>
+            Department &amp; HOD
+          </button>
+        }
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -224,8 +266,8 @@ export default function FacultyMenteesPage() {
           caption={`${mentees.filter((m) => !m.form_a_completed).length} pending`}
         />
         <StatCard
-          label="With open tickets"
-          value={mentees.filter((m) => m.open_tickets + m.in_progress_tickets > 0).length}
+          label="With open queries"
+          value={mentees.filter((m) => m.open_queries + m.in_progress_queries > 0).length}
           icon="pending_actions"
           tone="warning"
         />
@@ -275,6 +317,44 @@ export default function FacultyMenteesPage() {
           />
         </Panel>
       )}
+
+      <Modal
+        open={deptOpen}
+        onClose={() => setDeptOpen(false)}
+        size="md"
+        title="Department &amp; HOD"
+        description="The department is applied to every one of your mentees. The HOD email decides who your referrals go to."
+        footer={
+          <>
+            <button type="button" className="btn-ghost" onClick={() => setDeptOpen(false)} disabled={pending}>
+              Cancel
+            </button>
+            <button type="button" className="btn-primary" onClick={saveDepartment} disabled={pending}>
+              {pending ? 'Saving...' : `Save${mentees.length ? ` and update ${mentees.length} mentees` : ''}`}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <TextField
+            label="Department"
+            name="department"
+            required
+            value={deptForm.department}
+            onChange={(event) => setDeptForm((f) => ({ ...f, department: event.target.value }))}
+            hint="Written onto your own profile and onto all of your mentees."
+          />
+          <TextField
+            label="HOD email"
+            name="hod_email"
+            type="email"
+            required
+            value={deptForm.hod_email}
+            onChange={(event) => setDeptForm((f) => ({ ...f, hod_email: event.target.value }))}
+            hint="Must be an existing, active HOD account. Every Raise to HOD you send goes to this person."
+          />
+        </div>
+      </Modal>
 
       <ConfirmDialog
         open={Boolean(starTarget)}

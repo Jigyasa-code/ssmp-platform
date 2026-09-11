@@ -74,7 +74,7 @@ export default function StudentCounsellingPage() {
         <span className="material-symbols-outlined text-[22px] text-info" aria-hidden="true">lock</span>
         <p className="text-body-sm text-on-surface-variant">
           Only <strong>{profile?.mentor?.full_name ?? 'your assigned mentor'}</strong> can read this. It does
-          not appear in your ticket list, on the department dashboards, or in any report. If it is urgent and
+          not appear in your query list, on the department dashboards, or in any report. If it is urgent and
           you need someone now, please speak to the department office directly.
         </p>
       </div>
