@@ -11,16 +11,67 @@
  *   file_base64: string,
  *   semester_cycle_id?: uuid,
  *   default_mentor_id?: uuid,      // fallback when a row has no Mentor Email
- *   create_accounts?: boolean      // false = dry run / validation only
+ *   create_accounts?: boolean,     // false = dry run / validation only
+ *   offset?: number,               // first row of this chunk (see below)
+ *   batch_id?: uuid                // the history row chunk 0 created
  * }
+ *
+ * CHUNKING
+ * ---------------------------------------------------------------------
+ * Every account is a round trip to Supabase Auth, and the function is
+ * capped at 30 seconds (vercel.json), so a 2,700-row roster cannot be
+ * done in one request — it used to run out of time partway and leave a
+ * few hundred accounts behind with nothing to say which.
+ *
+ * So a request works through the file until its time is nearly up and
+ * returns the row it stopped at; the browser posts the same file back
+ * with that offset until there is nothing left. The stopping point is
+ * decided by the clock rather than a row count, so it adapts to however
+ * fast Auth is answering instead of guessing at a safe batch size.
+ *
+ * Nothing is kept between requests: existing accounts are re-read at the
+ * top of each one, so a chunk sees everything its predecessors created,
+ * and re-running a finished import simply reports every row as "already
+ * existed".
+ *
+ * Within a request the rows are created a few at a time rather than one
+ * after another, because almost all of the elapsed time is spent waiting
+ * on Auth rather than doing anything. Deciding what to do with a row
+ * stays strictly in order — that is what notices the same address twice
+ * in one file — and only the account creation itself is overlapped.
  */
 import { withApiDefaults, sendSuccess, ApiError } from '../_lib/http-response.js';
 import { requireAuthenticatedUser, requireRole, enforceRateLimit, recordAuditEntry } from '../_lib/request-guards.js';
 import { parseOrThrow, rosterImportSchema, emailSchema, assertBodySize, sanitizeSingleLine } from '../_lib/input-validation.js';
 import { env } from '../_lib/environment.js';
 import { parseRosterFile, classifyRole } from '../_lib/spreadsheet-parser.js';
+import { runPool } from '../_lib/concurrency.js';
 
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
+
+/**
+ * Every email already in use, read in pages.
+ *
+ * A plain select of the whole table can come back capped (PostgREST's
+ * db-max-rows, 1000 on many projects) without saying so. That was
+ * harmless while the import was one request; now that a later chunk
+ * relies on seeing what the earlier ones created, a short read would make
+ * it re-attempt hundreds of accounts that already exist.
+ */
+async function fetchExistingEmails(admin) {
+  const page = 1000;
+  const emails = [];
+  for (let from = 0; ; from += page) {
+    const { data, error } = await admin
+      .from('user_profiles')
+      .select('email')
+      .range(from, from + page - 1);
+    if (error || !data?.length) break;
+    for (const row of data) emails.push(row.email.toLowerCase());
+    if (data.length < page) break;
+  }
+  return emails;
+}
 
 export default withApiDefaults(['POST'], async (req, res) => {
   assertBodySize(req);
@@ -30,7 +81,9 @@ export default withApiDefaults(['POST'], async (req, res) => {
   // holding the departmental files. The HOD keeps access so the office
   // can correct an import without borrowing an account.
   requireRole(context, 'cluster_head', 'hod');
-  await enforceRateLimit(context, { key: 'roster-import', max: 10, windowSeconds: 300 });
+  // One upload is now many requests, so the old ceiling of 10 would stop
+  // a single large roster halfway through.
+  await enforceRateLimit(context, { key: 'roster-import', max: 200, windowSeconds: 300 });
 
   const body = parseOrThrow(rosterImportSchema, req.body ?? {});
   const { admin } = context;
@@ -82,31 +135,49 @@ export default withApiDefaults(['POST'], async (req, res) => {
     .eq('role', 'faculty');
   const facultyByEmail = new Map((facultyRows ?? []).map((f) => [f.email.toLowerCase(), f]));
 
-  const { data: existingRows } = await admin.from('user_profiles').select('email');
-  const existingEmails = new Set((existingRows ?? []).map((r) => r.email.toLowerCase()));
+  const existingEmails = new Set(await fetchExistingEmails(admin));
 
   const created = [];
   const skipped = [];
   const failed = [];
 
-  for (const record of orderedRecords) {
-    const rowLabel = `Row ${record.rowNumber}`;
-    const rowRole = isCombined ? record.resolvedRole : body.import_type;
+  // Leaves room inside the 30s cap for the parse, the two lookups above
+  // and writing the history row below.
+  const TIME_BUDGET_MS = 20_000;
+  // Five at a time: enough to hide the network, low enough that Auth does
+  // not start refusing. The wave is what the clock is checked between, so
+  // it also bounds how far past the budget a request can run.
+  const POOL_SIZE = 5;
+  const WAVE_SIZE = 25;
+  const startedAt = Date.now();
+  const startOffset = Math.min(body.offset, orderedRecords.length);
+  let nextOffset = null;
+
+  /**
+   * Deciding what to do with a row is cheap and has to stay in order —
+   * it is what catches the same address appearing twice in one file.
+   * Creating the account is a round trip and is what everything waits
+   * for. So the two are separated: plan a wave of rows in sequence, then
+   * create them a few at a time.
+   */
+  const roleOf = (record) => (isCombined ? record.resolvedRole : body.import_type);
+
+  const planRow = (record, rowRole) => {
     try {
       const emailResult = emailSchema.safeParse(record.email ?? '');
       if (!emailResult.success) {
         failed.push({ row: record.rowNumber, email: record.email ?? '', reason: emailResult.error.issues[0].message });
-        continue;
+        return null;
       }
       const email = emailResult.data;
 
       if (!record.full_name || record.full_name.length < 2) {
         failed.push({ row: record.rowNumber, email, reason: 'Missing or too-short Name' });
-        continue;
+        return null;
       }
       if (existingEmails.has(email)) {
         skipped.push({ row: record.rowNumber, email, reason: 'Account already exists' });
-        continue;
+        return null;
       }
 
       let mentorId = null;
@@ -115,11 +186,11 @@ export default withApiDefaults(['POST'], async (req, res) => {
           const mentor = facultyByEmail.get(record.mentor_email.toLowerCase());
           if (!mentor) {
             failed.push({ row: record.rowNumber, email, reason: `Mentor "${record.mentor_email}" is not a registered faculty member. Import the faculty roster first.` });
-            continue;
+            return null;
           }
           if (mentor.employment_status !== 'active') {
             failed.push({ row: record.rowNumber, email, reason: `Mentor "${record.mentor_email}" is marked ${mentor.employment_status}` });
-            continue;
+            return null;
           }
           mentorId = mentor.id;
         } else if (body.default_mentor_id) {
@@ -135,7 +206,7 @@ export default withApiDefaults(['POST'], async (req, res) => {
         if (isCombined && rowRole === 'faculty' && !facultyByEmail.has(email)) {
           facultyByEmail.set(email, { id: null, email, full_name: record.full_name, employment_status: 'active' });
         }
-        continue;
+        return null;
       }
 
       /**
@@ -154,15 +225,35 @@ export default withApiDefaults(['POST'], async (req, res) => {
         failed.push({
           row: record.rowNumber,
           email,
-          reason: 'The Password column must be at least 8 characters (leave it blank to auto-generate one)'
+          reason: 'The Password column must be at least 8 characters (leave it blank to set the shared one)'
         });
-        continue;
+        return null;
       }
-      const temporaryPassword = suppliedPassword || env.TEMPORARY_PASSWORD;
 
-      const { data, error } = await admin.auth.admin.createUser({
+      // Claimed here rather than after the account exists, because the
+      // rows of a wave are created concurrently: without this, the same
+      // address twice in one file would be sent to Auth twice.
+      existingEmails.add(email);
+
+      return {
+        record,
+        rowRole,
         email,
-        password: temporaryPassword,
+        mentorId,
+        password: suppliedPassword || env.TEMPORARY_PASSWORD,
+        passwordFromFile: Boolean(suppliedPassword)
+      };
+    } catch (error) {
+      failed.push({ row: record.rowNumber, email: record.email ?? '', reason: `Row ${record.rowNumber}: ${error.message}` });
+      return null;
+    }
+  };
+
+  const createAccount = async ({ record, rowRole, email, mentorId, password, passwordFromFile }) => {
+    try {
+      const payload = {
+        email,
+        password,
         email_confirm: true,
         user_metadata: {
           role: rowRole,
@@ -176,11 +267,27 @@ export default withApiDefaults(['POST'], async (req, res) => {
           must_change_password: true
         },
         app_metadata: { role: rowRole }
-      });
+      };
+
+      let { data, error } = await admin.auth.admin.createUser(payload);
+
+      // Sending several at once is what makes a rate limit reachable at
+      // all, so absorb one before calling the row a failure.
+      if (error && /rate limit|too many requests|429/i.test(error.message)) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        ({ data, error } = await admin.auth.admin.createUser(payload));
+      }
 
       if (error) {
-        failed.push({ row: record.rowNumber, email, reason: error.message });
-        continue;
+        // Auth, not the lookup above, is the authority on whether an
+        // address is taken: if the two ever disagree the account exists,
+        // which is "already there", not a failure to investigate.
+        if (/already been registered|already exists|duplicate key/i.test(error.message)) {
+          skipped.push({ row: record.rowNumber, email, reason: 'Account already exists' });
+        } else {
+          failed.push({ row: record.rowNumber, email, reason: error.message });
+        }
+        return;
       }
 
       /**
@@ -199,11 +306,12 @@ export default withApiDefaults(['POST'], async (req, res) => {
       if (Object.keys(profilePatch).length) {
         await admin.from('user_profiles').update(profilePatch).eq('id', data.user.id);
       }
+      // Safe to do from inside the pool: a wave never mixes roles, so no
+      // student being planned right now is looking this mentor up.
       if (rowRole === 'faculty') {
         facultyByEmail.set(email, { id: data.user.id, email, full_name: record.full_name, employment_status: 'active' });
       }
 
-      existingEmails.add(email);
       created.push({
         row: record.rowNumber,
         id: data.user.id,
@@ -211,29 +319,98 @@ export default withApiDefaults(['POST'], async (req, res) => {
         full_name: record.full_name,
         role: rowRole,
         login_id: record.login_id ?? null,
-        temporary_password: temporaryPassword,
-        password_from_file: Boolean(suppliedPassword)
+        temporary_password: password,
+        password_from_file: passwordFromFile
       });
     } catch (error) {
-      failed.push({ row: record.rowNumber, email: record.email ?? '', reason: `${rowLabel}: ${error.message}` });
+      failed.push({ row: record.rowNumber, email, reason: `Row ${record.rowNumber}: ${error.message}` });
     }
+  };
+
+  let index = startOffset;
+  while (index < orderedRecords.length) {
+    // Always do at least one wave, so a slow Auth can never stall the
+    // upload on a chunk that does nothing and asks to be called again.
+    if (index > startOffset && Date.now() - startedAt > TIME_BUDGET_MS) {
+      nextOffset = index;
+      break;
+    }
+
+    /**
+     * A wave stops at a change of role, which is what keeps a combined
+     * file correct: faculty are ordered first, so every mentor an upload
+     * introduces is in facultyByEmail before the student rows naming
+     * them are planned. Rows that never reach Auth — already-existing,
+     * malformed, dry-run — cost nothing and do not fill the wave.
+     */
+    const waveRole = roleOf(orderedRecords[index]);
+    const wave = [];
+    while (
+      index < orderedRecords.length &&
+      wave.length < WAVE_SIZE &&
+      roleOf(orderedRecords[index]) === waveRole
+    ) {
+      const job = planRow(orderedRecords[index], waveRole);
+      if (job) wave.push(job);
+      index += 1;
+    }
+
+    if (wave.length) await runPool(wave, POOL_SIZE, createAccount);
   }
 
-  const { data: batch } = await admin
-    .from('roster_import_batches')
-    .insert({
-      semester_cycle_id: body.semester_cycle_id ?? null,
-      import_type: body.import_type,
-      original_filename: sanitizeSingleLine(body.filename, 255),
-      total_rows: records.length,
-      created_count: created.length,
-      skipped_count: skipped.length,
-      failed_count: failed.length,
-      row_errors: failed.slice(0, 200),
-      uploaded_by: context.profile.id
-    })
-    .select()
-    .single();
+  // Concurrent rows finish out of order; the credentials download and the
+  // error table both read better in the order of the spreadsheet.
+  for (const list of [created, skipped, failed]) list.sort((a, b) => a.row - b.row);
+
+  /**
+   * One history row for the whole upload, not one per chunk. The first
+   * chunk inserts it and hands back its id; the rest add their own counts
+   * to it. The counts come from this request's own tallies rather than
+   * anything the browser sent, and the row is matched on uploader as well
+   * as id so a passed-in batch_id cannot inflate somebody else's import.
+   */
+  let batch = null;
+  if (body.batch_id) {
+    const { data: open } = await admin
+      .from('roster_import_batches')
+      .select('id, created_count, skipped_count, failed_count, row_errors')
+      .eq('id', body.batch_id)
+      .eq('uploaded_by', context.profile.id)
+      .maybeSingle();
+    if (open) {
+      const { data: merged } = await admin
+        .from('roster_import_batches')
+        .update({
+          total_rows: orderedRecords.length,
+          created_count: (open.created_count ?? 0) + created.length,
+          skipped_count: (open.skipped_count ?? 0) + skipped.length,
+          failed_count: (open.failed_count ?? 0) + failed.length,
+          row_errors: [...(open.row_errors ?? []), ...failed].slice(0, 200)
+        })
+        .eq('id', open.id)
+        .select()
+        .single();
+      batch = merged ?? open;
+    }
+  }
+  if (!batch) {
+    const { data: fresh } = await admin
+      .from('roster_import_batches')
+      .insert({
+        semester_cycle_id: body.semester_cycle_id ?? null,
+        import_type: body.import_type,
+        original_filename: sanitizeSingleLine(body.filename, 255),
+        total_rows: orderedRecords.length,
+        created_count: created.length,
+        skipped_count: skipped.length,
+        failed_count: failed.length,
+        row_errors: failed.slice(0, 200),
+        uploaded_by: context.profile.id
+      })
+      .select()
+      .single();
+    batch = fresh;
+  }
 
   if (body.semester_cycle_id && body.create_accounts) {
     const facultyCreated = created.filter((c) => (c.role ?? body.import_type) === 'faculty').length;
@@ -254,25 +431,41 @@ export default withApiDefaults(['POST'], async (req, res) => {
     }
   }
 
-  await recordAuditEntry(context, req, `admin.import_${body.import_type}_roster`, {
-    type: 'roster_import_batches',
-    id: batch?.id,
-    metadata: { filename: body.filename, total: records.length, created: created.length, failed: failed.length, dry_run: !body.create_accounts }
-  });
+  // One audit line for the upload, written when the last chunk lands —
+  // twenty entries for one spreadsheet would bury the log.
+  if (nextOffset === null) {
+    await recordAuditEntry(context, req, `admin.import_${body.import_type}_roster`, {
+      type: 'roster_import_batches',
+      id: batch?.id,
+      metadata: {
+        filename: body.filename,
+        total: orderedRecords.length,
+        created: batch?.created_count ?? created.length,
+        failed: batch?.failed_count ?? failed.length,
+        dry_run: !body.create_accounts
+      }
+    });
+  }
 
   const facultyCreated = created.filter((c) => (c.role ?? body.import_type) === 'faculty').length;
   const studentCreated = created.filter((c) => (c.role ?? body.import_type) === 'student').length;
 
+  // Counts here describe THIS chunk. The browser adds them up and shows
+  // the running total; batch.*_count is the server's own tally for the
+  // whole upload and is what the import history displays.
   sendSuccess(
     res,
     body.create_accounts
-      ? `Imported ${created.length} of ${records.length} rows` +
+      ? `Imported ${created.length} row(s)` +
         (isCombined ? ` (${facultyCreated} faculty, ${studentCreated} students)` : '') +
         `. ${skipped.length} already existed, ${failed.length} failed.`
-      : `Validated ${records.length} rows. ${created.length} ready to import, ${skipped.length} already exist, ${failed.length} have problems.`,
+      : `Validated ${created.length + skipped.length + failed.length} row(s). ${created.length} ready to import, ${skipped.length} already exist, ${failed.length} have problems.`,
     {
       batch_id: batch?.id ?? null,
-      total_rows: records.length,
+      total_rows: orderedRecords.length,
+      offset: startOffset,
+      next_offset: nextOffset,
+      processed_through: nextOffset ?? orderedRecords.length,
       faculty_created: facultyCreated,
       student_created: studentCreated,
       created, skipped, failed

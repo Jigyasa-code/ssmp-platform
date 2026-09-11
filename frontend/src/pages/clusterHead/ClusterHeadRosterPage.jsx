@@ -200,9 +200,15 @@ export default function ClusterHeadRosterPage() {
             temporary password, then has to set their own before they can reach anything else.
           </li>
           <li>
+            <strong className="text-on-surface">A full roster takes a few minutes.</strong> Each account is
+            created individually, so 2,700 students is sent in several passes — the counter under the button
+            shows how far through the file it is. Leave the tab open until it finishes.
+          </li>
+          <li>
             <strong className="text-on-surface">Re-uploading is safe.</strong> An email that already has
-            an account is reported as &ldquo;already existed&rdquo; and left alone; re-running the mapping
-            only touches students whose mentor actually changed.
+            an account is reported as &ldquo;already existed&rdquo; and left alone, so if an upload is
+            interrupted you can simply run the same file again and it picks up what is missing. Re-running
+            the mapping only touches students whose mentor actually changed.
           </li>
           <li>
             <strong className="text-on-surface">Changing a mentor notifies everyone.</strong> The student,

@@ -9,6 +9,17 @@
  * There is no date validation, no "you already uploaded this period"
  * warning and no disabled state tied to the calendar. Uploading early,
  * late, or twice in one afternoon is explicitly allowed.
+ *
+ * LARGE FILES
+ * A roster of 2,700 students is 2,700 separate account creations, which
+ * cannot finish inside one serverless request. The endpoint does as much
+ * as it has time for and answers with the row it stopped at, so this
+ * posts the same file again from there until there is nothing left, and
+ * adds the numbers up as it goes.
+ *
+ * Endpoints that finish in one request — attendance, GPA, backlogs, the
+ * mentor mapping — simply never send a next_offset, and the loop below
+ * runs once.
  */
 
 import { useState } from 'react';
@@ -56,22 +67,68 @@ export default function AcademicUploadPanel({
   const { run, pending } = useAsyncAction();
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
+  const [progress, setProgress] = useState(null);
 
   const submit = () =>
     run(
       async () => {
         if (!file) throw new Error('Choose a file first.');
         const base64 = await fileToBase64(file);
-        const payload = buildPayload({ filename: file.name, file_base64: base64 });
-        return apiClient.post(endpoint, payload);
+        const base = buildPayload({ filename: file.name, file_base64: base64 });
+
+        const collected = { created: [], skipped: [], failed: [], row_errors: [] };
+        let last = {};
+        let total = 0;
+        let batchId = null;
+        let offset = 0;
+
+        setProgress({ done: 0, total: 0 });
+        for (;;) {
+          // The first request is exactly what it always was, so an
+          // endpoint that knows nothing about chunking is unaffected.
+          const data = await apiClient.post(
+            endpoint,
+            offset === 0 ? base : { ...base, offset, batch_id: batchId }
+          );
+          last = data ?? {};
+          batchId = last.batch_id ?? batchId;
+          total = last.total_rows ?? total;
+          for (const key of Object.keys(collected)) {
+            if (Array.isArray(last[key])) collected[key].push(...last[key]);
+          }
+          setProgress({ done: last.processed_through ?? total, total });
+          if (last.next_offset == null) break;
+          offset = last.next_offset;
+        }
+
+        // Only the keys that really are lists get replaced by the running
+        // total: the academic endpoints report `failed` as a count, and
+        // overwriting that with an empty array would blank their summary.
+        //
+        // The two error lists are capped because they are rendered in a
+        // table; created/skipped are not, because the credentials
+        // download is built from created and must name every account.
+        const capped = { failed: 200, row_errors: 200 };
+        const merged = { ...last, total_rows: total, next_offset: null };
+        for (const [key, rows] of Object.entries(collected)) {
+          if (rows.length || Array.isArray(last[key])) {
+            merged[key] = capped[key] ? rows.slice(0, capped[key]) : rows;
+          }
+        }
+        return merged;
       },
       {
-        successMessage: 'Upload recorded.',
+        successMessage: (data) =>
+          data?.created
+            ? `${data.created.length} account(s) created from ${data.total_rows} rows.`
+            : 'Upload recorded.',
         onSuccess: (data) => {
           setResult(data ?? null);
           setFile(null);
+          setProgress(null);
           onUploaded?.(data);
-        }
+        },
+        onError: () => setProgress(null)
       }
     );
 
@@ -111,9 +168,16 @@ export default function AcademicUploadPanel({
               <span className="material-symbols-outlined text-[18px]">upload</span>
               {pending ? 'Uploading...' : submitLabel}
             </button>
-            <p className="text-label-sm text-tertiary">
-              You can upload on any day — there is no window you have to wait for.
-            </p>
+            {pending && progress?.total > 0 ? (
+              <p className="text-label-sm text-on-surface-variant" role="status">
+                {progress.done.toLocaleString()} of {progress.total.toLocaleString()} rows done — keep this
+                tab open.
+              </p>
+            ) : (
+              <p className="text-label-sm text-tertiary">
+                You can upload on any day — there is no window you have to wait for.
+              </p>
+            )}
           </div>
         </div>
       </Panel>

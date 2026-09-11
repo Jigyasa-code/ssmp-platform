@@ -61,7 +61,16 @@ export const rosterImportSchema = z.object({
   file_base64: z.string().min(1).max(8_000_000),
   semester_cycle_id: uuid.optional().nullable(),
   default_mentor_id: uuid.optional().nullable(),
-  create_accounts: z.boolean().optional().default(true)
+  create_accounts: z.boolean().optional().default(true),
+  /**
+   * Chunking. A 2,700-row roster is 2,700 round trips to Supabase Auth,
+   * which does not fit in one 30s function, so the browser sends the same
+   * file repeatedly and the server works through it from `offset`.
+   * `batch_id` is the import-history row the first chunk created, so the
+   * whole upload stays one line in the history instead of twenty.
+   */
+  offset: z.number().int().min(0).optional().default(0),
+  batch_id: uuid.optional().nullable()
 });
 
 export const facultyStatusSchema = z.object({

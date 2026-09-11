@@ -46,6 +46,7 @@ import {
   assertBodySize
 } from '../_lib/input-validation.js';
 import { env } from '../_lib/environment.js';
+import { runPool } from '../_lib/concurrency.js';
 import {
   parseAcademicDataFile,
   parseAttendanceExport,
@@ -102,10 +103,14 @@ async function createMissingMentors(admin, rows) {
   const { data: faculty } = await admin.from('user_profiles').select('email').eq('role', 'faculty');
   const known = new Set((faculty ?? []).map((f) => f.email.toLowerCase()));
 
+  // Same reason as the roster import: this is all network wait, and a
+  // department with a hundred mentors should not spend half a minute on
+  // it. There is no ordering to preserve here — every mentor is
+  // independent — so the whole list goes straight through the pool.
+  const missing = [...wanted].filter(([email]) => !known.has(email));
   let created = 0;
   const errors = [];
-  for (const [email, name] of wanted) {
-    if (known.has(email)) continue;
+  await runPool(missing, 5, async ([email, name]) => {
     const { error } = await admin.auth.admin.createUser({
       email,
       password: env.TEMPORARY_PASSWORD,
@@ -120,7 +125,7 @@ async function createMissingMentors(admin, rows) {
     });
     if (error) errors.push({ email, reason: error.message });
     else created += 1;
-  }
+  });
   return { created, errors };
 }
 
