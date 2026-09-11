@@ -56,21 +56,22 @@ export const SAMPLE_CLUSTER_HEADS = [
 ];
 
 /**
- * The setup form's answers for cluster.head1. section_count is what the
- * Section dropdown is built from: 3 sections means A, B and C.
+ * The setup form's answers for cluster.head1 — a name and a code each.
+ * Sections are not declared here; SAMPLE_ATTENDANCE below is what puts
+ * students into them, the same way a real ERP export does.
  */
 export const SAMPLE_CLUSTER_HEAD_COURSES = [
-  { course_name: 'Data Structures and Algorithms', course_code: 'CS2001', section_count: 3 },
-  { course_name: 'Database Management Systems', course_code: 'CS2003', section_count: 2 },
-  { course_name: 'Operating Systems', course_code: 'CS2005', section_count: 2 },
-  { course_name: 'Internet of Things', course_code: 'IOT2001', section_count: 2 },
-  { course_name: 'Machine Learning', course_code: 'AI3001', section_count: 1 }
+  { course_name: 'Data Structures and Algorithms', course_code: 'CS2001' },
+  { course_name: 'Database Management Systems', course_code: 'CS2003' },
+  { course_name: 'Operating Systems', course_code: 'CS2005' },
+  { course_name: 'Internet of Things', course_code: 'IOT2001' },
+  { course_name: 'Machine Learning', course_code: 'AI3001' }
 ];
 
 /** Second cluster head, so the "each cluster head sees only their own" rule is testable. */
 export const SAMPLE_CLUSTER_HEAD_2_COURSES = [
-  { course_name: 'Computer Networks', course_code: 'CS2007', section_count: 2 },
-  { course_name: 'Digital Electronics', course_code: 'EC2001', section_count: 1 }
+  { course_name: 'Computer Networks', course_code: 'CS2007' },
+  { course_name: 'Digital Electronics', course_code: 'EC2001' }
 ];
 
 // ---------------------------------------------------------------------

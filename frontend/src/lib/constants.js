@@ -105,17 +105,6 @@ export const OTHER_COURSE_OPTION = 'Other';
 /** How many blank subject blocks the setup form starts with. */
 export const CLUSTER_HEAD_DEFAULT_SUBJECT_ROWS = 5;
 
-export const SECTION_COUNT_OPTIONS = Array.from({ length: 15 }, (_, index) => index + 1);
-
-/**
- * Section labels are positional: 2 sections means A and B, 4 means A-D.
- * The database enforces the same A-O range on student_course_sections.
- */
-export function sectionLabelsFor(count) {
-  const total = Math.max(1, Math.min(15, Number(count) || 0));
-  return Array.from({ length: total }, (_, index) => String.fromCharCode(65 + index));
-}
-
 export const SEMESTER_OPTIONS = Array.from({ length: 8 }, (_, index) => ({
   value: String(index + 1),
   label: `Semester ${index + 1}`

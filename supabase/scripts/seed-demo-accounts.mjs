@@ -309,7 +309,7 @@ async function seedClusterHeadData(idByEmail) {
         .single();
       if (error) throw error;
       courseIdByCode[course.course_code] = data.id;
-      console.log(`  + ${course.course_name} (${course.course_code}) — ${course.section_count} section(s)`);
+      console.log(`  + ${course.course_name} (${course.course_code})`);
     }
 
     // cluster_head_setup_completed is a protected column; a service-role

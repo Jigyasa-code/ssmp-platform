@@ -7,10 +7,11 @@
  * route guard (RequireClusterHeadSetup) sends them here until
  * submit_cluster_head_setup() flips the flag.
  *
- * Shape of the form, per the brief: three questions per subject — course
- * name (dropdown), course code (text), number of sections (dropdown, 1-15)
- * — repeated five times to start, with "Add another subject" appending one
- * more block for as many subjects as they actually handle.
+ * Two questions per subject — course name (dropdown) and course code
+ * (text) — repeated five times to start, with "Add another subject"
+ * appending one more block for as many subjects as they actually handle.
+ * Sections used to be a third question; they are read from the ERP
+ * export now (0032), which is the only place that knows them.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -24,17 +25,14 @@ import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import {
   COURSE_CATALOGUE,
   OTHER_COURSE_OPTION,
-  SECTION_COUNT_OPTIONS,
-  CLUSTER_HEAD_DEFAULT_SUBJECT_ROWS,
-  sectionLabelsFor
+  CLUSTER_HEAD_DEFAULT_SUBJECT_ROWS
 } from '../../lib/constants.js';
 
 const emptySubject = () => ({
   key: `subject-${Math.random().toString(36).slice(2, 10)}`,
   course_name: '',
   custom_course_name: '',
-  course_code: '',
-  section_count: ''
+  course_code: ''
 });
 
 function resolvedName(subject) {
@@ -43,9 +41,9 @@ function resolvedName(subject) {
     : subject.course_name.trim();
 }
 
-/** A row counts as "filled in" once any of its three fields has content. */
+/** A row counts as "filled in" once either of its fields has content. */
 function isTouched(subject) {
-  return Boolean(resolvedName(subject) || subject.course_code.trim() || subject.section_count);
+  return Boolean(resolvedName(subject) || subject.course_code.trim());
 }
 
 export default function ClusterHeadSetupPage() {
@@ -64,7 +62,7 @@ export default function ClusterHeadSetupPage() {
   const load = useCallback(async () => {
     const { data } = await supabase
       .from('cluster_head_courses')
-      .select('course_name, course_code, section_count')
+      .select('course_name, course_code')
       .order('display_order');
 
     if (data?.length) {
@@ -73,8 +71,7 @@ export default function ClusterHeadSetupPage() {
           key: `subject-${row.course_code}`,
           course_name: COURSE_CATALOGUE.includes(row.course_name) ? row.course_name : OTHER_COURSE_OPTION,
           custom_course_name: COURSE_CATALOGUE.includes(row.course_name) ? '' : row.course_name,
-          course_code: row.course_code,
-          section_count: String(row.section_count)
+          course_code: row.course_code
         }))
       );
     }
@@ -102,7 +99,6 @@ export default function ClusterHeadSetupPage() {
     filled.forEach((subject) => {
       if (!resolvedName(subject)) found[`${subject.key}-name`] = 'Pick or type a course name';
       if (!subject.course_code.trim()) found[`${subject.key}-code`] = 'Course code is required';
-      if (!subject.section_count) found[`${subject.key}-sections`] = 'Choose how many sections';
 
       const code = subject.course_code.trim().toLowerCase();
       if (code && seenCodes.has(code)) {
@@ -135,8 +131,7 @@ export default function ClusterHeadSetupPage() {
         const { error } = await supabase.rpc('submit_cluster_head_setup', {
           p_courses: filled.map((subject) => ({
             course_name: resolvedName(subject),
-            course_code: subject.course_code.trim(),
-            section_count: Number(subject.section_count)
+            course_code: subject.course_code.trim()
           }))
         });
         if (error) throw error;
@@ -166,9 +161,9 @@ export default function ClusterHeadSetupPage() {
           <img src={mujLogo} alt="Manipal University Jaipur" className="h-10 w-auto object-contain" />
           <h1 className="mt-5 text-headline-md text-on-surface">Cluster Head setup</h1>
           <p className="mt-1.5 max-w-2xl text-body-sm text-on-surface-variant">
-            Tell us which subjects you handle. The Course and Section dropdowns on your upload screens
-            are built from exactly these answers — a subject with 3 sections will offer A, B and C.
-            You can come back and change this later.
+            Tell us which subjects you handle. An upload is matched to one of them by its course
+            code, and the sections come out of the file itself. You can come back and change this
+            later.
           </p>
           {profile?.full_name && (
             <p className="mt-2 text-label-sm text-tertiary">Signed in as {profile.full_name}</p>
@@ -177,73 +172,57 @@ export default function ClusterHeadSetupPage() {
 
         <form onSubmit={submit} noValidate>
           <div className="space-y-4">
-            {subjects.map((subject, index) => {
-              const sections = subject.section_count ? sectionLabelsFor(subject.section_count) : [];
-              return (
-                <Panel
-                  key={subject.key}
-                  tab={`Subject ${index + 1}`}
-                  tabIcon="menu_book"
-                  actions={
-                    subjects.length > 1 ? (
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm"
-                        onClick={() => removeSubject(subject.key)}
-                      >
-                        <span className="material-symbols-outlined text-[16px]">close</span>
-                        Remove
-                      </button>
-                    ) : null
-                  }
-                >
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <SelectField
-                      label="Course name"
-                      name={`${subject.key}-name`}
-                      placeholder="Select a course"
-                      options={COURSE_CATALOGUE}
-                      value={subject.course_name}
-                      onChange={(event) => update(subject.key, 'course_name', event.target.value)}
-                      error={errors[`${subject.key}-name`]}
-                    />
-                    <TextField
-                      label="Course code"
-                      name={`${subject.key}-code`}
-                      placeholder="e.g. CS2001"
-                      maxLength={40}
-                      value={subject.course_code}
-                      onChange={(event) => update(subject.key, 'course_code', event.target.value)}
-                      error={errors[`${subject.key}-code`]}
-                    />
-                    <SelectField
-                      label="Number of sections"
-                      name={`${subject.key}-sections`}
-                      placeholder="Select"
-                      options={SECTION_COUNT_OPTIONS.map((count) => ({
-                        value: String(count),
-                        label: String(count)
-                      }))}
-                      value={subject.section_count}
-                      onChange={(event) => update(subject.key, 'section_count', event.target.value)}
-                      error={errors[`${subject.key}-sections`]}
-                      hint={sections.length ? `Sections ${sections.join(', ')}` : undefined}
-                    />
-                  </div>
+            {subjects.map((subject, index) => (
+              <Panel
+                key={subject.key}
+                tab={`Subject ${index + 1}`}
+                tabIcon="menu_book"
+                actions={
+                  subjects.length > 1 ? (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={() => removeSubject(subject.key)}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">close</span>
+                      Remove
+                    </button>
+                  ) : null
+                }
+              >
+                <div className="grid gap-4 md:grid-cols-2">
+                  <SelectField
+                    label="Course name"
+                    name={`${subject.key}-name`}
+                    placeholder="Select a course"
+                    options={COURSE_CATALOGUE}
+                    value={subject.course_name}
+                    onChange={(event) => update(subject.key, 'course_name', event.target.value)}
+                    error={errors[`${subject.key}-name`]}
+                  />
+                  <TextField
+                    label="Course code"
+                    name={`${subject.key}-code`}
+                    placeholder="e.g. CS2001"
+                    maxLength={40}
+                    value={subject.course_code}
+                    onChange={(event) => update(subject.key, 'course_code', event.target.value)}
+                    error={errors[`${subject.key}-code`]}
+                  />
+                </div>
 
-                  {subject.course_name === OTHER_COURSE_OPTION && (
-                    <TextField
-                      className="mt-4"
-                      label="Course name (not in the list)"
-                      name={`${subject.key}-custom`}
-                      maxLength={160}
-                      value={subject.custom_course_name}
-                      onChange={(event) => update(subject.key, 'custom_course_name', event.target.value)}
-                    />
-                  )}
-                </Panel>
-              );
-            })}
+                {subject.course_name === OTHER_COURSE_OPTION && (
+                  <TextField
+                    className="mt-4"
+                    label="Course name (not in the list)"
+                    name={`${subject.key}-custom`}
+                    maxLength={160}
+                    value={subject.custom_course_name}
+                    onChange={(event) => update(subject.key, 'custom_course_name', event.target.value)}
+                  />
+                )}
+              </Panel>
+            ))}
           </div>
 
           {errors.form && <p className="mt-4 field-error">{errors.form}</p>}

@@ -113,8 +113,7 @@ export const clusterHeadSetupSchema = z.object({
     .array(
       z.object({
         course_name: z.string().trim().min(2, 'Course name is too short').max(160),
-        course_code: z.string().trim().min(1, 'Course code is required').max(40),
-        section_count: z.coerce.number().int().min(1, 'At least 1 section').max(15, 'At most 15 sections')
+        course_code: z.string().trim().min(1, 'Course code is required').max(40)
       })
     )
     .min(1, 'Add at least one subject')

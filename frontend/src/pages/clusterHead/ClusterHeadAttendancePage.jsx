@@ -33,7 +33,6 @@ import AcademicUploadPanel from '../../components/clusterHead/AcademicUploadPane
 import { supabase } from '../../lib/supabaseClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { describeError, formatDate } from '../../lib/formatters.js';
-import { sectionLabelsFor } from '../../lib/constants.js';
 
 export default function ClusterHeadAttendancePage() {
   const toast = useToast();
@@ -44,7 +43,7 @@ export default function ClusterHeadAttendancePage() {
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from('cluster_head_courses')
-      .select('id, course_name, course_code, section_count')
+      .select('id, course_name, course_code')
       .order('display_order');
     if (error) toast.error(describeError(error));
     setCourses(data ?? []);
@@ -113,12 +112,7 @@ export default function ClusterHeadAttendancePage() {
               dense
               columns={[
                 { key: 'course_code', header: 'Code' },
-                { key: 'course_name', header: 'Course' },
-                {
-                  key: 'sections',
-                  header: 'Sections',
-                  render: (row) => sectionLabelsFor(row.section_count).join(', ')
-                }
+                { key: 'course_name', header: 'Course' }
               ]}
               rows={courses}
               rowKey={(row) => row.id}

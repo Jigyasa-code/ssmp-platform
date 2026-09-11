@@ -19,7 +19,7 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { formatDateTime, describeError } from '../../lib/formatters.js';
-import { ACADEMIC_UPLOAD_LABELS, sectionLabelsFor } from '../../lib/constants.js';
+import { ACADEMIC_UPLOAD_LABELS } from '../../lib/constants.js';
 
 const SHORTCUTS = [
   { to: '/cluster-head/attendance', label: 'Upload attendance', icon: 'fact_check', tone: 'primary' },
@@ -40,7 +40,7 @@ export default function ClusterHeadDashboardPage() {
     const [courseResult, batchResult] = await Promise.all([
       supabase
         .from('cluster_head_courses')
-        .select('id, course_name, course_code, section_count')
+        .select('id, course_name, course_code')
         .order('display_order'),
       supabase
         .from('academic_upload_batches')
@@ -61,7 +61,6 @@ export default function ClusterHeadDashboardPage() {
     load();
   }, [load]);
 
-  const totalSections = courses.reduce((sum, course) => sum + (course.section_count ?? 0), 0);
   const lastUpload = batches[0];
 
   return (
@@ -76,7 +75,6 @@ export default function ClusterHeadDashboardPage() {
       ) : (
         <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Subjects" value={courses.length} icon="menu_book" tone="primary" />
-          <StatCard label="Sections in total" value={totalSections} icon="grid_view" tone="info" />
           <StatCard label="Uploads recorded" value={batches.length} icon="cloud_upload" tone="success" />
           <StatCard
             label="Last upload"
@@ -113,12 +111,7 @@ export default function ClusterHeadDashboardPage() {
           <DataTable
             columns={[
               { key: 'course_name', header: 'Course' },
-              { key: 'course_code', header: 'Code' },
-              {
-                key: 'sections',
-                header: 'Sections',
-                render: (row) => sectionLabelsFor(row.section_count).join(', ')
-              }
+              { key: 'course_code', header: 'Code' }
             ]}
             rows={courses}
             rowKey={(row) => row.id}
