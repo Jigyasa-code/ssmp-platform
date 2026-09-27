@@ -7,11 +7,14 @@ import DataTable from '../../components/ui/DataTable.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import StatCard from '../../components/ui/StatCard.jsx';
 import { SkeletonTable } from '../../components/ui/Skeleton.jsx';
-import { FilterPills } from '../../components/ui/FormControls.jsx';
+import { FilterPills, Pagination } from '../../components/ui/FormControls.jsx';
 import AddAccountModal from '../../components/hod/AddAccountModal.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
+import { fetchAllRows } from '../../lib/fetchAllRows.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { describeError } from '../../lib/formatters.js';
+
+const PAGE_SIZE = 50;
 
 export default function HodStudentsPage() {
   const toast = useToast();
@@ -20,12 +23,24 @@ export default function HodStudentsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
+  const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    // The department has more students than PostgREST hands back in one
+    // response (1,000), so page through all of them. Asking once used to
+    // show 1,000 students here while the dashboard, which counts in SQL,
+    // showed the real number. The student_id tie-break keeps the pages
+    // from overlapping when two students share a name.
     const [{ data: rows, error }, { data: faculty }] = await Promise.all([
-      supabase.from('student_query_summary').select('*').order('student_name'),
+      fetchAllRows((withCount) =>
+        supabase
+          .from('student_query_summary')
+          .select('*', withCount ? { count: 'exact' } : undefined)
+          .order('student_name')
+          .order('student_id')
+      ),
       supabase.from('user_profiles').select('id, full_name').eq('role', 'faculty')
     ]);
     if (error) toast.error(describeError(error));
@@ -37,6 +52,19 @@ export default function HodStudentsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Stable on purpose: the top bar re-sends the search term whenever this
+  // function changes, which would throw the table back to page 1 on every
+  // render.
+  const handleSearch = useCallback((term) => {
+    setSearch(term);
+    setPage(1);
+  }, []);
+
+  const handleFilter = (value) => {
+    setFilter(value);
+    setPage(1);
+  };
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -63,8 +91,13 @@ export default function HodStudentsPage() {
     [students]
   );
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // A reload can shrink the list under the page being viewed.
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   return (
-    <PortalShell searchPlaceholder="Search students by name, registration number or email..." onSearch={setSearch}>
+    <PortalShell searchPlaceholder="Search students by name, registration number or email..." onSearch={handleSearch}>
       <PageHeader
         title="Students"
         subtitle="Every student in the department, their mentor and their onboarding status."
@@ -89,7 +122,7 @@ export default function HodStudentsPage() {
         <FilterPills
           ariaLabel="Filter students"
           value={filter}
-          onChange={setFilter}
+          onChange={handleFilter}
           options={[
             { value: 'all', label: 'All', count: students.length },
             { value: 'unassigned', label: 'No mentor', count: summary.unassigned },
@@ -140,9 +173,12 @@ export default function HodStudentsPage() {
               },
               { key: 'total_queries', header: 'Queries', align: 'right' }
             ]}
-            rows={filtered}
+            rows={pageRows}
             rowKey={(row) => row.student_id}
             emptyState={<EmptyState icon="school" title="No students found" description="Try clearing the filters." />}
+            footer={
+              <Pagination page={currentPage} pageCount={pageCount} total={filtered.length} onPageChange={setPage} />
+            }
           />
         </Panel>
       )}

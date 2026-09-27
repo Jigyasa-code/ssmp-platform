@@ -13,8 +13,9 @@
  * portal are listed back as "not in the portal" and nothing is recorded
  * for them; that is the expected outcome, not a failed upload.
  *
- * Black dots show on the student's record for their mentor and the HOD.
- * They are deliberately not part of the at-risk rule.
+ * Black dots show on the student's record — on their own Academics page
+ * and on the student page their mentor and the HOD open. They are
+ * deliberately not part of the at-risk rule.
  */
 
 import { useState } from 'react';
@@ -94,8 +95,9 @@ export default function ClusterHeadBlackDotPage() {
             be uploaded again.
           </li>
           <li>
-            <strong className="text-on-surface">Who sees it</strong> — the student&apos;s mentor and the HOD,
-            on the student&apos;s record. Black dots are not part of the at-risk rule.
+            <strong className="text-on-surface">Who sees it</strong> — the student, on their Academics page,
+            and their mentor and the HOD, on the student&apos;s record. Black dots are not part of the at-risk
+            rule.
           </li>
         </ul>
       </Panel>

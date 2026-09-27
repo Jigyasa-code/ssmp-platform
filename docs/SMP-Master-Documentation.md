@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12). That is SQL migrations `0001`–`0035`. |
+| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). That is SQL migrations `0001`–`0035`. |
 | **Supersedes** | `docs/SSMP-Platform-Context.docx` (August 2026, which covered migrations 0001–0019). Where `README.md`, `SETUP_GUIDE.md`, `docs/SECURITY.md` or `docs/CLUSTER-HEAD-AND-CYCLE-JOBS.md` disagree with this document, this document is correct. Those files contain stale statements; see §15.5. |
 | **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 35 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
 | **Secrets** | None appear here. Environment variables, the temporary password, the seed password and keys are documented by **name and purpose only**. |
@@ -368,9 +368,12 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `lib/fileUpload.js` | Client-side file validation, private uploads, signed URLs, `BUCKETS` |
 | `lib/constants.js` | Enum mirrors, option lists, navigation per role, `HOME_PATH` (§9.10) |
 | `lib/formatters.js` | Date, number and duration formatting, `describeError` |
+| `lib/fetchAllRows.js` | Reads a whole list in pages of 1,000 with `.range()`, because PostgREST returns at most `max_rows` rows per request (§4.20) |
+| `lib/academicRecord.js` | The arithmetic behind the Academic Performance Overview: semester labels, the semester picker, the attendance mean, GPA change and trend points, backlog order (§4.9) |
 | `components/layout/` | `PortalShell`, `SidebarNavigation`, `TopBar`, `NotificationBell` |
 | `components/ui/` | `Avatar`, `DataTable`, `EmptyState`, `ErrorBoundary`, `FormControls`, `Modal`, `PageHeader`, `Panel`, `ProfilePhotoUploader`, `Skeleton`, `StatCard`, `StatusBadge` |
 | `components/charts/Charts.jsx` | Recharts wrappers: `CategoryBarChart`, `GroupedBarChart`, `TrendLineChart`, `AreaTrendChart`, `DonutChart`, `GaugeChart`, `Sparkline` |
+| `components/academics/AcademicOverview.jsx` | The Academic Performance Overview (tiles, subject-wise attendance, GPA trend, backlogs, black dots), shared by the student's Academics page and the mentor's / HOD's student page (§4.9) |
 | `components/queries/` | `CreateQueryModal`, `QueryConversation`, `ResolutionConfirmation`, `SatisfactionRating` (shared by all portals) |
 | `components/student/FormAFields.jsx` | The Form A field set, its state and its validation (`EMPTY_FORM_A`, `validateFormA`, `useFormAState`, `FormAFields`) |
 | `components/hod/AddAccountModal.jsx` | Single-account creation |
@@ -385,7 +388,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 
 Other files in `frontend/`:
 
-- `test/ui-regression.test.jsx` is a jsdom regression test for two past bugs: Panel padding and Modal focus theft (§13.4).
+- `test/ui-regression.test.jsx` is a jsdom regression test for past bugs (Panel padding, Modal focus theft, the HOD Students 1,000-row cap, a CGPA of 0 with nothing uploaded) and for the overview's arithmetic (§13.4).
 - `vite.config.js` sets dev port 5173 and manual chunks `react-vendor`, `supabase-vendor`, `charts-vendor`.
 - `package.json` depends on `"ssmp-platform": "file:.."` to share the root package.
 
@@ -801,7 +804,7 @@ supabase.from('support_queries')
 **Known issues:**
 
 - **Legacy categories in counters.** Several category counters and charts count only `Academic`, `ERP/Tech` and `Infrastructure`, so queries in the current categories are invisible in them:
-  - JS: `StudentDashboardPage.jsx:34-40`, `FacultyDashboardPage.jsx:36-41`, `HodDashboardPage.jsx:63-65`, `FacultyMenteeDetailPage.jsx:126-130`, and `report-document-builder.js:279, 462-464, 638`;
+  - JS: `StudentDashboardPage.jsx:34-40`, `FacultyDashboardPage.jsx:36-41`, `HodDashboardPage.jsx:63-65`, `FacultyMenteeDetailPage.jsx:148-152`, and `report-document-builder.js:279, 462-464, 638`;
   - SQL: `get_dashboard_metrics`, `get_student_dossier`, and the views `faculty_performance_summary`, `student_query_summary` and `query_daily_trend`.
 
   The student group page uses the new categories but has only 3 colours for 5 bars. The `by_category` sections of the activity and department reports are dynamic and correct.
@@ -976,25 +979,32 @@ supabase.from('support_queries')
 - The policy `counselling_update_mentor` lets the mentor update **any column** of their requests directly, including the student's `concern` text.
 - `respond_to_counselling` without "close" sets `acknowledged` from any state, so replying to a closed request reopens it.
 
-### 4.9 Academics (student side): GPA and attendance
+### 4.9 Academics (student side): the academic performance overview and GPA entry
 
 **Status:** Implemented. There is one security gap.
 
 **Where:**
 
-- UI: `pages/student/StudentAcademicsPage.jsx`.
-- SQL: `upsert_semester_gpa`, `can_view_student_gpa`, `set_gpa_sharing` (dead).
-- Tables and views: `student_semester_gpas`, `student_cgpas`, `student_attendance_overview`.
+- UI: `pages/student/StudentAcademicsPage.jsx`. The overview is `components/academics/AcademicOverview.jsx`, the same block the mentor and the HOD see on the student's page (§4.18); its arithmetic is in `lib/academicRecord.js`.
+- SQL: `upsert_semester_gpa`, `can_view_student_gpa`, `can_access_student`, `set_gpa_sharing` (dead).
+- Tables and views, all read directly and RLS-scoped to the student: `student_semester_gpas`, `student_cgpas`, `student_attendance_overview`, `student_backlogs`, `student_black_dots`.
 
-**What the student sees:**
+**The academic performance overview** (2026-09-27):
 
-- **KPIs:**
-  - "CGPA": the **official CGPA** from the department's CGPA / GPA & Credits upload (§4.12), captioned "Published by the department · n credits earned". Until one is uploaded the card is "CGPA so far": the **unweighted mean** of the recorded semester GPAs (2 dp), captioned "n of 8 semesters";
-  - highest and lowest semester;
-  - "Overall attendance": the mean of the per-course latest percentages (2 dp), red below 75.
-- **Attendance table** from `student_attendance_overview`, which holds the latest period per course. Columns: Course code, Course name, Section, Attendance (red below 75%), Period. Empty state: "No attendance published yet".
-- **GPA trend chart**, 0–10.
-- **Per-semester GPA editor** for semesters 1–8.
+- **Semester picker.** It opens on "Sem N (Current)". N is read from the profile's `semester_label` ("3rd Semester", "Semester III", "V Sem"); a label that names a year, or no number beside "sem", gives nothing, and then N is the semester after the last graded one. Earlier semesters are always offered, and any later one that has data.
+  - **Current view:** attendance from the latest uploads, the latest graded semester's GPA, every backlog (open first) and every black dot.
+  - **An earlier semester:** that semester's GPA and the backlogs recorded against it. Attendance carries no semester in the portal (the view keeps the latest period per course), so its card says "No attendance for Sem n"; black dots are always the whole record. A banner says this, with "Back to Sem N".
+- **Four tiles:**
+  - **Average attendance:** the mean of the per-course percentages, the at-risk rule's own figure. One decimal, but a value below 75 is never rounded up to "75%". Note: "Below the 75% target overall", "Below 75% in n subjects" or "75% or more in all n subjects"; footnote: the subject count and the latest `period_end`.
+  - **Current GPA** ("GPA · Sem n" for an earlier semester): the GPA, and its change from the previous graded semester ("Up 0.40 from Sem 1", "Down …", "Same as …", "First graded semester"). Footnote: "Sem n result · CGPA x", where the CGPA is the official one once uploaded and otherwise the mean of the semesters, marked "(average)". With no GPA the tile shows "—" and "No GPA recorded yet", never 0.
+  - **Open backlogs** ("Backlogs · Sem n"): the open count, with "Open from Sem 1 and 2", "None open · n cleared" or "None on record".
+  - **Black dots:** the count and the latest incident date.
+- **Subject-wise attendance:** one bar per subject, blue at or above 75% and red below, the percentage printed on each bar, a dashed 75% target line and a legend; the tooltip gives the subject name and "a of h classes". Below it, a table: Subject (code, name, teaching section), Attendance (with a small meter), Attended, Total classes. Empty: "No attendance uploaded yet".
+- **GPA trend:** semesters 1 up to the current or last graded one, a point only where there is a GPA (the line breaks at a gap), a dashed at-risk line at 6 and a label on each point. Below it, Semester | GPA | Credits | Recorded by ("Department" or "You"), and a strip with the CGPA ("Official" or "Average of semesters"), the credits earned and the highest semester.
+- **Backlogs (open count):** # | Code | Subject name | Sem | Grade | Status ("Backlog" or "Cleared"), up to 5 rows. "View all" opens every backlog with credits, exam and the date it was cleared.
+- **Black dots (count):** # | Date | Reason / incident (with the case number) | Block (and room) | Previous record, up to 5 rows. "View all" lists every case with course/branch and the date it was recorded.
+
+**Record your GPA** (below the overview): one box per semester 1–8.
 
 **Self-entry of GPA:**
 
@@ -1003,11 +1013,11 @@ supabase.from('support_queries')
   - checks "Only a student can record their own GPA", "Semester must be between 1 and 8" and "GPA must be between 0 and 10";
   - refuses when the department has published that semester ("Semester n GPA was published by the department and cannot be edited here");
   - rounds to 2 dp and saves with `source = 'student'`.
-- **Output:** toast "Semester n GPA saved."
+- **Output:** toast "Semester n GPA saved." The page reloads quietly, keeping the semester picked in the overview.
 - **Department rows:** rows with `source = 'cluster_head'` are shown read-only, with "Published by the department".
 - **No clearing:** the UI cannot clear a semester once saved.
 
-**Not shown to students:** backlogs, and anything about their own at-risk status. No student page reads `student_backlogs`, `student_risk_flags` or meetings.
+**Not shown to students:** anything about their own at-risk status. No student page reads `student_risk_flags` or meetings. Backlogs and black dots have been on this page since 2026-09-27; RLS already let a student read their own rows.
 
 **GPA sharing.**
 
@@ -1208,7 +1218,7 @@ supabase.from('support_queries')
   - **Per-row errors:** "No registration number in this row"; the e-mail message; 'No case number for this row. The notice needs a "Case No: ..." line above each table, or a Case No column'; "No student in the portal has this registration number (they may be from another department)" (a PB notice covers the whole university, so this is expected for most rows); and the **name check**: when the notice gives a name it must share a word (two letters or more) with the account's name, otherwise 'The name in the notice ("…") does not match the student with this registration number. Check the registration number'. The account's name is not revealed.
   - **Writes:** `student_black_dots` upsert on `(student_id, lower(case_number))`, so a corrected notice re-uploaded updates rather than duplicates (blank cells keep the stored values). `previous_black_dots` is read from Previous Record ("NIL" → 0, "8 black dot" → 8).
 - **Output** adds `cases, case_numbers, students`. `scope_label` is "Case 034/Even Sem/2026" or "2 cases". The page lists the cases read from the notice.
-- **Where black dots show:** the mentor's and HOD's student page and `get_student_dossier`. They are **not** part of the at-risk rule and send no notification.
+- **Where black dots show:** the student's own Academics page (§4.9), the mentor's and HOD's student page, and `get_student_dossier`. They are **not** part of the at-risk rule and send no notification.
 
 **Known issues:**
 
@@ -1334,7 +1344,7 @@ The page has three upload panels plus an import-history table (the caller's last
 
 **At-risk page** (mentor: own mentees; HOD: everyone, with a Mentor column):
 
-- **Data:** `at_risk_student_overview` where `is_at_risk`, ordered by attendance.
+- **Data:** `at_risk_student_overview` where `is_at_risk`, ordered by attendance (then `student_id`), read in pages of 1,000 with `fetchAllRows` so a department-wide list is never cut at PostgREST's `max_rows` (§4.20).
 - **KPIs:** Flagged, Low attendance, Low GPA, With backlogs.
 - **Columns:** Student (link to the dossier page), Registration no., Backlogs, "Flagged for" chips, Parent contact, Meeting status, Actions.
   - Parent contact is `primary_parent_mobile`: the Form A father's, then the mother's, then the roster `parent_mobile`, shown as a `tel:` link.
@@ -1592,10 +1602,10 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
     - `query_summary`, which counts the **legacy academic, erp_tech and infrastructure categories**;
     - `queries`, `monthly_query_trend` (YYYY-MM).
 - **Page** (`/faculty/mentees/:studentId`, `/hod/students/:studentId`):
-  - KPIs: CGPA to 2 dp, captioned "Official · n credits earned" or "Average of n semesters" ("Not shared" when sharing is off), Queries raised, Achievements, Avg resolution.
-  - A GPA line chart and a "Query mix" donut (**legacy categories only**).
-  - Panels: Backlogs (open count in the title) and Black dots, then Form A, Achievements (with Verify and Proof), Query history.
-  - A star toggle for the mentor, with no confirmation dialog on this page.
+  - Header: the name; registration number, branch, section and semester label.
+  - The **Academic Performance Overview** (§4.9), fed from the dossier plus a direct read of `student_attendance_overview` for the student (RLS: the mentor or the HOD). With no GPA on record the CGPA is "—", not the dossier's `gpa_stats.cgpa` of 0. When sharing is off the GPA tile reads "Not shared" and the GPA card "GPA not shared".
+  - "Mentoring record": Queries raised, Achievements, Avg resolution; the "Query mix" donut (**legacy categories only**) beside the Query history; Form A; Achievements (with Verify and Proof).
+  - A star toggle for the mentor, with no confirmation dialog on this page. Verifying or starring reloads the page quietly, keeping the semester picked.
   - PDF download.
 - **PDF (`buildStudentDossierPdf`):**
   1. Title block.
@@ -1660,13 +1670,13 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 
 ### 4.20 HOD students directory and single-account creation
 
-**Status:** Implemented. There is one data-volume limitation.
+**Status:** Implemented.
 
 **Where:** `pages/hod/HodStudentsPage.jsx` (`/hod/students`), `components/hod/AddAccountModal.jsx`, `api/admin/provision-user-accounts.js`.
 
 **Directory.**
 
-- **Data:** `student_query_summary.select('*').order('student_name')`, plus faculty names from `user_profiles`.
+- **Data:** every row of `student_query_summary`, read in pages of 1,000 with `lib/fetchAllRows.js` (ordered by name, then `student_id`, so no student lands on two pages; the first request asks for an exact count), plus faculty names from `user_profiles`. The table shows 50 students per page; changing a filter or the search goes back to page 1.
 - **Filters:** All, No mentor, Form A pending, Active queries. Search by name, registration number or e-mail. The KPIs mirror the filters.
 - **Columns:** Student (links to `/hod/students/:id`, the dossier page in HOD mode), Reg. no., Branch, Sec, Mentor ("Unassigned" chip), Form A, Queries.
 
@@ -1687,7 +1697,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 
 **Known issue.** The duplicate-e-mail check uses `ilike`, so `_` and `%` in an address act as wildcards and can produce a false "already exists". If several rows match, `maybeSingle` errors and the check falls through to `createUser`.
 
-**Known issue.** PostgREST returns at most `max_rows` rows per request: 1,000 in `supabase/config.toml`, which is also Supabase's hosted default. The directory requests all students **without pagination**, so with more than 1,000 students only the first 1,000 (alphabetically) are listed, and the KPIs count only those.
+**Fixed 2026-09-27: the 1,000-row cap (B11).** PostgREST returns at most `max_rows` rows per request (1,000 in `supabase/config.toml`, and Supabase's hosted default), and it does so without an error. The directory used to ask for every student in one request, so a department of 1,949 showed 1,000 students and 296 without a mentor here while the dashboard, which counts in SQL, showed 1,949 and 597. It now pages through with `fetchAllRows`, and so does the HOD's at-risk list (§4.14).
 
 ### 4.21 Notifications
 
@@ -3657,10 +3667,10 @@ Reads inside SQL functions and views are not listed.
 | `roster_import_batches` | **select**: `ClusterHeadRosterPage.jsx`, `import-roster-spreadsheet.js`<br>**insert**: `import-roster-spreadsheet.js`<br>**update**: `import-roster-spreadsheet.js` | — |
 | `semester_cycles` | **select**: `import-roster-spreadsheet.js`<br>**update**: `import-roster-spreadsheet.js` | — |
 | `student_achievements` | **select**: `StudentAchievementsPage.jsx`<br>**insert**: `StudentAchievementsPage.jsx`<br>**update**: `StudentAchievementsPage.jsx`<br>**delete**: `StudentAchievementsPage.jsx` | `set_achievement_verification` |
-| `student_attendance_overview` (view) | **select**: `FacultyAtRiskPage.jsx`, `StudentAcademicsPage.jsx` | — |
+| `student_attendance_overview` (view) | **select**: `FacultyAtRiskPage.jsx`, `FacultyMenteeDetailPage.jsx`, `StudentAcademicsPage.jsx` | — |
 | `student_attendance_records` | — | `record_attendance_batch` |
-| `student_backlogs` | — (read through `get_student_dossier`) | `record_backlog_batch` |
-| `student_black_dots` | — (read through `get_student_dossier`) | `record_black_dot_batch` |
+| `student_backlogs` | **select**: `StudentAcademicsPage.jsx` (also through `get_student_dossier`) | `record_backlog_batch` |
+| `student_black_dots` | **select**: `StudentAcademicsPage.jsx` (also through `get_student_dossier`) | `record_black_dot_batch` |
 | `student_cgpas` | **select**: `StudentAcademicsPage.jsx` (also through `get_student_dossier`) | `record_gpa_batch` |
 | `student_course_sections` | — | `record_attendance_batch` |
 | `student_form_a_profiles` | **select**: `FormAFields.jsx` | `request_form_a_unlock`, `set_gpa_sharing`, `submit_student_form_a`, `unlock_student_form_a` |
@@ -3725,8 +3735,8 @@ Reads inside SQL functions and views are not listed.
 | CR reports (`mom_records`) | star mentee: RPC file; read the reports they filed | read reports addressed to them (`mentor_id`); act on items | read all | — |
 | At-risk flags, meetings, overview | own flags and meetings readable (RLS; no UI shows them) | mentees' (`can_access_student`); **direct UPDATE** of meetings they organise | all; direct UPDATE of meetings | — |
 | Attendance records and overview | own | mentees' | all | own uploads |
-| Backlogs | own readable (RLS; no UI) | mentees' (student page) | all (student page) | rows they uploaded |
-| Black dots | own readable (RLS; no UI) | mentees' (student page) | all (student page) | rows they uploaded |
+| Backlogs | own (Academics page) | mentees' (student page) | all (student page) | rows they uploaded |
+| Black dots | own (Academics page) | mentees' (student page) | all (student page) | rows they uploaded |
 | Surveys | own: RPC answer | mentees' status (view), **and each mentee's individual answers** (RLS; no UI) | all, including answers | — |
 | Star mentee | star: group queries and survey status (RPCs) | RPC set | RPC set | — |
 | Uploads (attendance, GPA, backlog, black dot, mentor map) | — | — | via API, or the RPCs directly | via API (after setup), or the RPCs directly (no setup check) |
@@ -3945,7 +3955,7 @@ Each page's behaviour is described in the feature section named in the last colu
 | `StudentDashboardPage` | `get_dashboard_metrics`, `useRealtimeQueries(5)`, `profile.mentor` | raise query | 4.17, 4.4 |
 | `StudentQueriesPage` / `StudentQueryDetailPage` | `useRealtimeQueries`, `useQueryThread` | create, post, confirm, rate | 4.4 |
 | `StudentGroupQueriesPage` | `get_mentor_group_queries` | — (read-only) | 4.6 |
-| `StudentAcademicsPage` | `student_semester_gpas`, `student_cgpas`, `student_attendance_overview` | `upsert_semester_gpa` | 4.9 |
+| `StudentAcademicsPage` | `student_semester_gpas`, `student_cgpas`, `student_attendance_overview`, `student_backlogs`, `student_black_dots` (Academic Performance Overview) | `upsert_semester_gpa` | 4.9 |
 | `StudentSurveyPage` / `StudentSurveyTrackingPage` | `get_active_survey_for_student` / `get_mentor_group_survey_status` | `submit_survey_response` | 4.15 |
 | `StudentCrReportPage` | `mom_records`, `support_queries` (with `mom_id`) | `submit_mom_report` | 4.7 |
 | `StudentCounsellingPage` | `counselling_requests` | `request_counselling` | 4.8 |
@@ -3955,8 +3965,8 @@ Each page's behaviour is described in the feature section named in the last colu
 | `FacultyQueryQueuePage` | `useRealtimeQueries` | raise to HOD | 4.4, 4.5 |
 | `FacultyQueryDetailPage` | `useQueryThread`, `canned_replies` | post, priority, resolve, raise to HOD | 4.4, 4.5 |
 | `FacultyMenteesPage` | `student_query_summary`, `survey_mentee_status` | star, department and HOD, dossier PDF | 4.6, 4.5, 4.15 |
-| `FacultyMenteeDetailPage` | `get_student_dossier` (incl. official CGPA, backlogs, black dots) | verify achievement, star, PDF | 4.18, 4.10, 4.12 |
-| `FacultyAtRiskPage` | `at_risk_student_overview`, `student_attendance_overview`, `student_semester_gpas` | mark meeting done | 4.14 |
+| `FacultyMenteeDetailPage` | `get_student_dossier` (incl. official CGPA, backlogs, black dots), `student_attendance_overview` (Academic Performance Overview) | verify achievement, star, PDF | 4.18, 4.9, 4.10, 4.12 |
+| `FacultyAtRiskPage` | `at_risk_student_overview` (every row, paged), `student_attendance_overview`, `student_semester_gpas` | mark meeting done | 4.14 |
 | `FacultyCounsellingPage` | `counselling_requests` | `respond_to_counselling` | 4.8 |
 | `FacultyCrReportsPage` | `mom_records`, `support_queries` | `set_query_in_progress`, `resolve_support_query` | 4.7 |
 | `FacultyActivityReportPage` | `get_faculty_activity_report` / `get_department_faculty_report` | PDF | 4.18 |
@@ -3964,7 +3974,7 @@ Each page's behaviour is described in the feature section named in the last colu
 | `HodDashboardPage` | `get_dashboard_metrics`, `faculty_performance_summary`, `query_daily_trend` | — | 4.17 |
 | `HodFacultyPerformancePage` | `faculty_performance_summary` | report links, PDF | 4.17 |
 | `HodFacultyRosterPage` | `/api/admin/manage-faculty-roster` | set status, reassign | 4.19 |
-| `HodStudentsPage` | `student_query_summary`, faculty names | Add account | 4.20 |
+| `HodStudentsPage` | `student_query_summary` (every row, paged), faculty names | Add account | 4.20 |
 | `HodOperationsPage` | `/api/admin/run-cycle-job` (GET) | run a job, run all | 4.16 |
 | `ClusterHeadSetupPage` / `ClusterHeadCoursesPage` | `cluster_head_courses` | `submit_cluster_head_setup` | 4.11 |
 | `ClusterHeadDashboardPage` | `cluster_head_courses`, `academic_upload_batches` (10) | — | 4.17 |
@@ -4019,7 +4029,7 @@ Each page's behaviour is described in the feature section named in the last colu
 4. **Actions use `useAsyncAction().run(fn, {successMessage, onSuccess})`.** It shows the success toast, or `toast.error(describeError(err))` on failure.
 5. **Realtime is used for queries, messages, notifications and the own profile.** Everything else reloads after the user's own action. Pages do not live-refresh other users' changes.
 6. **Files are uploaded before the form is saved.** Only the object path is stored; files are viewed through signed URLs.
-7. **Row limits.** Lists that are not paginated are subject to PostgREST's `max_rows` of 1,000 (§4.20).
+7. **Row limits.** PostgREST returns at most `max_rows` (1,000) rows per request, silently. A list that can be longer is read with `lib/fetchAllRows.js` (the HOD Students page and the at-risk list); the other unpaged reads are per mentor, per student or explicitly limited (§4.20).
 
 ### 9.9 Design system
 
@@ -4042,6 +4052,7 @@ Each page's behaviour is described in the feature section named in the last colu
 - **Other styles:** `.material-symbols-outlined` settings, `.custom-scrollbar`, and a print rule (`.no-print`).
 - **Theme:** there is no dark mode. `theme-color` is #a43700.
 - **`CHART_COLORS`** (JS): `academic` #c2410c, `erpTech` #f97316 and `infrastructure` #a8a29e (legacy category keys); `open`, `inProgress`, `resolved`; and `series` [#c2410c, #f97316, #a8a29e, #ea580c, #d97706, #16a34a]. The PDF palette is `PALETTE` in `pdf-chart-primitives.js`.
+- **Academic Performance Overview** (`AcademicOverview.jsx`, its own constants): attendance bars #2a78d6 (75% or more) and #e34948 (below), a pair checked for colour-blind separation and contrast on white, always with a legend and the value on the bar; the GPA line is the brand #c2410c with a 10% area; target lines are dashed #57534e.
 
 ### 9.10 Constants (`lib/constants.js`)
 
@@ -4301,7 +4312,7 @@ It is **not** run in CI.
 | About 2,300-row uploads within Postgres's statement timeout | One indexed identifier resolution per file (0033) |
 | Risk re-evaluation per upload | One `evaluate_student_risk` per distinct matched student, inside the upload transaction |
 | List pages | 25 rows per page, with an exact count; a realtime change re-runs the page query |
-| Large unpaged reads | Capped by PostgREST `max_rows` = 1,000 (§4.20) |
+| Long lists | Read in pages of 1,000 with `fetchAllRows` (HOD Students, at-risk list), because PostgREST caps each response at `max_rows` = 1,000 (§4.20) |
 | Rate-limit table growth | A 1% chance per call to purge rows older than a day |
 
 ---
@@ -4375,7 +4386,7 @@ No values are given here. The templates are `.env.example` (server) and `fronten
 1. **Authentication → Providers → Email:** disable sign-ups. This is required: `handle_new_auth_user` trusts the role in user metadata (§8.9 S13). Leave e-mail confirmation off.
 2. **Authentication → URL configuration:** set the Site URL to the production origin, and add `https://<domain>/reset-password` (plus local and preview origins as needed) to the redirect URLs.
 3. **Authentication → Sessions:** set the inactivity timeout to 30 days so users are not signed out frequently.
-4. **API → Max rows:** the default is 1,000. Raise it, or add pagination, if the HOD Students page must list more than 1,000 students (§4.20).
+4. **API → Max rows:** the default of 1,000 is fine. The lists that can be longer (HOD Students, the at-risk list) page through it (§4.20).
 5. Buckets, policies, the realtime publication and every function come from the migrations. No manual dashboard setup is needed for them.
 
 ### 12.4 `vercel.json`
@@ -4434,8 +4445,8 @@ These are hard-coded. Changing one means editing code or SQL; they are collected
 
 **Automated tests** (these are all of them):
 
-1. `frontend/test/ui-regression.test.jsx` renders `Panel`, `Modal`, `TextField` and `TextAreaField` in jsdom. It asserts that the Panel body is padded, that the first field (not ✕) gets focus when a Modal opens, that focus stays in the input while typing, and that it stays in a textarea such as the Report-to-HOD note.
-2. `api/_lib/spreadsheet-parser.check.mjs` runs the 5 parser checks (§10.4).
+1. `frontend/test/ui-regression.test.jsx` renders `Panel`, `Modal`, `TextField` and `TextAreaField` in jsdom. It asserts that the Panel body is padded, that the first field (not ✕) gets focus when a Modal opens, that focus stays in the input while typing, and that it stays in a textarea such as the Report-to-HOD note. Since 2026-09-27 it also checks that `fetchAllRows` returns every row past a 1,000-row cap (and past a smaller server page) with no duplicates; the overview arithmetic in `lib/academicRecord.js` (semester labels, the 75% rounding guard, the GPA change, gaps in the trend, backlog order, the semester picker); and that `AcademicOverview` renders its tiles and tables, with no CGPA of 0 when nothing is uploaded.
+2. `api/_lib/spreadsheet-parser.check.mjs` runs the 17 parser checks (§10.4).
 
 There are **no** tests for RLS, the RPCs or the API handlers.
 
@@ -4570,7 +4581,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 
 **Data volume**
 
-- **Unpaginated lists** are cut at PostgREST `max_rows` (1,000 by default): the HOD Students page, and the HOD at-risk list in a very large cohort.
+- **Long lists.** The HOD Students page and the HOD at-risk list page through PostgREST's `max_rows` (1,000 by default) since 2026-09-27 (B11). The remaining unpaged reads are per mentor or per student.
 - **The HOD trend chart** misbehaves after 400 (mentor, day) rows (§4.17).
 
 ---
@@ -4605,13 +4616,14 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | Dashboards and performance table | **Implemented** | B1, B3 |
 | Faculty activity, department and dossier reports and PDFs | **Implemented** | B1, B4 |
 | Faculty roster, status and reassignment | **Implemented** | B10 |
-| HOD Students directory and Add account | **Implemented** | 1,000-row cap (B11) |
+| HOD Students directory and Add account | **Implemented** | 1,000-row cap fixed 2026-09-27 (B11) |
 | Notifications (19 types; 16 in use) | **Implemented** | 3 types never sent |
 | Audit log | **Implemented** (writes) | No viewer UI |
 | Rate limiting | **Implemented** | Fails open |
 | HOD semester setup wizard | **Removed** | Route, page and navigation removed; the table remains unused |
 | Form A lock / unlock workflow | **Dead** | Functions exist; no callers; Form A is always editable |
-| "Upload Black dot" (PB notice), ERP CGPA / GPA & Credits and Defaulter Grade formats | **Implemented** | Added 2026-09-27 (0034–0035, §4.12). Black dots show on the mentor's and HOD's student page; no removal UI and no notification |
+| "Upload Black dot" (PB notice), ERP CGPA / GPA & Credits and Defaulter Grade formats | **Implemented** | Added 2026-09-27 (0034–0035, §4.12). Black dots show on the student's Academics page and on the mentor's and HOD's student page; no removal UI and no notification |
+| Academic Performance Overview (student Academics page, mentor's and HOD's student page) | **Implemented** | Added 2026-09-27 (§4.9, §4.18). Attendance is shown for the current semester only, because uploads carry no semester |
 
 ### 15.2 Known functional bugs (verified in the code)
 
@@ -4627,7 +4639,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | B8 | **Mostly fixed in 0035.** `exam_session` now shows on the student page's backlog list and in the upload's scope label; `skipped_rows` is written by the GPA upload only | `record_backlog_batch`, upload RPCs |
 | B9 | Upload-page copy is wrong: the attendance section comes from the row, not the header; the My Subjects advice is inverted. (The GPA page's meeting claim was corrected with the new GPA page.) | cluster-head pages |
 | B10 | Re-activating a faculty member leaves `available_for_reassignment = false`. `reassign_mentees` does not check capacity or ownership and does not clear the star flag, so a group can end up with two representatives (a mentor-map upload has the same effect). A failed query handover is silent. A status change sent with `available_for_reassignment = true` is stored as sent, even for `departed`. | §4.19, §4.6 |
-| B11 | Unpaginated lists are capped by PostgREST `max_rows` (1,000): the HOD Students page and its KPIs | `HodStudentsPage` |
+| B11 | **Fixed 2026-09-27.** The HOD Students page (and its KPIs) and the HOD at-risk list read only the first 1,000 rows (PostgREST `max_rows`), so the page showed 1,000 students where the dashboard showed all of them. Both now page through with `fetchAllRows` | `HodStudentsPage`, `FacultyAtRiskPage` |
 | B12 | A mentor change made through a mentor-map upload does not move open queries; the old mentor keeps them | `map_students_to_mentors` |
 | B13 | A cycle-job failure leaves no run record (rolled back with the re-raise) | `run_cycle_job` |
 | B14 | A roster-chunk failure discards the displayed results of earlier chunks (including their credentials); there is no retry | `AcademicUploadPanel` |

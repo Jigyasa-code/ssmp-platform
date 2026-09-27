@@ -1,7 +1,11 @@
 /**
- * Regression tests for the two bugs reported from the deployed portals:
+ * Regression tests for bugs reported from the deployed portals:
  *   1. Panel body had no padding, so text sat flush against the card edge.
  *   2. Typing inside a Modal stole focus back to the header's ✕ button.
+ *   3. The HOD's Students page stopped at 1,000 students (PostgREST's
+ *      response cap) while the dashboard counted all of them.
+ *   4. The student record showed a CGPA of 0 when nothing was uploaded;
+ *      plus the arithmetic behind the Academic Performance Overview.
  */
 import { JSDOM } from 'jsdom';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -120,6 +124,122 @@ check('focus stays in the Report-to-HOD textarea while typing',
   doc.activeElement === textarea,
   `focus ended on ${doc.activeElement?.getAttribute('aria-label') ?? doc.activeElement?.tagName}`);
 check('the textarea kept its text', textarea.value === 'no', `value was "${textarea.value}"`);
+
+// ── 3. Every student, not the first 1,000 ────────────────────────────
+// The HOD's Students page showed 1,000 students and 296 without a mentor
+// while the dashboard, which counts in SQL, showed 1,949 and 597: PostgREST
+// hands back at most 1,000 rows per request, without an error.
+console.log('\nPaging past the 1,000-row response cap');
+
+const { fetchAllRows } = await import('../src/lib/fetchAllRows.js');
+
+/** A PostgREST stand-in that, like a stock Supabase project, caps every response. */
+function cappedTable(total, cap = 1000) {
+  const requests = [];
+  const make = (withCount) => ({
+    range(from, to) {
+      requests.push({ from, to, withCount });
+      const end = Math.min(to + 1, from + cap, total);
+      const rows = Array.from({ length: Math.max(0, end - from) }, (_, i) => ({ id: from + i }));
+      return Promise.resolve({ data: rows, error: null, count: withCount ? total : null });
+    }
+  });
+  return { make, requests };
+}
+
+{
+  const table = cappedTable(1949);
+  const { data, count, error } = await fetchAllRows(table.make);
+  check('all 1,949 students come back, not 1,000', data.length === 1949 && count === 1949 && !error, `got ${data.length}`);
+  check('no student comes back twice', new Set(data.map((row) => row.id)).size === data.length);
+  check('only the first request asks for the exact count', table.requests.filter((r) => r.withCount).length === 1);
+}
+{
+  const { data } = await fetchAllRows(cappedTable(1949, 500).make);
+  check('a server page smaller than ours still returns everyone', data.length === 1949, `got ${data.length}`);
+}
+{
+  const table = cappedTable(0);
+  const { data, error } = await fetchAllRows(table.make);
+  check('an empty list is one request and no rows', data.length === 0 && !error && table.requests.length === 1);
+}
+
+// ── 4. Academic performance overview ─────────────────────────────────
+console.log('\nAcademic performance overview');
+
+const record = await import('../src/lib/academicRecord.js');
+
+check('"3rd Semester" is semester 3', record.parseSemesterNumber('3rd Semester') === 3);
+check('"Sem III" and "V Sem" are read too',
+  record.parseSemesterNumber('Sem III') === 3 && record.parseSemesterNumber('V Sem') === 5);
+check('"2nd Year" does not say which semester', record.parseSemesterNumber('2nd Year') === null);
+check('a year in the label is not taken for a semester', record.parseSemesterNumber('Odd Semester 2025') === null);
+check('74.96% is shown as 74.9%, never as 75%', record.formatPercent(74.96) === '74.9%', record.formatPercent(74.96));
+
+check('overall attendance is the mean of the subject percentages',
+  record.summariseAttendance([{ attendance_percent: 80 }, { attendance_percent: '70' }]).average === 75);
+
+{
+  const gpas = [{ semester: 1, gpa: '7.68' }, { semester: 2, gpa: 7.28 }];
+  const view = record.gpaForView(gpas, null);
+  check('the current GPA is the latest graded semester, compared with the one before',
+    view.entry.semester === 2 && view.previous.semester === 1 && view.change === -0.4, JSON.stringify(view));
+  const points = record.gpaTrendPoints([{ semester: 1, gpa: 7.68 }], 3);
+  check('a semester without a GPA gets no point on the trend (not a zero)',
+    points.length === 3 && points[1].gpa === null && points[2].gpa === null);
+}
+{
+  const backlogs = [
+    { subject_code: 'PH1001', semester: 1, is_cleared: true },
+    { subject_code: 'MA1002', semester: 2, is_cleared: false },
+    { subject_code: 'CS1001', semester: 1, is_cleared: false }
+  ];
+  const now = record.backlogsForView(backlogs, null);
+  check('open backlogs are listed before cleared ones',
+    now.rows.map((row) => row.subject_code).join() === 'MA1002,CS1001,PH1001' && now.open === 2 && now.cleared === 1);
+  const sem1 = record.backlogsForView(backlogs, 1);
+  check('a past semester shows only the backlogs recorded against it',
+    sem1.rows.length === 2 && sem1.rows.every((row) => row.semester === 1));
+}
+{
+  const choices = record.semesterChoices({ currentSemester: 3, semesterGpas: [{ semester: 1 }], backlogs: [] });
+  check('the picker offers Sem 1, Sem 2 and "Sem 3 (Current)"',
+    choices.map((c) => c.label).join('|') === 'Sem 1|Sem 2|Sem 3 (Current)', choices.map((c) => c.label).join('|'));
+}
+
+const { default: AcademicOverview } = await import('../src/components/academics/AcademicOverview.jsx');
+
+{
+  const markup = renderToStaticMarkup(<AcademicOverview semesterLabel="3rd Semester" />);
+  check('with nothing uploaded there is no CGPA of 0, only a dash',
+    !markup.includes('0.00') && markup.includes('No GPA recorded yet'));
+}
+{
+  const markup = renderToStaticMarkup(
+    <AcademicOverview
+      audience="student"
+      semesterLabel="3rd Semester"
+      attendance={[
+        { course_id: 'a', course_code: 'IT2101', course_name: 'Data Structures', attendance_percent: 80, classes_held: 10, classes_attended: 8 },
+        { course_id: 'b', course_code: 'IT2102', course_name: 'Computer Organisation', attendance_percent: 70, classes_held: 10, classes_attended: 7 }
+      ]}
+      semesterGpas={[{ semester: 1, gpa: 7.68, source: 'cluster_head' }, { semester: 2, gpa: 7.28, source: 'cluster_head' }]}
+      cgpa={{ value: 7.49, official: true, earnedCredits: 38 }}
+      backlogs={[
+        { subject_code: 'MA1002', subject_name: 'ENGINEERING MATHEMATICS II', semester: 2, grade: 'F', is_cleared: false },
+        { subject_code: 'PH1001', subject_name: 'ENGINEERING PHYSICS', semester: 1, grade: 'UFM', is_cleared: true }
+      ]}
+      blackDots={[{ case_number: '012/Odd Sem/2026', case_details: 'Found with banned items', incident_date: '2026-09-10' }]}
+    />
+  );
+  check('the picker opens on the current semester', markup.includes('Sem 3 (Current)'));
+  check('the attendance tile shows the average and the short subject',
+    markup.includes('75%') && markup.includes('Below 75% in 1 subject'));
+  check('the GPA tile shows the latest GPA and the change', markup.includes('7.28') && markup.includes('Down 0.40 from Sem 1'));
+  check('the backlog tile counts open backlogs only', markup.includes('Open from Sem 2'));
+  check('the subject table lists every subject', markup.includes('IT2101') && markup.includes('IT2102'));
+  check('the black dot is listed with its case number', markup.includes('Case 012/Odd Sem/2026'));
+}
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`}`);
 process.exit(failures === 0 ? 0 : 1);

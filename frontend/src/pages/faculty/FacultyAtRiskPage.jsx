@@ -25,6 +25,7 @@ import EmptyState from '../../components/ui/EmptyState.jsx';
 import StatCard from '../../components/ui/StatCard.jsx';
 import { SkeletonTable } from '../../components/ui/Skeleton.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
+import { fetchAllRows } from '../../lib/fetchAllRows.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
@@ -177,15 +178,20 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
     // RLS already scopes this view: a mentor sees their own mentees, the
     // HOD sees everyone. The explicit filter is a UX choice, not a
     // security one.
-    let query = supabase
-      .from('at_risk_student_overview')
-      .select('*')
-      .eq('is_at_risk', true)
-      .order('attendance_percent', { nullsFirst: false });
-
-    if (!isHodView) query = query.eq('assigned_mentor_id', profile.id);
-
-    const { data, error } = await query;
+    //
+    // Paged, because the HOD's list is department-wide and PostgREST
+    // returns at most 1,000 rows per request. student_id breaks ties so no
+    // student lands on two pages or none.
+    const { data, error } = await fetchAllRows((withCount) => {
+      let query = supabase
+        .from('at_risk_student_overview')
+        .select('*', withCount ? { count: 'exact' } : undefined)
+        .eq('is_at_risk', true)
+        .order('attendance_percent', { nullsFirst: false })
+        .order('student_id');
+      if (!isHodView) query = query.eq('assigned_mentor_id', profile.id);
+      return query;
+    });
     if (error) toast.error(describeError(error));
     setRows(data ?? []);
     setLoading(false);

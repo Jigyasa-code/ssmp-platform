@@ -1,9 +1,12 @@
 /**
  * Mentee detail — everything a mentor needs about one student in one
- * place: Form A (Feature 1), GPA if shared (Feature 2), backlogs and black
- * dots from the Cluster Head's uploads, achievements with verification
- * (Feature 6), star toggle (Feature 7) and the full query history, plus a
- * one-click PDF (Feature 5). The HOD's student page is this same screen.
+ * place. The HOD's student page is this same screen.
+ *
+ * The top is the Academic Performance Overview (attendance per subject,
+ * GPA if shared, backlogs with their subjects, black dots), the same block
+ * the student sees on their Academics page. Below it: the mentoring record
+ * — queries, Form A (Feature 1), achievements with verification (Feature
+ * 6) — plus the star toggle (Feature 7) and a one-click PDF (Feature 5).
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -16,7 +19,8 @@ import EmptyState from '../../components/ui/EmptyState.jsx';
 import DataTable from '../../components/ui/DataTable.jsx';
 import { PageLoader } from '../../components/ui/Skeleton.jsx';
 import { QueryStatusBadge, CategoryBadge } from '../../components/ui/StatusBadge.jsx';
-import { TrendLineChart, DonutChart } from '../../components/charts/Charts.jsx';
+import { DonutChart } from '../../components/charts/Charts.jsx';
+import AcademicOverview from '../../components/academics/AcademicOverview.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { apiClient } from '../../lib/apiClient.js';
 import { createSignedUrl, BUCKETS } from '../../lib/fileUpload.js';
@@ -30,14 +34,31 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
   const toast = useToast();
   const { run, pending } = useAsyncAction();
   const [dossier, setDossier] = useState(null);
+  const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await supabase.rpc('get_student_dossier', { p_student_id: studentId });
-    if (error) toast.error(describeError(error));
-    setDossier(data ?? null);
+  // A reload after saving something is quiet: the page stays where it is
+  // (and on the semester being looked at) instead of flashing the loader.
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoading(true);
+    // Attendance is not in the dossier, so it is read alongside it. The
+    // view is RLS-scoped: the student's mentor and the HOD can read it.
+    const [dossierResult, attendanceResult] = await Promise.all([
+      supabase.rpc('get_student_dossier', { p_student_id: studentId }),
+      supabase
+        .from('student_attendance_overview')
+        .select('course_id, course_code, course_name, section_label, attendance_percent, classes_held, classes_attended, period_start, period_end')
+        .eq('student_id', studentId)
+        .order('course_code')
+    ]);
+    if (dossierResult.error) toast.error(describeError(dossierResult.error));
+    else if (attendanceResult.error) toast.error(describeError(attendanceResult.error));
+    // A quiet reload that fails keeps what is already on screen.
+    if (!(quiet && (dossierResult.error || attendanceResult.error))) {
+      setDossier(dossierResult.data ?? null);
+      setAttendance(attendanceResult.data ?? []);
+    }
     setLoading(false);
   }, [studentId, toast]);
 
@@ -56,7 +77,7 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
       },
       {
         successMessage: achievement.verified ? 'Verification removed.' : 'Achievement verified.',
-        onSuccess: load
+        onSuccess: () => load({ quiet: true })
       }
     );
 
@@ -69,7 +90,7 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
         });
         if (error) throw error;
       },
-      { successMessage: 'Representative updated.', onSuccess: load }
+      { successMessage: 'Representative updated.', onSuccess: () => load({ quiet: true }) }
     );
 
   const downloadPdf = async () => {
@@ -118,22 +139,14 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
 
   const { student, form_a: formA, query_summary: queries, gpa_stats: gpaStats } = dossier;
   const backPath = isHodView ? '/hod/students' : '/faculty/mentees';
-  const backlogs = dossier.backlogs ?? [];
-  const openBacklogs = backlogs.filter((backlog) => !backlog.is_cleared);
-  const blackDots = dossier.black_dots ?? [];
 
   // The official CGPA from the ERP export when one has been uploaded; the
-  // plain mean of the semester GPAs is only a stand-in until then.
-  const cgpaCaption = !dossier.gpa_shared
-    ? 'student has hidden GPA'
-    : gpaStats?.cgpa_official
-      ? `Official${gpaStats.total_earned_credits != null ? ` · ${Number(gpaStats.total_earned_credits)} credits earned` : ''}`
-      : `Average of ${gpaStats?.semesters_recorded ?? 0} semesters`;
-
-  const gpaChart = (dossier.semester_gpas ?? []).map((g) => ({
-    name: `Sem ${g.semester}`,
-    gpa: Number(g.gpa)
-  }));
+  // plain mean of the semester GPAs is only a stand-in until then, and with
+  // no GPA at all there is no CGPA to show (the dossier reports 0).
+  const hasCgpa = dossier.gpa_shared && gpaStats && (gpaStats.cgpa_official || Number(gpaStats.semesters_recorded) > 0);
+  const cgpa = hasCgpa
+    ? { value: gpaStats.cgpa, official: Boolean(gpaStats.cgpa_official), earnedCredits: gpaStats.total_earned_credits ?? null }
+    : null;
 
   const categoryChart = [
     { name: 'Academic', value: queries.academic, color: CHART_COLORS.academic },
@@ -150,7 +163,12 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
           </Link>
         }
         title={student.name}
-        subtitle={`${student.registration_no ?? '—'} · ${student.branch ?? '—'} · Section ${student.section ?? '—'}`}
+        subtitle={[
+          student.registration_no ?? '—',
+          student.branch ?? '—',
+          `Section ${student.section ?? '—'}`,
+          student.semester_label
+        ].filter(Boolean).join(' · ')}
         actions={
           <>
             {!isHodView && (
@@ -172,14 +190,27 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="CGPA"
-          value={dossier.gpa_shared ? (gpaStats?.cgpa != null ? Number(gpaStats.cgpa).toFixed(2) : '—') : 'Not shared'}
-          icon="school"
-          tone={dossier.gpa_shared ? 'primary' : 'slate'}
-          caption={cgpaCaption}
-        />
+      {/* key: a different student starts back on the current semester. */}
+      <AcademicOverview
+        key={studentId}
+        audience="staff"
+        semesterLabel={student.semester_label}
+        attendance={attendance}
+        semesterGpas={dossier.semester_gpas ?? []}
+        cgpa={cgpa}
+        gpaHidden={!dossier.gpa_shared}
+        backlogs={dossier.backlogs ?? []}
+        blackDots={dossier.black_dots ?? []}
+      />
+
+      <div className="mb-4 mt-8">
+        <h2 className="text-headline-sm text-on-surface">Mentoring record</h2>
+        <p className="mt-0.5 text-body-sm text-on-surface-variant">
+          Queries raised, the Form A record and achievements.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <StatCard label="Queries raised" value={queries.total} icon="confirmation_number" tone="secondary"
           caption={`${queries.resolved} resolved`} />
         <StatCard label="Achievements" value={dossier.achievements.length} icon="military_tech" tone="success"
@@ -188,115 +219,24 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Panel tab="Academic trend" tabIcon="show_chart" className="lg:col-span-2">
-          {dossier.gpa_shared ? (
-            <TrendLineChart
-              data={gpaChart}
-              height={260}
-              domain={[0, 10]}
-              lines={[{ key: 'gpa', label: 'GPA', color: CHART_COLORS.primary }]}
-            />
-          ) : (
-            <EmptyState
-              icon="visibility_off"
-              title="GPA not shared"
-              description="This student has turned off GPA sharing. You can still see everything else in their record."
-            />
-          )}
-        </Panel>
-
         <Panel tab="Query mix" tabIcon="donut_small">
           <DonutChart data={categoryChart} centerLabel="queries" height={260} />
         </Panel>
-      </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-5">
-        <Panel
-          tab={`Backlogs (${openBacklogs.length} open)`}
-          tabIcon="assignment_late"
-          className="lg:col-span-3"
-          bodyClassName=""
-        >
+        <Panel tab="Query history" tabIcon="history" className="lg:col-span-2" bodyClassName="">
           <DataTable
             dense
             columns={[
-              {
-                key: 'subject_code',
-                header: 'Subject',
-                render: (row) => (
-                  <span className="block min-w-[10rem]">
-                    <span className="block text-label-md text-on-surface">{row.subject_code}</span>
-                    {row.subject_name && <span className="block text-label-sm text-tertiary">{row.subject_name}</span>}
-                  </span>
-                )
-              },
-              { key: 'semester', header: 'Sem', align: 'center', render: (row) => row.semester ?? '—' },
-              { key: 'grade', header: 'Grade', align: 'center', render: (row) => row.grade ?? '—' },
-              {
-                key: 'is_cleared',
-                header: 'Status',
-                render: (row) =>
-                  row.is_cleared ? (
-                    <span className="block">
-                      <span className="chip bg-success-container text-on-success-container">Cleared</span>
-                      {row.cleared_at && (
-                        <span className="mt-0.5 block whitespace-nowrap text-label-sm text-tertiary">
-                          {formatDate(row.cleared_at)}
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="chip bg-error-container text-on-error-container">Open</span>
-                  )
-              },
-              { key: 'exam_session', header: 'Exam', render: (row) => row.exam_session ?? '—' }
+              { key: 'query_code', header: 'Ref' },
+              { key: 'subject', header: 'Subject' },
+              { key: 'category', header: 'Category', render: (row) => <CategoryBadge category={row.category} /> },
+              { key: 'status', header: 'Status', render: (row) => <QueryStatusBadge status={row.status} /> },
+              { key: 'created_at', header: 'Raised', render: (row) => formatDate(row.created_at) }
             ]}
-            rows={backlogs}
-            rowKey={(row) => `${row.semester}-${row.subject_code}`}
-            emptyState={
-              <EmptyState
-                icon="task_alt"
-                title="No backlogs on record"
-                description="No Defaulter Grade result uploaded so far lists this student."
-              />
-            }
+            rows={dossier.queries ?? []}
+            rowKey={(row) => row.query_code}
+            emptyState={<EmptyState icon="inbox" title="No queries" description="This student has not raised any queries." />}
           />
-        </Panel>
-
-        <Panel tab={`Black dots (${blackDots.length})`} tabIcon="gavel" className="lg:col-span-2" bodyClassName="">
-          {blackDots.length === 0 ? (
-            <EmptyState
-              icon="verified_user"
-              title="No black dots"
-              description="No Proctorial Board notice uploaded so far lists this student."
-            />
-          ) : (
-            <ul className="divide-y divide-surface-container">
-              {blackDots.map((dot) => (
-                <li key={dot.case_number} className="px-4 py-3">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-label-md text-on-surface">Case {dot.case_number}</span>
-                    <span className="text-label-sm text-tertiary">
-                      {dot.incident_date ? formatDate(dot.incident_date) : dot.incident_date_text || 'Date not given'}
-                    </span>
-                  </div>
-                  {dot.case_details && (
-                    <p className="mt-1 break-anywhere text-body-sm text-on-surface-variant">{dot.case_details}</p>
-                  )}
-                  <p className="mt-1 break-anywhere text-label-sm text-tertiary">
-                    {[
-                      dot.hostel_block,
-                      dot.room_no && `Room ${dot.room_no}`,
-                      dot.course_branch,
-                      dot.previous_record && `Previous record: ${dot.previous_record}`
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
         </Panel>
       </div>
 
@@ -331,69 +271,51 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
         )}
       </Panel>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Panel tab={`Achievements (${dossier.achievements.length})`} tabIcon="military_tech" bodyClassName="">
-          {dossier.achievements.length === 0 ? (
-            <EmptyState icon="military_tech" title="No achievements recorded" description="Nothing added by the student yet." />
-          ) : (
-            <ul className="divide-y divide-surface-container">
-              {dossier.achievements.map((achievement) => {
-                const meta = ACHIEVEMENT_CATEGORIES.find((c) => c.value === achievement.category);
-                return (
-                  <li key={achievement.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
-                    <span className="material-symbols-outlined mt-0.5 text-[20px] text-primary" aria-hidden="true">
-                      {meta?.icon ?? 'star'}
+      <Panel tab={`Achievements (${dossier.achievements.length})`} tabIcon="military_tech" className="mt-4" bodyClassName="">
+        {dossier.achievements.length === 0 ? (
+          <EmptyState icon="military_tech" title="No achievements recorded" description="Nothing added by the student yet." />
+        ) : (
+          <ul className="divide-y divide-surface-container">
+            {dossier.achievements.map((achievement) => {
+              const meta = ACHIEVEMENT_CATEGORIES.find((c) => c.value === achievement.category);
+              return (
+                <li key={achievement.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
+                  <span className="material-symbols-outlined mt-0.5 text-[20px] text-primary" aria-hidden="true">
+                    {meta?.icon ?? 'star'}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-label-md text-on-surface">{achievement.title}</span>
+                    <span className="text-label-sm text-tertiary">
+                      {meta?.label} · {formatDate(achievement.achieved_on)}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-label-md text-on-surface">{achievement.title}</span>
-                      <span className="text-label-sm text-tertiary">
-                        {meta?.label} · {formatDate(achievement.achieved_on)}
-                      </span>
-                      {achievement.description && (
-                        <span className="mt-1 block text-body-sm text-on-surface-variant">{achievement.description}</span>
-                      )}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      {achievement.proof_file_path && (
-                        <button type="button" className="btn-ghost btn-sm" onClick={() => viewProof(achievement.proof_file_path)}>
-                          Proof
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className={achievement.verified ? 'btn-ghost btn-sm text-success' : 'btn-secondary btn-sm'}
-                        onClick={() => toggleVerify(achievement)}
-                        disabled={pending}
-                      >
-                        <span className="material-symbols-outlined text-[16px]">
-                          {achievement.verified ? 'verified' : 'check'}
-                        </span>
-                        {achievement.verified ? 'Verified' : 'Verify'}
+                    {achievement.description && (
+                      <span className="mt-1 block text-body-sm text-on-surface-variant">{achievement.description}</span>
+                    )}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    {achievement.proof_file_path && (
+                      <button type="button" className="btn-ghost btn-sm" onClick={() => viewProof(achievement.proof_file_path)}>
+                        Proof
                       </button>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Panel>
-
-        <Panel tab="Query history" tabIcon="history" bodyClassName="">
-          <DataTable
-            dense
-            columns={[
-              { key: 'query_code', header: 'Ref' },
-              { key: 'subject', header: 'Subject' },
-              { key: 'category', header: 'Category', render: (row) => <CategoryBadge category={row.category} /> },
-              { key: 'status', header: 'Status', render: (row) => <QueryStatusBadge status={row.status} /> },
-              { key: 'created_at', header: 'Raised', render: (row) => formatDate(row.created_at) }
-            ]}
-            rows={dossier.queries ?? []}
-            rowKey={(row) => row.query_code}
-            emptyState={<EmptyState icon="inbox" title="No queries" description="This student has not raised any queries." />}
-          />
-        </Panel>
-      </div>
+                    )}
+                    <button
+                      type="button"
+                      className={achievement.verified ? 'btn-ghost btn-sm text-success' : 'btn-secondary btn-sm'}
+                      onClick={() => toggleVerify(achievement)}
+                      disabled={pending}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">
+                        {achievement.verified ? 'verified' : 'check'}
+                      </span>
+                      {achievement.verified ? 'Verified' : 'Verify'}
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Panel>
     </PortalShell>
   );
 }
