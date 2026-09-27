@@ -1,9 +1,9 @@
 /**
  * ClusterHeadDashboardPage
- * Deliberately sparse. A Cluster Head's whole job is two kinds of upload,
- * so the home screen is their subject list, their recent uploads, and
- * shortcuts into the three upload screens. No queries, no students, no
- * reports — none of that is theirs to see.
+ * Deliberately sparse. A Cluster Head's whole job is uploading, so the
+ * home screen is their subject list, their recent uploads, and shortcuts
+ * into the four upload screens. No queries, no students, no reports —
+ * none of that is theirs to see.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -24,7 +24,8 @@ import { ACADEMIC_UPLOAD_LABELS } from '../../lib/constants.js';
 const SHORTCUTS = [
   { to: '/cluster-head/attendance', label: 'Upload attendance', icon: 'fact_check', tone: 'primary' },
   { to: '/cluster-head/gpa', label: 'Upload GPA', icon: 'grade', tone: 'info' },
-  { to: '/cluster-head/backlogs', label: 'Upload backlogs', icon: 'assignment_late', tone: 'warning' }
+  { to: '/cluster-head/backlogs', label: 'Upload backlogs', icon: 'assignment_late', tone: 'warning' },
+  { to: '/cluster-head/black-dots', label: 'Upload black dots', icon: 'gavel', tone: 'error' }
 ];
 
 export default function ClusterHeadDashboardPage() {
@@ -44,7 +45,7 @@ export default function ClusterHeadDashboardPage() {
         .order('display_order'),
       supabase
         .from('academic_upload_batches')
-        .select('id, upload_type, section_label, period_start, period_end, semester_number, original_filename, total_rows, matched_rows, failed_rows, created_at')
+        .select('id, upload_type, section_label, period_start, period_end, semester_number, scope_label, original_filename, total_rows, matched_rows, failed_rows, created_at')
         .order('created_at', { ascending: false })
         .limit(10)
     ]);
@@ -86,7 +87,7 @@ export default function ClusterHeadDashboardPage() {
         </div>
       )}
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {SHORTCUTS.map((shortcut) => (
           <Link
             key={shortcut.to}
@@ -137,10 +138,14 @@ export default function ClusterHeadDashboardPage() {
               {
                 key: 'scope',
                 header: 'Scope',
+                // The upload functions write what each file covered
+                // ("Semesters 1, 2 + CGPA", "2 cases"); older rows fall
+                // back to the section or semester.
                 render: (row) =>
-                  row.upload_type === 'attendance'
+                  row.scope_label ??
+                  (row.upload_type === 'attendance'
                     ? `Section ${row.section_label ?? '—'}`
-                    : `Semester ${row.semester_number ?? '—'}`
+                    : `Semester ${row.semester_number ?? '—'}`)
               },
               { key: 'matched_rows', header: 'Recorded', align: 'right' },
               {

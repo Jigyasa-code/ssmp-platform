@@ -9,17 +9,40 @@
  * object literal without going through a null-prototype map first, so a
  * "__proto__" column header cannot poison anything.
  *
- * Two consumers, one reader: readSheetRows() does the file-format work and
- * both parseRosterFile() (accounts) and parseAcademicDataFile()
- * (attendance / GPA / backlogs) map its output onto their own header
+ * Many consumers, one reader: readSheetRows() does the file-format work
+ * and parseRosterFile() (accounts), parseAttendanceExport() and
+ * parseMentorMappingFile() map its output onto their own header
  * vocabulary. Keeping the CSV/XLSX handling in one place means a fix to
- * quoting or date coercion lands for both.
+ * quoting or date coercion lands for all of them.
+ *
+ * The three exports added for the ERP's own layouts (the CGPA / GPA &
+ * Credits export, the Defaulter Grade result and the Proctorial Board's
+ * black dot notice) read through readSheetGrid() instead, which adds the
+ * two things those files need: merged header cells filled in, and .docx.
+ *
+ * STUDENTS ARE MATCHED ON REGISTRATION NUMBER ONLY
+ * Every Cluster Head upload identifies a student by the Registration No.
+ * column and nothing else, not email and not roll number (Form A keeps
+ * roll number as a separate field, so it is a different number).
+ * REGISTRATION_ALIASES is the one list of spellings for that column.
  */
 
 import ExcelJS from 'exceljs';
 import { ApiError } from './http-response.js';
+import { decodeEntities, readDocxGrid, readHtmlGrid } from './table-readers.js';
 
 const MAX_ROWS = 5000;
+
+/**
+ * Every spelling of the registration number column seen in the ERP
+ * exports and the PB notice, after cleanHeader(): "Registration No.",
+ * "Registration No", "Reg No", "Regn No" ...
+ */
+export const REGISTRATION_ALIASES = [
+  'registration no', 'registration number', 'registration', 'reg no', 'reg number',
+  'regn no', 'regn number', 'regd no', 'enrolment no', 'enrollment no',
+  'enrolment number', 'enrollment number'
+];
 
 /** Column header aliases, so the HOD's spreadsheet doesn't have to be exact. */
 const HEADER_ALIASES = {
@@ -171,16 +194,6 @@ function looksLikeHtml(buffer) {
   return /<table|<html|<!doctype html|<tr[\s>]/.test(head);
 }
 
-function decodeEntities(text) {
-  return text
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
-}
-
 function parseHtmlTable(text) {
   const rows = [];
   // Rows are delimited by </tr>, cells by </td> or </th>. Nested tables in
@@ -233,14 +246,8 @@ async function readSheetRows(buffer, filename) {
     const rows = [];
     sheet.eachRow({ includeEmpty: false }, (row) => {
       const values = [];
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        const v = cell.value;
-        if (v == null) values.push('');
-        else if (typeof v === 'object' && 'text' in v) values.push(String(v.text));
-        else if (typeof v === 'object' && 'result' in v) values.push(String(v.result ?? ''));
-        else if (v instanceof Date) values.push(v.toISOString().slice(0, 10));
-        else values.push(String(v));
-      });
+      // A merged range reports its text in every cell it covers.
+      row.eachCell({ includeEmpty: true }, (cell) => values.push(cellText(cell.value)));
       rows.push(values);
     });
     return rows;
@@ -249,122 +256,67 @@ async function readSheetRows(buffer, filename) {
   throw new ApiError('Only .csv, .xlsx and the ERP .xls export are supported.', 400);
 }
 
-export async function parseRosterFile(buffer, filename) {
-  return rowsToRecords(await readSheetRows(buffer, filename));
+/** One ExcelJS cell value as the text a person would see in it. */
+function cellText(v) {
+  if (v == null) return '';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'object') {
+    if (Array.isArray(v.richText)) return v.richText.map((part) => part.text ?? '').join('');
+    if ('text' in v) return String(v.text ?? '');
+    if ('result' in v) return v.result instanceof Date ? v.result.toISOString().slice(0, 10) : String(v.result ?? '');
+    if ('error' in v) return '';
+  }
+  return String(v);
 }
 
-// =====================================================================
-// Cluster Head academic data
-// =====================================================================
 /**
- * Header aliases for the three Cluster Head uploads. A student is matched
- * on registration number OR email, so either column is enough — the
- * departmental attendance export usually has the registration number and
- * nothing else.
+ * readSheetRows() plus merged cells and Word documents, for the ERP and
+ * PB-notice parsers below. The ERP's HTML exports go through the span-aware
+ * reader, because the CGPA / GPA & Credits header is built from rowspan
+ * and colspan and the flat reader would shift every column after it.
  */
-const ACADEMIC_HEADER_ALIASES = {
-  identifier: [
-    'reg no', 'reg. no', 'reg no.', 'registration no', 'registration number',
-    'roll no', 'roll number', 'student id', 'id', 'email', 'e-mail', 'email id',
-    'email address', 'student email'
-  ],
-  full_name: ['name', 'full name', 'student name'],
-  classes_held: ['classes held', 'total classes', 'classes conducted', 'lectures held', 'total', 'held'],
-  classes_attended: ['classes attended', 'attended', 'present', 'lectures attended', 'attendance'],
-  attendance_percent: ['attendance %', 'attendance percent', 'attendance percentage', '% attendance', 'percentage'],
-  gpa: ['gpa', 'sgpa', 'cgpa', 'grade point average', 'semester gpa'],
-  semester: ['semester', 'sem', 'semester number'],
-  subject_code: ['subject code', 'course code', 'paper code', 'backlog code', 'code'],
-  subject_name: ['subject', 'subject name', 'course name', 'paper name'],
-  is_cleared: ['cleared', 'is cleared', 'status', 'result']
-};
+async function readSheetGrid(buffer, filename, { allowDocx = false } = {}) {
+  const lower = String(filename ?? '').toLowerCase();
+  if (looksLikeHtml(buffer)) return readHtmlGrid(buffer.toString('utf8'));
+  if (lower.endsWith('.docx')) {
+    if (!allowDocx) throw new ApiError('Only .csv, .xlsx and the ERP .xls export are supported.', 400);
+    return readDocxGrid(buffer);
+  }
+  if (lower.endsWith('.doc')) {
+    throw new ApiError('This is an old-style .doc file. Open it in Word, save it as .docx, then upload again.', 400);
+  }
+  if (allowDocx && !/\.(csv|xlsx|xls)$/.test(lower)) {
+    throw new ApiError('Upload the notice as .docx, or the same table as .xlsx or .csv.', 400);
+  }
+  return readSheetRows(buffer, filename);
+}
 
-const CLEARED_WORDS = ['yes', 'y', 'true', 'cleared', 'pass', 'passed', '1'];
+/** Row value by column index, trimmed; '' for a missing column. */
+function cellAt(row, index) {
+  return index == null ? '' : String(row?.[index] ?? '').trim();
+}
 
-function normaliseAcademicHeader(raw) {
+/** Placeholders the ERP exports use for "nothing here". Same list as public.is_blank_mark(). */
+function isBlankMark(value) {
+  return ['', '-', '--', '—', '–', 'na', 'n/a', 'n.a.'].includes(String(value ?? '').trim().toLowerCase());
+}
+
+/** First alias group whose list contains the cleaned header, or null. */
+function matchColumn(raw, aliasMap) {
   const cleaned = cleanHeader(raw);
-  for (const [canonical, aliases] of Object.entries(ACADEMIC_HEADER_ALIASES)) {
+  if (!cleaned) return null;
+  for (const [canonical, aliases] of Object.entries(aliasMap)) {
     if (aliases.includes(cleaned)) return canonical;
   }
   return null;
 }
 
-/**
- * Turns an uploaded attendance / GPA / backlog sheet into the row shape the
- * record_*_batch RPCs expect. Rows are built on Object.create(null) for the
- * same prototype-pollution reason as the roster parser.
- *
- * `kind` is 'attendance' | 'gpa' | 'backlog'.
- */
-export async function parseAcademicDataFile(buffer, filename, kind) {
-  const rows = await readSheetRows(buffer, filename);
+function isRegistrationHeader(raw) {
+  return REGISTRATION_ALIASES.includes(cleanHeader(raw));
+}
 
-  if (rows.length < 2) {
-    throw new ApiError('The file needs a header row and at least one data row.', 400);
-  }
-  if (rows.length - 1 > MAX_ROWS) {
-    throw new ApiError(`Too many rows (${rows.length - 1}). Split the file into batches of ${MAX_ROWS}.`, 400);
-  }
-
-  const headerMap = rows[0].map(normaliseAcademicHeader);
-  if (!headerMap.includes('identifier')) {
-    throw new ApiError(
-      'No student column found. Add a "Reg No" (or "Email") column so each row can be matched to a student.',
-      400
-    );
-  }
-
-  const records = [];
-  for (let r = 1; r < rows.length; r += 1) {
-    const raw = Object.create(null);
-    let hasValue = false;
-    for (let c = 0; c < headerMap.length; c += 1) {
-      const key = headerMap[c];
-      if (!key) continue;
-      const value = String(rows[r][c] ?? '').trim();
-      if (value) { raw[key] = value; hasValue = true; }
-    }
-    if (!hasValue) continue;
-
-    const record = { rowNumber: r + 1, identifier: raw.identifier ?? '' };
-
-    if (kind === 'attendance') {
-      // Preferred form: the two raw counts, which make the percentage
-      // recomputable and let the DB weight courses by size. If the export
-      // only carries a percentage, fall back to a synthetic /100 so the
-      // upload still works rather than rejecting the whole file.
-      if (raw.classes_held != null && raw.classes_attended != null) {
-        record.classes_held = String(Math.trunc(Number(raw.classes_held)));
-        record.classes_attended = String(Math.trunc(Number(raw.classes_attended)));
-      } else if (raw.attendance_percent != null) {
-        const percent = Number(String(raw.attendance_percent).replace('%', '').trim());
-        record.classes_held = '100';
-        record.classes_attended = Number.isFinite(percent)
-          ? String(Math.max(0, Math.min(100, Math.round(percent))))
-          : '';
-      } else {
-        record.classes_held = '';
-        record.classes_attended = '';
-      }
-    } else if (kind === 'gpa') {
-      record.gpa = raw.gpa ?? '';
-      // The GPA export names the semester per row ("4th Semester"). When
-      // it does, that wins over whatever was picked on the upload screen.
-      const semester = parseSemesterLabel(raw.semester);
-      record.semester_number = semester == null ? '' : String(semester);
-    } else if (kind === 'backlog') {
-      record.subject_code = raw.subject_code ?? '';
-      record.subject_name = raw.subject_name ?? '';
-      record.is_cleared = String(CLEARED_WORDS.includes(String(raw.is_cleared ?? '').toLowerCase()));
-    }
-
-    records.push(record);
-  }
-
-  if (!records.length) {
-    throw new ApiError('No usable data rows were found in that file.', 400);
-  }
-  return records;
+export async function parseRosterFile(buffer, filename) {
+  return rowsToRecords(await readSheetRows(buffer, filename));
 }
 
 // =====================================================================
@@ -422,7 +374,7 @@ function parseErpDate(value) {
 }
 
 const ATTENDANCE_COLUMNS = {
-  identifier: ['registration no.', 'registration no', 'reg no.', 'reg no', 'roll no', 'student id'],
+  identifier: REGISTRATION_ALIASES,
   name: ['name', 'student name'],
   section: ['section', 'sec'],
   classes_held: ['total class', 'total classes', 'classes held', 'total'],
@@ -589,8 +541,8 @@ export async function parseMentorMappingFile(buffer, filename) {
     // student's, and claiming it here would name every mentor account
     // after their first mentee.
     if (['mentor name', 'faculty name', 'mentor'].includes(cleaned)) return 'mentor_name';
-    if (HEADER_ALIASES.login_id.includes(cleaned)) return 'identifier';
-    if (['email', 'email id', 'e-mail', 'student email'].includes(cleaned)) return 'identifier';
+    // Students by registration number only, never by email.
+    if (REGISTRATION_ALIASES.includes(cleaned)) return 'identifier';
     return null;
   });
 
@@ -625,14 +577,651 @@ export async function parseMentorMappingFile(buffer, filename) {
   return records;
 }
 
+
 // =====================================================================
-// GPA export
+// Semester numbers
 // =====================================================================
-/** "4th Semester" / "Sem 4" / "4" -> 4. Returns null if unreadable. */
+const ROMAN_NUMERALS = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+
+/** "3" or "iii" -> 3; anything else -> null. */
+function numberFromToken(token) {
+  const text = String(token ?? '').toLowerCase();
+  if (/^\d{1,2}$/.test(text)) return Number(text);
+  return ROMAN_NUMERALS[text] ?? null;
+}
+
+/**
+ * "4th Semester" / "Sem 4" / "4" / "Semester IV" / "IV SEMESTER" -> 4.
+ * Returns null if unreadable or outside 1-8.
+ */
 export function parseSemesterLabel(value) {
   if (value == null || String(value).trim() === '') return null;
-  const match = /(\d+)/.exec(String(value));
-  if (!match) return null;
-  const number = Number(match[1]);
+  const text = String(value);
+  const digits = /(\d+)/.exec(text);
+  const number = digits ? Number(digits[1]) : numberFromToken(/\b([ivx]+)\b/i.exec(text)?.[1]);
   return number >= 1 && number <= 8 ? number : null;
+}
+
+/**
+ * A heading that names exactly one semester: "Semester I", "Sem 3",
+ * "3rd Semester", "Semester-II". Anything else (including a bare
+ * "Semester" column) -> null.
+ */
+function semesterGroup(raw) {
+  const text = cleanHeader(raw);
+  const match =
+    /^(?:sem|semester)\s*[-:]?\s*([ivx]+|\d{1,2})$/.exec(text) ||
+    /^([ivx]+|\d{1,2})(?:st|nd|rd|th)?\s*(?:sem|semester)$/.exec(text);
+  return match ? numberFromToken(match[1]) : null;
+}
+
+// =====================================================================
+// The ERP "Student's CGPA / GPA & Credits" export
+// =====================================================================
+/**
+ * Shape of the real export (.xls, really an HTML table):
+ *
+ *   S. No. | Registration No. | Student Name | CGPA | Total Earned Credits | Total Required Credits | Semester I           | Semester II          | Semester III
+ *          |                  |              |      |                      |                        | GPA | Earned | Req    | GPA | Earned | Req    | GPA | Earned | Req
+ *   1      | 2502050550       | ...          | 7.26 | 40.00                | -                      | 7.68 | 20.00 | -      | 6.84 | 20.00 | -      | -   | -      | 24.00
+ *
+ * The first six headings span both header rows and each semester spans
+ * three columns, so which semester a GPA belongs to is only written in the
+ * row above it. "-" is a semester not graded yet (III above) and is left
+ * out. How many semester groups there are depends on the batch.
+ *
+ * A plain one-semester sheet (Registration No | GPA | Semester) still
+ * works; its rows go to the database in the older flat shape.
+ */
+const GPA_COLUMNS = {
+  identifier: REGISTRATION_ALIASES,
+  name: ['student name', 'name', 'name of student', 'name of the student'],
+  cgpa: ['cgpa', 'c gpa', 'cumulative gpa', 'cumulative grade point average'],
+  total_earned_credits: ['total earned credits', 'total credits earned', 'earned credits total'],
+  total_required_credits: ['total required credits', 'total credits required', 'total req credits', 'required credits total'],
+  gpa: ['gpa', 'sgpa', 'semester gpa', 'grade point average'],
+  semester: ['semester', 'sem', 'semester number', 'semester no']
+};
+
+/** The three headings under each "Semester N". */
+const SEMESTER_GROUP_COLUMNS = {
+  gpa: ['gpa', 'sgpa', 'semester gpa'],
+  earned_credits: ['earned credits', 'credits earned', 'earned credit', 'earned'],
+  required_credits: ['req credits', 'required credits', 'credits required', 'req credit', 'required']
+};
+
+export async function parseGpaExport(buffer, filename) {
+  const rows = await readSheetGrid(buffer, filename);
+  if (!rows.length) throw new ApiError('That GPA file appears to be empty.', 400);
+
+  // The header row is the first that names the registration number and
+  // some kind of grade. The ERP puts a title and blank lines above it.
+  let headerIndex = -1;
+  for (let r = 0; r < Math.min(rows.length, 30); r += 1) {
+    if (!rows[r].some(isRegistrationHeader)) continue;
+    if (rows[r].some((cell) => semesterGroup(cell) != null || ['cgpa', 'gpa'].includes(matchColumn(cell, GPA_COLUMNS)))) {
+      headerIndex = r;
+      break;
+    }
+  }
+  if (headerIndex === -1) {
+    throw new ApiError(
+      'Could not find the GPA table. The file needs a "Registration No." column and either the ERP\'s Semester I, Semester II ... columns or a GPA column.',
+      400
+    );
+  }
+
+  const top = rows[headerIndex];
+  const width = Math.max(top.length, rows[headerIndex + 1]?.length ?? 0);
+
+  // Which semester each column sits under. A CSV leaves the cells under a
+  // merged "Semester I" blank, so a group runs on until the next heading.
+  const groupOf = [];
+  let group = null;
+  for (let c = 0; c < width; c += 1) {
+    const raw = String(top[c] ?? '').trim();
+    const semester = semesterGroup(raw);
+    if (semester != null) group = semester;
+    else if (raw !== '') group = null;
+    groupOf[c] = group;
+  }
+  const twoLevel = groupOf.some((value) => value != null);
+  const sub = twoLevel ? rows[headerIndex + 1] ?? [] : [];
+
+  const topColumns = Object.create(null);
+  const semesterColumns = [];
+  for (let c = 0; c < width; c += 1) {
+    if (groupOf[c] != null) {
+      const field = matchColumn(sub[c], SEMESTER_GROUP_COLUMNS);
+      if (field) semesterColumns.push({ c, semester: groupOf[c], field });
+    } else {
+      const field = matchColumn(top[c], GPA_COLUMNS);
+      if (field && topColumns[field] == null) topColumns[field] = c;
+    }
+  }
+
+  if (twoLevel && !semesterColumns.some((col) => col.field === 'gpa')) {
+    throw new ApiError(
+      'Found the Semester columns but no GPA under them. The row under "Semester I" should read GPA, Earned Credits, Req Credits.',
+      400
+    );
+  }
+
+  // The database keeps semesters 1-8. A longer programme's extra columns
+  // are reported back rather than silently dropped or failing every row.
+  const ignoredSemesters = [...new Set(semesterColumns.map((col) => col.semester).filter((s) => s < 1 || s > 8))];
+  const usable = semesterColumns.filter((col) => col.semester >= 1 && col.semester <= 8);
+  const semestersInFile = [...new Set(usable.map((col) => col.semester))].sort((a, b) => a - b);
+
+  const records = [];
+  const graded = new Set();
+  for (let r = headerIndex + (twoLevel ? 2 : 1); r < rows.length; r += 1) {
+    const row = rows[r];
+    const identifier = cellAt(row, topColumns.identifier).replace(/\s+/g, '');
+    // Some exports repeat the header on every printed page.
+    if (isRegistrationHeader(identifier)) continue;
+
+    const record = {
+      row: r + 1,
+      identifier,
+      name: cellAt(row, topColumns.name),
+      cgpa: cellAt(row, topColumns.cgpa),
+      total_earned_credits: cellAt(row, topColumns.total_earned_credits),
+      total_required_credits: cellAt(row, topColumns.total_required_credits)
+    };
+
+    let hasGrade = false;
+    if (twoLevel) {
+      const bySemester = new Map();
+      for (const col of usable) {
+        const entry = bySemester.get(col.semester) ??
+          { semester_number: col.semester, gpa: '', earned_credits: '', required_credits: '' };
+        entry[col.field] = cellAt(row, col.c);
+        bySemester.set(col.semester, entry);
+      }
+      record.semesters = [...bySemester.values()]
+        .filter((entry) => !isBlankMark(entry.gpa))
+        .sort((a, b) => a.semester_number - b.semester_number);
+      record.semesters.forEach((entry) => graded.add(entry.semester_number));
+      hasGrade = record.semesters.length > 0;
+    } else {
+      record.gpa = cellAt(row, topColumns.gpa);
+      const semester = parseSemesterLabel(cellAt(row, topColumns.semester));
+      record.semester_number = semester == null ? '' : String(semester);
+      hasGrade = !isBlankMark(record.gpa);
+      if (hasGrade && semester != null) graded.add(semester);
+    }
+
+    if (!identifier && !hasGrade && isBlankMark(record.cgpa)) continue;
+    records.push(record);
+  }
+
+  if (!records.length) throw new ApiError('The GPA table has a header but no student rows.', 400);
+  if (records.length > MAX_ROWS) {
+    throw new ApiError(`Too many rows (${records.length}). Split the file into batches of ${MAX_ROWS}.`, 400);
+  }
+
+  return {
+    meta: {
+      layout: twoLevel ? 'erp' : 'flat',
+      semesters_in_file: semestersInFile,
+      graded_semesters: [...graded].sort((a, b) => a - b),
+      ignored_semesters: ignoredSemesters,
+      has_cgpa: topColumns.cgpa != null
+    },
+    records
+  };
+}
+
+// =====================================================================
+// The ERP "Defaulter Grade" result export (backlogs)
+// =====================================================================
+/**
+ * Shape of the real export (.xls, really three HTML tables):
+ *
+ *   RESULT OF END TERM EXAMNINATION -24-25 ()
+ *   BTECH-031 : B TECH COMPUTER SCIENCE & ENGINEERING (IOT AND INTELLIGENT SYSTEM)- III SEMESTER
+ *
+ *   S.No. | Registration No | Student Name | IIS2121 | IIS2130 | MEE2001 | ... | OE
+ *   1     | 2428020003      | ...          |         |         | F       | ... |
+ *
+ *   S.No. | Subject Code  | Subject Description                    | Credit
+ *   1     | IIS2121       | OBJECT-ORIENTED PROGRAMMING USING JAVA | 4.00
+ *   11    | OPEN ELECTIVE | OPEN ELECTIVE                          | 3.00
+ *
+ * One column per subject and one row per student who failed something,
+ * with the grade (F, UFM, DT ...) where they did. The semester and the
+ * exam come from the title lines, subject names and credits from the
+ * table underneath. "OE" is matched to "OPEN ELECTIVE" by its initials,
+ * which is how the export abbreviates it.
+ *
+ * Every subject column is sent as p_subject_codes, which is what lets the
+ * database clear a backlog that this list no longer marks.
+ *
+ * A hand-made list (Registration No | Subject Code | Subject Name |
+ * Cleared) still works and goes to the database one subject per row.
+ */
+const NOT_SUBJECT_COLUMNS = [
+  's no', 'sno', 's/no', 'sr no', 'sl no', 'serial no', 'serial number', '#',
+  'name', 'student name', 'name of student', 'name of the student',
+  'section', 'sec', 'branch', 'program', 'programme', 'semester', 'sem',
+  'remarks', 'remark', 'result', 'total', 'sgpa', 'cgpa', 'gpa', 'email', 'mobile', 'mobile no',
+  "father's name", 'father name', 'roll no', 'roll number'
+];
+
+const BACKLOG_LIST_COLUMNS = {
+  identifier: REGISTRATION_ALIASES,
+  name: ['name', 'student name'],
+  subject_code: ['subject code', 'course code', 'paper code', 'backlog code', 'code'],
+  subject_name: ['subject', 'subject name', 'course name', 'paper name', 'subject description'],
+  grade: ['grade', 'grade obtained'],
+  credits: ['credit', 'credits'],
+  is_cleared: ['cleared', 'is cleared', 'status', 'result']
+};
+
+function semesterFromTitle(lines) {
+  for (const line of lines) {
+    const match =
+      /\b([IVX]+|\d{1,2})(?:st|nd|rd|th)?\s*SEM(?:ESTER)?\b/i.exec(line) ||
+      /\bSEM(?:ESTER)?\s*[-:.]?\s*([IVX]+|\d{1,2})\b/i.exec(line);
+    const number = match ? numberFromToken(match[1]) : null;
+    if (number >= 1 && number <= 8) return number;
+  }
+  return null;
+}
+
+/** "RESULT OF END TERM EXAMNINATION -24-25 ()" -> "END TERM EXAMNINATION 24-25". */
+function examFromTitle(lines) {
+  const tidy = (text) =>
+    text
+      .replace(/\s*-\s*(\d{2,4}\s*-\s*\d{2,4})\s*$/, ' $1')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 60) || null;
+  for (const line of lines) {
+    const match = /RESULT\s+OF\s+(.+?)\s*(?:\(|$)/i.exec(line);
+    if (match) return tidy(match[1]);
+  }
+  const exam = lines.find((line) => /EXAM/i.test(line));
+  return exam ? tidy(exam) : null;
+}
+
+/** The programme line minus its "- III SEMESTER" tail. For display only. */
+function programmeFromTitle(lines) {
+  for (const line of lines) {
+    if (/RESULT\s+OF/i.test(line)) continue;
+    const match = /^(.*?)[\s\-–:]*\b(?:[IVX]+|\d{1,2})(?:st|nd|rd|th)?\s*SEM(?:ESTER)?\b/i.exec(line);
+    if (match && match[1].trim()) return match[1].replace(/[\s\-–:]+$/, '').trim();
+  }
+  return null;
+}
+
+const initialsOf = (text) =>
+  String(text ?? '')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase();
+
+export async function parseBacklogExport(buffer, filename) {
+  const rows = await readSheetGrid(buffer, filename);
+  if (!rows.length) throw new ApiError('That backlog file appears to be empty.', 400);
+
+  let headerIndex = -1;
+  for (let r = 0; r < Math.min(rows.length, 40); r += 1) {
+    if (rows[r].some(isRegistrationHeader)) {
+      headerIndex = r;
+      break;
+    }
+  }
+  if (headerIndex === -1) {
+    throw new ApiError('Could not find the student table. The file needs a "Registration No" column.', 400);
+  }
+
+  // The title lines above the table. Merged cells repeat their text, so
+  // each line is taken once.
+  const titleLines = [
+    ...new Set(
+      rows
+        .slice(0, headerIndex)
+        .flat()
+        .flatMap((cell) => String(cell ?? '').split('\n'))
+        .map((line) => line.trim())
+        .filter(Boolean)
+    )
+  ];
+  const title = {
+    semester: semesterFromTitle(titleLines),
+    exam_session: examFromTitle(titleLines),
+    programme: programmeFromTitle(titleLines)
+  };
+
+  const header = rows[headerIndex];
+  const listColumns = Object.create(null);
+  header.forEach((cell, c) => {
+    const field = matchColumn(cell, BACKLOG_LIST_COLUMNS);
+    if (field && listColumns[field] == null) listColumns[field] = c;
+  });
+
+  // ── A hand-made list: one subject per row ─────────────────────────
+  if (listColumns.subject_code != null) {
+    const records = [];
+    for (let r = headerIndex + 1; r < rows.length; r += 1) {
+      const row = rows[r];
+      const identifier = cellAt(row, listColumns.identifier).replace(/\s+/g, '');
+      const subjectCode = cellAt(row, listColumns.subject_code);
+      if (isRegistrationHeader(identifier) || (!identifier && !subjectCode)) continue;
+      records.push({
+        row: r + 1,
+        identifier,
+        subject_code: subjectCode,
+        subject_name: cellAt(row, listColumns.subject_name),
+        grade: cellAt(row, listColumns.grade),
+        credits: cellAt(row, listColumns.credits),
+        // No Cleared column means "say nothing", not "not cleared" (B6).
+        is_cleared: cellAt(row, listColumns.is_cleared)
+      });
+    }
+    if (!records.length) throw new ApiError('No usable data rows were found in that file.', 400);
+    if (records.length > MAX_ROWS) {
+      throw new ApiError(`Too many rows (${records.length}). Split the file into batches of ${MAX_ROWS}.`, 400);
+    }
+    return { meta: { ...title, layout: 'list', subject_codes: null, subjects: [] }, records };
+  }
+
+  // ── The ERP layout: one column per subject ────────────────────────
+  const idColumn = header.findIndex(isRegistrationHeader);
+  const nameColumn = header.findIndex((cell) => ['name', 'student name', 'name of student'].includes(cleanHeader(cell)));
+  const subjectColumns = [];
+  header.forEach((cell, c) => {
+    const text = String(cell ?? '').replace(/\s+/g, ' ').trim();
+    if (!text || c === idColumn || c === nameColumn) return;
+    if (NOT_SUBJECT_COLUMNS.includes(cleanHeader(text)) || isRegistrationHeader(text)) return;
+    subjectColumns.push({ c, code: text.toUpperCase() });
+  });
+  if (!subjectColumns.length) {
+    throw new ApiError(
+      'No subject columns found. After Registration No and Student Name the file should have one column per subject code.',
+      400
+    );
+  }
+
+  // The Subject Code / Description / Credit table under the students.
+  let creditHeader = -1;
+  for (let r = headerIndex + 1; r < rows.length; r += 1) {
+    const cleaned = rows[r].map(cleanHeader);
+    if (
+      cleaned.includes('subject code') &&
+      cleaned.some((cell) => ['subject description', 'subject name', 'description', 'credit', 'credits'].includes(cell))
+    ) {
+      creditHeader = r;
+      break;
+    }
+  }
+  const subjects = new Map();
+  if (creditHeader !== -1) {
+    const heads = rows[creditHeader].map(cleanHeader);
+    const codeAt = heads.indexOf('subject code');
+    const nameAt = heads.findIndex((cell) => ['subject description', 'subject name', 'description', 'subject'].includes(cell));
+    const creditAt = heads.findIndex((cell) => ['credit', 'credits'].includes(cell));
+    for (let r = creditHeader + 1; r < rows.length; r += 1) {
+      const code = cellAt(rows[r], codeAt).replace(/\s+/g, ' ').toUpperCase();
+      if (!code) continue;
+      subjects.set(code, {
+        name: nameAt === -1 ? '' : cellAt(rows[r], nameAt),
+        credits: creditAt === -1 ? '' : cellAt(rows[r], creditAt)
+      });
+    }
+  }
+  const describe = (code) => {
+    if (subjects.has(code)) return subjects.get(code);
+    for (const [key, value] of subjects) {
+      if (initialsOf(key) === code || initialsOf(value.name) === code) return value;
+    }
+    return { name: '', credits: '' };
+  };
+  const subjectInfo = subjectColumns.map((col) => ({ ...col, ...describe(col.code) }));
+
+  const end = creditHeader === -1 ? rows.length : creditHeader;
+  const records = [];
+  for (let r = headerIndex + 1; r < end; r += 1) {
+    const row = rows[r];
+    const identifier = cellAt(row, idColumn).replace(/\s+/g, '');
+    if (isRegistrationHeader(identifier)) continue;
+    const grades = [];
+    for (const subject of subjectInfo) {
+      const grade = cellAt(row, subject.c);
+      if (isBlankMark(grade)) continue;
+      grades.push({ subject_code: subject.code, subject_name: subject.name, credits: subject.credits, grade });
+    }
+    if (!identifier && !grades.length) continue;
+    records.push({ row: r + 1, identifier, name: cellAt(row, nameColumn), grades });
+  }
+
+  if (!records.length) throw new ApiError('The result table has a header but no student rows.', 400);
+  if (records.length > MAX_ROWS) {
+    throw new ApiError(`Too many rows (${records.length}). Split the file into batches of ${MAX_ROWS}.`, 400);
+  }
+
+  return {
+    meta: {
+      ...title,
+      layout: 'erp',
+      subject_codes: subjectInfo.map((subject) => subject.code),
+      subjects: subjectInfo.map(({ code, name, credits }) => ({ code, name, credits }))
+    },
+    records
+  };
+}
+
+// =====================================================================
+// The Proctorial Board notice (black dots)
+// =====================================================================
+/**
+ * Shape of the real notice (.docx), one table per case:
+ *
+ *   Case No: 034/Even Sem/ 2026.  The undermentioned students were involved in possession of banned items.
+ *   S/No | Regn No | Name | Date of Incidence | Block | Room No | Course/Branch | Mob No | Previous Record
+ *   1    | ...     | ...  | 10/09/26          | B7    | ...     | B Tech ECE     | ...    | 1 black dot
+ *        |         |      |                   |       |         | Sec- F1        |        |
+ *   2    | ...     | ...  |   (merged down)   | B7    | ...     | ...            | ...    | 8 black dot
+ *
+ * The case line spans the whole table. It carries the case number and,
+ * after the first full stop or comma, what the case is about; every
+ * student row below it belongs to that case until the next case line.
+ * The date of incidence is usually written once per case (merged down,
+ * or only on the first row), so a blank date takes the case's date.
+ *
+ * The same table as .xlsx or .csv works too, with the case lines between
+ * the tables or with a Case No column on every row.
+ */
+const BLACK_DOT_COLUMNS = {
+  identifier: REGISTRATION_ALIASES,
+  serial: ['s/no', 's no', 'sno', 'sr no', 'sl no', 'serial no'],
+  name: ['name', 'student name', 'name of student', 'name of the student'],
+  incident: ['date of incidence', 'date of incident', 'incident date', 'date of the incident', 'date'],
+  hostel_block: ['block', 'hostel block', 'hostel', 'block no', 'hostel/block', 'hostel / block'],
+  room_no: ['room no', 'room', 'room number'],
+  course_branch: ['course/branch', 'course / branch', 'course branch', 'course & branch', 'course', 'branch', 'program', 'programme'],
+  mobile_no: ['mob no', 'mobile no', 'mobile', 'mobile number', 'contact no', 'contact number', 'phone', 'phone no'],
+  previous_record: ['previous record', 'previous records', 'prev record', 'past record', 'previous black dots'],
+  case_number: ['case no', 'case number', 'case'],
+  case_details: ['case details', 'details', 'offence', 'offense', 'nature of offence', 'nature of offense', 'description', 'charge']
+};
+
+const oneLine = (text) =>
+  String(text ?? '')
+    .split('\n')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ');
+
+/** "034/Even Sem/ 2026. The students ..." -> { number: "034/Even Sem/2026", details: "The students ..." } */
+function splitCase(text) {
+  const flat = String(text ?? '').replace(/\s+/g, ' ').replace(/^[\s:\-–—]+/, '').trim();
+  const match = /^(.+?)(?:\s*[,;]\s+|\.\s+(?=[A-Za-z])|\s+[-–—]\s+|\s+(?=the\b))(.*)$/i.exec(flat);
+  const number = (match ? match[1] : flat).replace(/\s*\/\s*/g, '/').replace(/[.,;:\s]+$/, '').trim();
+  const details = (match ? match[2] : '').replace(/^[\s,.;:\-–—]+/, '').trim();
+  return { number, details };
+}
+
+/** A "Case No: ..." line, or null. A bare "Case details" heading is not one. */
+function parseCaseLine(text) {
+  const flat = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const match =
+    /^case\s*(?:no\.?|number|#)?\s*[:\-–—]+\s*(.+)$/i.exec(flat) ||
+    /^case\s*(?:no\.?|number|#)\s+(.+)$/i.exec(flat);
+  if (!match) return null;
+  const parsed = splitCase(match[1]);
+  return parsed.number ? parsed : null;
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+function isoDate(year, month, day) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * A complete date in the notice -> "YYYY-MM-DD". Day first, as the notices
+ * write it: "10/09/26" is 10 September 2026. "14TH August" has no year and
+ * gives null; the text itself is still kept.
+ */
+export function parseNoticeDate(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return null;
+  let match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (match) return isoDate(Number(match[1]), Number(match[2]), Number(match[3]));
+  match = /(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})\b/.exec(value);
+  if (match) {
+    const year = match[3].length === 2 ? 2000 + Number(match[3]) : Number(match[3]);
+    return isoDate(year, Number(match[2]), Number(match[1]));
+  }
+  match = /(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,})\.?,?\s+(\d{4})/i.exec(value);
+  if (match) {
+    const month = MONTHS.indexOf(match[2].slice(0, 3).toLowerCase()) + 1;
+    if (month) return isoDate(Number(match[3]), month, Number(match[1]));
+  }
+  match = /([a-z]{3,})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i.exec(value);
+  if (match) {
+    const month = MONTHS.indexOf(match[1].slice(0, 3).toLowerCase()) + 1;
+    if (month) return isoDate(Number(match[3]), month, Number(match[2]));
+  }
+  return null;
+}
+
+export async function parseBlackDotNotice(buffer, filename) {
+  const rows = await readSheetGrid(buffer, filename, { allowDocx: true });
+  if (!rows.length) throw new ApiError('That notice appears to be empty.', 400);
+
+  let columns = null;
+  let currentCase = null;
+  const caseDates = new Map();
+  const cases = new Map();
+  const records = [];
+
+  for (let r = 0; r < rows.length; r += 1) {
+    const row = rows[r];
+
+    // A header row: the registration number plus at least one other
+    // column the notice has. Each case's table repeats it.
+    if (row.some(isRegistrationHeader)) {
+      const mapped = Object.create(null);
+      row.forEach((cell, c) => {
+        const field = matchColumn(cell, BLACK_DOT_COLUMNS);
+        if (field && mapped[field] == null) mapped[field] = c;
+      });
+      if (Object.keys(mapped).length >= 2) {
+        columns = mapped;
+        continue;
+      }
+    }
+
+    // One piece of text across the whole row is a merged cell: the case
+    // line, or a note between tables that is not about any one student.
+    const filled = row.map((cell) => String(cell ?? '').trim()).filter(Boolean);
+    const distinct = [...new Set(filled)];
+    if (distinct.length === 1) {
+      const parsed = parseCaseLine(distinct[0]);
+      if (parsed) {
+        currentCase = parsed;
+        continue;
+      }
+      if (filled.length > 1) continue;
+    }
+
+    if (!columns) continue;
+
+    const get = (field) => cellAt(row, columns[field]);
+    const identifier = get('identifier').replace(/\s+/g, '');
+    const fields = {
+      name: oneLine(get('name')),
+      incident: oneLine(get('incident')),
+      hostel_block: oneLine(get('hostel_block')),
+      room_no: oneLine(get('room_no')),
+      // "B Tech ECE" / "Sec- F1" on two lines of one cell.
+      course_branch: get('course_branch').split('\n').map((part) => part.trim()).filter(Boolean).join(', '),
+      mobile_no: oneLine(get('mobile_no')),
+      previous_record: oneLine(get('previous_record'))
+    };
+    const columnCase = oneLine(get('case_number'));
+    if (!identifier && !columnCase && !Object.values(fields).some(Boolean)) continue;
+
+    // A Case No column wins over the case line above the table.
+    let caseNumber;
+    let caseDetails;
+    if (columnCase) {
+      const parsed = parseCaseLine(columnCase) ?? splitCase(columnCase);
+      caseNumber = parsed.number;
+      caseDetails = oneLine(get('case_details')) || parsed.details;
+    } else {
+      caseNumber = currentCase?.number ?? '';
+      caseDetails = oneLine(get('case_details')) || currentCase?.details || '';
+    }
+
+    const caseKey = caseNumber.toLowerCase();
+    let incidentText = fields.incident;
+    if (incidentText && caseKey) caseDates.set(caseKey, incidentText);
+    else if (!incidentText && caseKey) incidentText = caseDates.get(caseKey) ?? '';
+
+    const serial = oneLine(get('serial'));
+    records.push({
+      row: r + 1,
+      // Word tables have no row numbers, so errors point at the case and S/No.
+      where: [caseNumber && `Case ${caseNumber}`, serial && `S/No ${serial}`].filter(Boolean).join(' · '),
+      identifier,
+      name: fields.name,
+      case_number: caseNumber,
+      case_details: caseDetails,
+      incident_date: parseNoticeDate(incidentText) ?? '',
+      incident_date_text: incidentText,
+      hostel_block: fields.hostel_block,
+      room_no: fields.room_no,
+      course_branch: fields.course_branch,
+      mobile_no: fields.mobile_no,
+      previous_record: fields.previous_record
+    });
+
+    if (caseKey) {
+      const entry = cases.get(caseKey) ?? { case_number: caseNumber, case_details: caseDetails, students: 0 };
+      entry.students += 1;
+      cases.set(caseKey, entry);
+    }
+  }
+
+  if (!columns) {
+    throw new ApiError(
+      'Could not find the student table in the notice. It needs a header row with "Regn No" (or "Registration No") and columns such as Name and Date of Incidence.',
+      400
+    );
+  }
+  if (!records.length) throw new ApiError('The notice has a table header but no student rows.', 400);
+  if (records.length > MAX_ROWS) {
+    throw new ApiError(`Too many rows (${records.length}). Split the file into batches of ${MAX_ROWS}.`, 400);
+  }
+
+  return { meta: { cases: [...cases.values()] }, records };
 }

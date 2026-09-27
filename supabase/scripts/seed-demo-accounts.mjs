@@ -4,9 +4,9 @@
  * ---------------------------------------------------------------------
  * Creates the demo accounts (1 HOD, 3 faculty, 4 students, 2 cluster
  * heads), assigns mentors, raises a few sample queries, and loads the
- * Cluster Head sample data so every dashboard — including the At-Risk
- * Students page and the survey tracking — has something in it on first
- * login.
+ * Cluster Head sample data (attendance, GPA, backlogs and black dots) so
+ * every dashboard — including the At-Risk Students page and the survey
+ * tracking — has something in it on first login.
  *
  * Safe to run more than once — existing accounts are reused, not
  * duplicated, and every data load is an upsert.
@@ -34,11 +34,13 @@ import {
   SAMPLE_CLUSTER_HEAD_COURSES,
   SAMPLE_CLUSTER_HEAD_2_COURSES,
   SAMPLE_ATTENDANCE,
-  SAMPLE_GPA,
-  SAMPLE_GPA_PREVIOUS,
-  SAMPLE_BACKLOGS,
+  SAMPLE_BACKLOG_RESULTS,
+  SAMPLE_BLACK_DOT_NOTICE,
   SAMPLE_SURVEY_RESPONSES,
-  sampleAttendancePeriod
+  sampleAttendancePeriod,
+  sampleBacklogRpcArgs,
+  sampleBlackDotRpcRows,
+  sampleGpaRpcRows
 } from '../../sample-data/cluster-head-sample-data.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -258,7 +260,8 @@ async function main() {
   }
   console.log('');
   console.log('At-risk demo: John Doe (attendance), Jane Smith (GPA), Mike Davis (backlog).');
-  console.log('Emily Wilson is deliberately NOT flagged.');
+  console.log('Emily Wilson cleared her backlog at the make-up, so she is deliberately NOT flagged.');
+  console.log('John Doe and Jane Smith each have a black dot on their student record.');
   console.log('Fire the 15-day jobs by hand from the HOD portal -> Scheduled Jobs.\n');
 }
 
@@ -340,27 +343,40 @@ async function seedClusterHeadData(idByEmail) {
     console.log(`  ${block.course_code} section ${block.section}: ${data.matched} recorded, ${data.failed} failed`);
   }
 
-  console.log('\nUploading sample GPA');
-  for (const dataset of [SAMPLE_GPA_PREVIOUS, SAMPLE_GPA]) {
+  console.log('\nUploading sample GPA (CGPA / GPA & Credits export)');
+  {
     const { data, error } = await db.rpc('record_gpa_batch', {
-      p_semester_number: dataset.semester_number,
-      p_filename: `gpa-semester-${dataset.semester_number}-sample.csv`,
-      p_rows: dataset.rows
+      p_semester_number: null,
+      p_filename: 'gpa-cgpa-credits-sample.xls',
+      p_rows: sampleGpaRpcRows()
     });
     if (error) throw error;
-    console.log(`  Semester ${dataset.semester_number}: ${data.matched} recorded, ${data.failed} failed`);
+    console.log(
+      `  Semesters ${(data.semesters ?? []).join(', ')}: ${data.matched} student(s), ` +
+        `${data.cgpa_recorded} CGPA, ${data.failed} failed`
+    );
   }
 
-  console.log('\nUploading sample backlogs');
+  // In order: the end-term defaulter list, then the make-up one, which no
+  // longer lists Emily and so clears her backlog.
+  console.log('\nUploading sample backlogs (Defaulter Grade results)');
+  for (const result of SAMPLE_BACKLOG_RESULTS) {
+    const { data, error } = await db.rpc('record_backlog_batch', sampleBacklogRpcArgs(result));
+    if (error) throw error;
+    console.log(
+      `  ${result.exam_session}: ${data.backlogs_recorded} open, ${data.backlogs_cleared} cleared, ${data.failed} failed`
+    );
+  }
+
+  console.log('\nUploading the sample black dot notice');
   {
-    const { data, error } = await db.rpc('record_backlog_batch', {
-      p_semester_number: SAMPLE_BACKLOGS.semester_number,
-      p_exam_session: SAMPLE_BACKLOGS.exam_session,
-      p_filename: 'backlogs-semester-2-sample.csv',
-      p_rows: SAMPLE_BACKLOGS.rows
+    const { data, error } = await db.rpc('record_black_dot_batch', {
+      p_filename: SAMPLE_BLACK_DOT_NOTICE.file,
+      p_rows: sampleBlackDotRpcRows()
     });
     if (error) throw error;
-    console.log(`  ${data.matched} recorded, ${data.failed} failed`);
+    // One row is a student from outside the portal, reported back on purpose.
+    console.log(`  ${data.matched} black dot(s) across ${data.cases} case(s), ${data.failed} not in the portal`);
   }
 
   // The uploads above already re-evaluated everyone they touched. Running

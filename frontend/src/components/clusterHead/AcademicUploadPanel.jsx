@@ -1,9 +1,10 @@
 /**
  * AcademicUploadPanel
- * The shared upload block behind all three Cluster Head upload screens
- * (attendance, GPA, backlogs). Each page supplies its own filters above
- * the file picker; everything below — picking a file, posting it, showing
- * what matched and what did not — is identical, so it lives here once.
+ * The shared upload block behind every Cluster Head upload screen
+ * (attendance, GPA, backlogs, black dots, rosters). Each page supplies its
+ * own filters above the file picker; everything below — picking a file,
+ * posting it, showing what matched and what did not — is identical, so it
+ * lives here once.
  *
  * NOTE ON TIMING
  * There is no date validation, no "you already uploaded this period"
@@ -17,9 +18,9 @@
  * posts the same file again from there until there is nothing left, and
  * adds the numbers up as it goes.
  *
- * Endpoints that finish in one request — attendance, GPA, backlogs, the
- * mentor mapping — simply never send a next_offset, and the loop below
- * runs once.
+ * Endpoints that finish in one request — attendance, GPA, backlogs, black
+ * dots, the mentor mapping — simply never send a next_offset, and the loop
+ * below runs once.
  */
 
 import { useState } from 'react';
@@ -28,6 +29,16 @@ import DataTable from '../ui/DataTable.jsx';
 import { FileField } from '../ui/FormControls.jsx';
 import { apiClient } from '../../lib/apiClient.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
+
+/** Tailwind needs whole class names, so the summary grid is picked from a list. */
+const TILE_GRID = {
+  1: 'sm:grid-cols-1',
+  2: 'sm:grid-cols-2',
+  3: 'sm:grid-cols-3',
+  4: 'sm:grid-cols-2 lg:grid-cols-4',
+  5: 'sm:grid-cols-3 lg:grid-cols-5',
+  6: 'sm:grid-cols-3 lg:grid-cols-6'
+};
 
 /** Reads a File into base64 without the data: prefix. */
 function fileToBase64(file) {
@@ -137,6 +148,10 @@ export default function AcademicUploadPanel({
   const errors = Array.isArray(result?.row_errors)
     ? result.row_errors
     : Array.isArray(result?.failed) ? result.failed : [];
+  const tiles = result ? summarise(result) : [];
+  // Academic uploads match students on registration number only; the
+  // roster import reports accounts by email.
+  const identifierHeader = errors.some((error) => error.email) ? 'Reg. no. / email' : 'Registration no.';
 
   return (
     <>
@@ -184,8 +199,8 @@ export default function AcademicUploadPanel({
 
       {result && (
         <Panel className="mt-4" tab="Last upload" tabIcon="task_alt">
-          <div className="grid gap-3 sm:grid-cols-4">
-            {summarise(result).map((item) => (
+          <div className={`grid gap-3 ${TILE_GRID[tiles.length] ?? TILE_GRID[4]}`}>
+            {tiles.map((item) => (
               <div key={item.label} className="rounded-xl bg-surface-container-low p-4">
                 <p className="text-headline-sm text-on-surface">{item.value}</p>
                 <p className="mt-1 text-label-sm uppercase tracking-wide text-tertiary">{item.label}</p>
@@ -195,14 +210,21 @@ export default function AcademicUploadPanel({
 
           {errors.length > 0 && (
             <div className="mt-5">
-              <p className="mb-2 text-label-md text-on-surface">Rows that could not be recorded</p>
+              <p className="mb-2 text-label-md text-on-surface">Rows that need attention</p>
               <DataTable
                 dense
                 columns={[
-                  { key: 'row', header: 'Row', align: 'right' },
+                  // A Word notice has no row numbers, so its rows say which
+                  // case and S/No they are instead.
+                  {
+                    key: 'row',
+                    header: 'Row',
+                    align: errors.some((error) => error.where) ? undefined : 'right',
+                    render: (row) => row.where || row.row
+                  },
                   {
                     key: 'identifier',
-                    header: 'Reg. no. / email',
+                    header: identifierHeader,
                     render: (row) => row.identifier || row.email || '—'
                   },
                   { key: 'reason', header: 'Reason' }

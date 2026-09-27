@@ -139,17 +139,33 @@ export const attendanceUploadSchema = z.object({
 export const gpaUploadSchema = z.object({
   action: z.literal('gpa'),
   /**
-   * Optional fallback only. The GPA export has its own Semester column and
-   * each row uses it; this is for a hand-made file that does not.
+   * Optional fallback only. The ERP's CGPA / GPA & Credits export names
+   * the semester above every GPA column; this is for a hand-made
+   * one-semester sheet with no Semester column. The portal no longer
+   * sends it.
    */
   semester_number: z.coerce.number().int().min(1).max(8).optional().nullable(),
   ...uploadFileSchema
 });
 
+/**
+ * The Defaulter Grade export names its semester and exam in its title
+ * lines, so both are optional here: they are only used when the file does
+ * not say. The file wins when it does.
+ */
 export const backlogUploadSchema = z.object({
   action: z.literal('backlog'),
-  semester_number: z.coerce.number().int().min(1).max(8),
+  semester_number: z.coerce.number().int().min(1).max(8).optional().nullable(),
   exam_session: z.string().trim().max(60).optional().nullable(),
+  ...uploadFileSchema
+});
+
+/**
+ * The Proctorial Board notice (.docx, or the same table as .xlsx/.csv).
+ * Case numbers, dates and students are all read from the file.
+ */
+export const blackDotUploadSchema = z.object({
+  action: z.literal('black-dot'),
   ...uploadFileSchema
 });
 
@@ -167,6 +183,7 @@ export const clusterHeadUploadSchema = z.discriminatedUnion('action', [
   attendanceUploadSchema,
   gpaUploadSchema,
   backlogUploadSchema,
+  blackDotUploadSchema,
   mentorMapUploadSchema
 ]);
 

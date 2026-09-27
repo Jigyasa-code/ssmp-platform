@@ -409,9 +409,11 @@ export async function buildStudentDossierPdf(report) {
   doc.y = drawStatCards(doc.page, doc.fonts, {
     x: MARGIN, y: doc.y, width: CONTENT_WIDTH, perRow: 4,
     cards: [
-      { label: 'CGPA', value: report.gpa_shared ? (gpaStats.cgpa ?? '—') : 'Hidden',
+      { label: 'CGPA', value: report.gpa_shared ? (gpaStats.cgpa != null ? Number(gpaStats.cgpa).toFixed(2) : '—') : 'Hidden',
         accent: PALETTE.primary,
-        caption: report.gpa_shared ? `${gpaStats.semesters_recorded ?? 0} semesters` : 'not shared by student' },
+        caption: !report.gpa_shared
+          ? 'not shared by student'
+          : gpaStats.cgpa_official ? 'official' : `${gpaStats.semesters_recorded ?? 0} semesters` },
       { label: 'Queries raised', value: queries.total, accent: PALETTE.secondary,
         caption: `${queries.resolved} resolved` },
       { label: 'Achievements', value: report.achievements.length, accent: PALETTE.success,
@@ -444,8 +446,12 @@ export async function buildStudentDossierPdf(report) {
       title: `GPA trend — ${gpaStats.trend === 'improving' ? 'improving' : gpaStats.trend === 'declining' ? 'needs attention' : 'trend forming'}`
     });
     doc.y -= 148;
+    // cgpa is the department's published figure when one was uploaded,
+    // otherwise the mean of the semesters recorded so far.
     doc.paragraph(
-      `CGPA ${gpaStats.cgpa} across ${gpaStats.semesters_recorded} semester(s). ` +
+      (gpaStats.cgpa_official
+        ? `CGPA ${Number(gpaStats.cgpa).toFixed(2)} (official). ${gpaStats.semesters_recorded} semester(s) recorded. `
+        : `CGPA ${Number(gpaStats.cgpa).toFixed(2)} across ${gpaStats.semesters_recorded} semester(s). `) +
       `Highest ${gpaStats.highest}, lowest ${gpaStats.lowest}.`
     );
   }

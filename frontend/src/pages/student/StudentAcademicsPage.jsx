@@ -35,6 +35,7 @@ export default function StudentAcademicsPage() {
   const { run, pending } = useAsyncAction();
 
   const [gpas, setGpas] = useState([]);
+  const [cgpaRecord, setCgpaRecord] = useState(null);
   const [attendance, setAttendance] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [loading, setLoading] = useState(true);
@@ -42,12 +43,18 @@ export default function StudentAcademicsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [gpaResult, attendanceResult] = await Promise.all([
+    const [gpaResult, cgpaResult, attendanceResult] = await Promise.all([
       supabase
         .from('student_semester_gpas')
         .select('*')
         .eq('student_id', profile.id)
         .order('semester_number'),
+      // The official CGPA, once the department has uploaded the ERP export.
+      supabase
+        .from('student_cgpas')
+        .select('cgpa, total_earned_credits, updated_at')
+        .eq('student_id', profile.id)
+        .maybeSingle(),
       // One row per course, most recent reporting period. RLS scopes it to
       // the caller; the explicit filter is only to keep the query narrow.
       supabase
@@ -58,9 +65,11 @@ export default function StudentAcademicsPage() {
     ]);
 
     if (gpaResult.error) toast.error(describeError(gpaResult.error));
+    if (cgpaResult.error) toast.error(describeError(cgpaResult.error));
     if (attendanceResult.error) toast.error(describeError(attendanceResult.error));
 
     setGpas(gpaResult.data ?? []);
+    setCgpaRecord(cgpaResult.data ?? null);
     setAttendance(attendanceResult.data ?? []);
     setDrafts(
       Object.fromEntries((gpaResult.data ?? []).map((row) => [row.semester_number, String(row.gpa)]))
@@ -137,7 +146,23 @@ export default function StudentAcademicsPage() {
           dash. The sharing toggle went with it; see the note at the top of
           this file. */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="CGPA so far" value={stats.cgpa} icon="school" tone="primary" caption={`${stats.recorded} of 8 semesters`} />
+        {/* The published CGPA is credit-weighted, so once the department has
+            uploaded it, it replaces the plain average of the semesters. */}
+        {cgpaRecord ? (
+          <StatCard
+            label="CGPA"
+            value={Number(cgpaRecord.cgpa).toFixed(2)}
+            icon="school"
+            tone="primary"
+            caption={
+              cgpaRecord.total_earned_credits != null
+                ? `Published by the department · ${Number(cgpaRecord.total_earned_credits)} credits earned`
+                : 'Published by the department'
+            }
+          />
+        ) : (
+          <StatCard label="CGPA so far" value={stats.cgpa} icon="school" tone="primary" caption={`${stats.recorded} of 8 semesters`} />
+        )}
         <StatCard label="Highest semester" value={stats.highest} icon="trending_up" tone="success" />
         <StatCard label="Lowest semester" value={stats.lowest} icon="trending_down" tone="warning" />
         <StatCard

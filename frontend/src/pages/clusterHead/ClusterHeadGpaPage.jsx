@@ -1,68 +1,104 @@
 /**
  * ClusterHeadGpaPage
- * The six-monthly GPA upload. A figure uploaded here is the departmental
- * record: it overwrites whatever the student self-reported for that
- * semester, and from then on the student can no longer edit it (see
- * upsert_semester_gpa in migration 0021). That matters because GPA below 6
- * is one of the three at-risk conditions — a student should not be able to
- * edit away the reason they were flagged.
+ * The ERP's "Student's CGPA / GPA & Credits" export goes in as it is. It
+ * carries every semester the batch has finished, so one upload records all
+ * of them, along with the official CGPA and the credits.
+ *
+ * NOTHING TO CHOOSE
+ * Which semester a GPA belongs to is written above its column in the
+ * export ("Semester I", "Semester II" ...). A semester showing "-" has not
+ * been graded yet and is skipped, so the semester in progress never lands
+ * as a zero.
+ *
+ * A figure uploaded here is the departmental record: it overwrites whatever
+ * the student self-reported for that semester, and from then on the
+ * student can no longer edit it (see upsert_semester_gpa in migration
+ * 0021). That matters because GPA below 6 is one of the three at-risk
+ * conditions — a student should not be able to edit away the reason they
+ * were flagged.
  */
 
 import { useState } from 'react';
 import PortalShell from '../../components/layout/PortalShell.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
-import { SelectField } from '../../components/ui/FormControls.jsx';
 import AcademicUploadPanel from '../../components/clusterHead/AcademicUploadPanel.jsx';
-import { SEMESTER_OPTIONS } from '../../lib/constants.js';
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
+const semesterList = (numbers) => (numbers?.length ? numbers.map((n) => ROMAN[n] ?? n).join(', ') : null);
 
 export default function ClusterHeadGpaPage() {
-  const [semester, setSemester] = useState('');
+  const [lastUpload, setLastUpload] = useState(null);
+  const meta = lastUpload?.file_meta;
+  const notGraded = (meta?.semesters_in_file ?? []).filter((n) => !(meta?.graded_semesters ?? []).includes(n));
 
   return (
     <PortalShell>
       <PageHeader
         title="Upload GPA"
-        subtitle="Semester GPA for the students in your cluster, matched on registration number. Usually done twice a year, but there is no restriction on when you upload."
+        subtitle="Drop in the ERP's CGPA / GPA & Credits export. Every graded semester, the CGPA and the credits are read from the file and matched on registration number."
       />
 
-      {/* The GPA export has its own Semester column ("4th Semester") and
-          each row uses it. This dropdown is only a fallback for a
-          hand-made file that has no such column, so it is optional. */}
-      <Panel className="mb-4" tab="Semester (only if the file has no Semester column)" tabIcon="tune">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <SelectField
-            label="Fallback semester"
-            name="semester"
-            placeholder="Read it from the file"
-            options={SEMESTER_OPTIONS}
-            value={semester}
-            onChange={(event) => setSemester(event.target.value)}
-            hint="Leave this alone if your file has a Semester column"
-          />
-        </div>
-      </Panel>
-
       <AcademicUploadPanel
-        title="GPA file"
+        title="CGPA / GPA & Credits export"
         tabIcon="grade"
-        hint="CSV or XLSX. Columns: Reg No, GPA, and Semester. Values must be between 0 and 10."
+        hint="The ERP export (.xls, as downloaded), or the same layout saved as .xlsx or .csv: Registration No., CGPA and credits, then GPA / Earned Credits / Req Credits under each Semester heading."
+        accept=".xls,.xlsx,.csv"
+        placeholder="Choose the GPA export (.xls, .xlsx or .csv)"
         submitLabel="Upload GPA"
+        summarise={(data) => [
+          { label: 'Students in file', value: data.total_rows ?? 0 },
+          { label: 'Recorded', value: data.matched ?? 0 },
+          { label: 'Not recorded', value: data.failed ?? 0 },
+          { label: 'Semester GPAs', value: data.semester_gpas_recorded ?? 0 },
+          { label: 'Students re-checked', value: data.students_reevaluated ?? 0 }
+        ]}
         buildPayload={({ filename, file_base64 }) => ({
           action: 'gpa',
-          semester_number: semester ? Number(semester) : null,
           filename,
           file_base64
         })}
+        onUploaded={setLastUpload}
       />
 
+      {meta && (
+        <Panel className="mt-4" tab="Read from the file" tabIcon="description">
+          <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              ['Semesters in the file', semesterList(meta.semesters_in_file) ?? '—'],
+              ['Recorded', semesterList(meta.graded_semesters) ?? 'None graded yet'],
+              ['Not graded yet', semesterList(notGraded) ?? '—'],
+              ['CGPA', meta.has_cgpa ? `${lastUpload.cgpa_recorded ?? 0} recorded` : 'Not in this file']
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-label-sm uppercase tracking-wide text-tertiary">{label}</dt>
+                <dd className="mt-0.5 break-anywhere text-body-sm text-on-surface">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          {meta.ignored_semesters?.length > 0 && (
+            <p className="mt-4 rounded-lg bg-warning-container/40 px-4 py-3 text-body-sm text-on-surface-variant">
+              Semester {meta.ignored_semesters.join(', ')} columns were not recorded: the portal keeps
+              semesters 1 to 8.
+            </p>
+          )}
+        </Panel>
+      )}
+
       <Panel className="mt-4" tab="What happens next" tabIcon="info">
-        <p className="text-body-sm text-on-surface-variant">
-          Each student you upload is immediately re-checked against the at-risk rule — attendance below
-          75%, GPA below 6, or any backlog on record. Anyone newly flagged has a meeting raised with
-          their mentor as the organiser, and the mentor is notified. Uploading a corrected figure that
-          clears the condition removes the flag just as quickly.
-        </p>
+        <div className="space-y-2 text-body-sm text-on-surface-variant">
+          <p>
+            Each student in the file is re-checked against the at-risk rule straight away: attendance below
+            75%, a GPA below 6 in their latest graded semester, or an uncleared backlog. A newly flagged
+            student appears on their mentor&apos;s At-Risk Students page and the mentor is notified; the
+            follow-up meeting is raised by the next at-risk meeting run. A corrected upload that clears the
+            condition lifts the flag just as quickly.
+          </p>
+          <p>
+            Uploading the export again is safe. Each student&apos;s semesters are updated in place and their
+            CGPA is replaced with the one in the file.
+          </p>
+        </div>
       </Panel>
     </PortalShell>
   );

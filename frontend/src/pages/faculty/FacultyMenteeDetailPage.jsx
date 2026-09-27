@@ -1,8 +1,9 @@
 /**
  * Mentee detail — everything a mentor needs about one student in one
- * place: Form A (Feature 1), GPA if shared (Feature 2), achievements with
- * verification (Feature 6), star toggle (Feature 7) and the full query
- * history, plus a one-click PDF (Feature 5).
+ * place: Form A (Feature 1), GPA if shared (Feature 2), backlogs and black
+ * dots from the Cluster Head's uploads, achievements with verification
+ * (Feature 6), star toggle (Feature 7) and the full query history, plus a
+ * one-click PDF (Feature 5). The HOD's student page is this same screen.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -117,6 +118,17 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
 
   const { student, form_a: formA, query_summary: queries, gpa_stats: gpaStats } = dossier;
   const backPath = isHodView ? '/hod/students' : '/faculty/mentees';
+  const backlogs = dossier.backlogs ?? [];
+  const openBacklogs = backlogs.filter((backlog) => !backlog.is_cleared);
+  const blackDots = dossier.black_dots ?? [];
+
+  // The official CGPA from the ERP export when one has been uploaded; the
+  // plain mean of the semester GPAs is only a stand-in until then.
+  const cgpaCaption = !dossier.gpa_shared
+    ? 'student has hidden GPA'
+    : gpaStats?.cgpa_official
+      ? `Official${gpaStats.total_earned_credits != null ? ` · ${Number(gpaStats.total_earned_credits)} credits earned` : ''}`
+      : `Average of ${gpaStats?.semesters_recorded ?? 0} semesters`;
 
   const gpaChart = (dossier.semester_gpas ?? []).map((g) => ({
     name: `Sem ${g.semester}`,
@@ -163,10 +175,10 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="CGPA"
-          value={dossier.gpa_shared ? (gpaStats?.cgpa ?? '—') : 'Not shared'}
+          value={dossier.gpa_shared ? (gpaStats?.cgpa != null ? Number(gpaStats.cgpa).toFixed(2) : '—') : 'Not shared'}
           icon="school"
           tone={dossier.gpa_shared ? 'primary' : 'slate'}
-          caption={dossier.gpa_shared ? `${gpaStats?.semesters_recorded ?? 0} semesters recorded` : 'student has hidden GPA'}
+          caption={cgpaCaption}
         />
         <StatCard label="Queries raised" value={queries.total} icon="confirmation_number" tone="secondary"
           caption={`${queries.resolved} resolved`} />
@@ -195,6 +207,96 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
 
         <Panel tab="Query mix" tabIcon="donut_small">
           <DonutChart data={categoryChart} centerLabel="queries" height={260} />
+        </Panel>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-5">
+        <Panel
+          tab={`Backlogs (${openBacklogs.length} open)`}
+          tabIcon="assignment_late"
+          className="lg:col-span-3"
+          bodyClassName=""
+        >
+          <DataTable
+            dense
+            columns={[
+              {
+                key: 'subject_code',
+                header: 'Subject',
+                render: (row) => (
+                  <span className="block min-w-[10rem]">
+                    <span className="block text-label-md text-on-surface">{row.subject_code}</span>
+                    {row.subject_name && <span className="block text-label-sm text-tertiary">{row.subject_name}</span>}
+                  </span>
+                )
+              },
+              { key: 'semester', header: 'Sem', align: 'center', render: (row) => row.semester ?? '—' },
+              { key: 'grade', header: 'Grade', align: 'center', render: (row) => row.grade ?? '—' },
+              {
+                key: 'is_cleared',
+                header: 'Status',
+                render: (row) =>
+                  row.is_cleared ? (
+                    <span className="block">
+                      <span className="chip bg-success-container text-on-success-container">Cleared</span>
+                      {row.cleared_at && (
+                        <span className="mt-0.5 block whitespace-nowrap text-label-sm text-tertiary">
+                          {formatDate(row.cleared_at)}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="chip bg-error-container text-on-error-container">Open</span>
+                  )
+              },
+              { key: 'exam_session', header: 'Exam', render: (row) => row.exam_session ?? '—' }
+            ]}
+            rows={backlogs}
+            rowKey={(row) => `${row.semester}-${row.subject_code}`}
+            emptyState={
+              <EmptyState
+                icon="task_alt"
+                title="No backlogs on record"
+                description="No Defaulter Grade result uploaded so far lists this student."
+              />
+            }
+          />
+        </Panel>
+
+        <Panel tab={`Black dots (${blackDots.length})`} tabIcon="gavel" className="lg:col-span-2" bodyClassName="">
+          {blackDots.length === 0 ? (
+            <EmptyState
+              icon="verified_user"
+              title="No black dots"
+              description="No Proctorial Board notice uploaded so far lists this student."
+            />
+          ) : (
+            <ul className="divide-y divide-surface-container">
+              {blackDots.map((dot) => (
+                <li key={dot.case_number} className="px-4 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-label-md text-on-surface">Case {dot.case_number}</span>
+                    <span className="text-label-sm text-tertiary">
+                      {dot.incident_date ? formatDate(dot.incident_date) : dot.incident_date_text || 'Date not given'}
+                    </span>
+                  </div>
+                  {dot.case_details && (
+                    <p className="mt-1 break-anywhere text-body-sm text-on-surface-variant">{dot.case_details}</p>
+                  )}
+                  <p className="mt-1 break-anywhere text-label-sm text-tertiary">
+                    {[
+                      dot.hostel_block,
+                      dot.room_no && `Room ${dot.room_no}`,
+                      dot.course_branch,
+                      dot.previous_record && `Previous record: ${dot.previous_record}`
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
         </Panel>
       </div>
 

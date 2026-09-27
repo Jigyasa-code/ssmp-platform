@@ -113,7 +113,8 @@ export const SEMESTER_OPTIONS = Array.from({ length: 8 }, (_, index) => ({
 export const ACADEMIC_UPLOAD_LABELS = {
   attendance: 'Attendance',
   gpa: 'GPA',
-  backlog: 'Backlogs'
+  backlog: 'Backlogs',
+  black_dot: 'Black dots'
 };
 
 /**
@@ -274,6 +275,7 @@ export const NAVIGATION = {
     { to: '/cluster-head/attendance', label: 'Upload Attendance', icon: 'fact_check' },
     { to: '/cluster-head/gpa', label: 'Upload GPA', icon: 'grade' },
     { to: '/cluster-head/backlogs', label: 'Upload Backlogs', icon: 'assignment_late' },
+    { to: '/cluster-head/black-dots', label: 'Upload Black dot', icon: 'gavel' },
     { to: '/cluster-head/courses', label: 'My Subjects', icon: 'menu_book' },
     { to: '/cluster-head/rosters', label: 'Rosters & Mentors', icon: 'group_add' },
     { to: '/cluster-head/profile', label: 'My Profile', icon: 'account_circle' }

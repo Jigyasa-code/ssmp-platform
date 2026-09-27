@@ -155,7 +155,7 @@ export default function AddAccountModal({ open, onClose, onCreated }) {
 
         {form.role === 'cluster_head' && (
           <p className="rounded-lg bg-primary-fixed/50 px-4 py-3 text-body-sm text-on-surface-variant">
-            A Cluster Head can only upload attendance, GPA and backlog data. They get no access to
+            A Cluster Head can only upload attendance, GPA, backlog and black dot data. They get no access to
             queries or student profiles. On first sign-in they are asked which subjects they handle.
           </p>
         )}

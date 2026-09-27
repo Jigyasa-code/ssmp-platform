@@ -60,6 +60,7 @@ const ClusterHeadDashboardPage = lazy(() => import('../pages/clusterHead/Cluster
 const ClusterHeadAttendancePage = lazy(() => import('../pages/clusterHead/ClusterHeadAttendancePage.jsx'));
 const ClusterHeadGpaPage = lazy(() => import('../pages/clusterHead/ClusterHeadGpaPage.jsx'));
 const ClusterHeadBacklogPage = lazy(() => import('../pages/clusterHead/ClusterHeadBacklogPage.jsx'));
+const ClusterHeadBlackDotPage = lazy(() => import('../pages/clusterHead/ClusterHeadBlackDotPage.jsx'));
 const ClusterHeadCoursesPage = lazy(() => import('../pages/clusterHead/ClusterHeadCoursesPage.jsx'));
 const ClusterHeadProfilePage = lazy(() => import('../pages/clusterHead/ClusterHeadProfilePage.jsx'));
 const ClusterHeadRosterPage = lazy(() => import('../pages/clusterHead/ClusterHeadRosterPage.jsx'));
@@ -288,6 +289,14 @@ export default function AppRouter() {
           element={
             <Protected role="cluster_head">
               <RequireClusterHeadSetup><ClusterHeadBacklogPage /></RequireClusterHeadSetup>
+            </Protected>
+          }
+        />
+        <Route
+          path="/cluster-head/black-dots"
+          element={
+            <Protected role="cluster_head">
+              <RequireClusterHeadSetup><ClusterHeadBlackDotPage /></RequireClusterHeadSetup>
             </Protected>
           }
         />

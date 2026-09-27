@@ -1,17 +1,25 @@
 /**
  * POST /api/cluster-head/upload-academic-data
  *
- * The Cluster Head's write path. One file rather than four because of the
+ * The Cluster Head's write path. One file rather than five because of the
  * Vercel function budget (§11.6) — the `action` field selects which kind
  * of upload this is:
  *
  *   { action: 'attendance', filename, file_base64 }
  *   { action: 'gpa',        semester_number?, filename, file_base64 }
- *   { action: 'backlog',    semester_number, exam_session?, filename, file_base64 }
+ *   { action: 'backlog',    semester_number?, exam_session?, filename, file_base64 }
+ *   { action: 'black-dot',  filename, file_base64 }
  *   { action: 'mentor-map', filename, file_base64 }
  *
- * Attendance takes nothing but the file: the course code, course name,
- * reporting window and every section are read out of the export itself.
+ * Every one of them takes the file as the ERP (or the Proctorial Board)
+ * produces it. Attendance reads its course, dates and sections from the
+ * export; GPA reads every semester column of the CGPA / GPA & Credits
+ * export; backlogs read the semester and exam from the Defaulter Grade
+ * title lines; black dots read case numbers from the notice. The two
+ * optional backlog fields are fallbacks for a file that does not say.
+ *
+ * Students are matched on registration number only, in the database
+ * (resolve_student_ids, migration 0035).
  *
  * NO DATE GATE
  * ---------------------------------------------------------------------
@@ -24,9 +32,9 @@
  * WHY THE WORK HAPPENS IN THE DATABASE
  * ---------------------------------------------------------------------
  * This endpoint parses the spreadsheet and then hands the rows to
- * record_attendance_batch / record_gpa_batch / record_backlog_batch via
- * context.asUser — the caller's own token, so RLS and the function's own
- * authorization check both apply. The service_role client is used for
+ * record_attendance_batch / record_gpa_batch / record_backlog_batch /
+ * record_black_dot_batch via context.asUser — the caller's own token, so
+ * RLS and the function's own authorization check both apply. The service_role client is used for
  * nothing but the audit entry. Matching a row to a student, writing it,
  * recording the batch and re-evaluating risk are one transaction in
  * Postgres rather than a sequence of API calls that could half-fail.
@@ -48,8 +56,10 @@ import {
 import { env } from '../_lib/environment.js';
 import { runPool } from '../_lib/concurrency.js';
 import {
-  parseAcademicDataFile,
   parseAttendanceExport,
+  parseBacklogExport,
+  parseBlackDotNotice,
+  parseGpaExport,
   parseMentorMappingFile
 } from '../_lib/spreadsheet-parser.js';
 
@@ -156,6 +166,9 @@ export default withApiDefaults(['POST'], async (req, res) => {
   let rows;
   let rpcName;
   let rpcArgs;
+  // What the parser read out of the file itself (semesters, exam, cases),
+  // echoed back so the Cluster Head can confirm it was the file they meant.
+  let fileMeta = null;
   let mentors = { created: 0, errors: [] };
 
   if (body.action === 'attendance') {
@@ -183,22 +196,44 @@ export default withApiDefaults(['POST'], async (req, res) => {
     rpcName = 'map_students_to_mentors';
     rpcArgs = { p_rows: rows };
   } else if (body.action === 'gpa') {
-    rows = await parseAcademicDataFile(buffer, body.filename, 'gpa');
+    // Every graded semester in the file, with credits, plus the official
+    // CGPA. The semester of each GPA comes from the header above it.
+    const { meta, records } = await parseGpaExport(buffer, body.filename);
+    rows = records;
+    fileMeta = meta;
     rpcName = 'record_gpa_batch';
     rpcArgs = {
       p_semester_number: body.semester_number ?? null,
       p_filename: body.filename,
-      p_rows: rows
+      p_rows: records
     };
-  } else {
-    rows = await parseAcademicDataFile(buffer, body.filename, body.action);
+  } else if (body.action === 'backlog') {
+    const { meta, records } = await parseBacklogExport(buffer, body.filename);
+    // The file's own title wins for the semester; the dropdown is only for
+    // a file that does not name one. The exam label is free text, so what
+    // the Cluster Head typed wins over the title.
+    const semester = meta.semester ?? body.semester_number ?? null;
+    if (!semester) {
+      throw new ApiError('The file does not say which semester it is for. Choose the semester, then upload it again.', 400);
+    }
+    rows = records;
+    fileMeta = { ...meta, semester };
     rpcName = 'record_backlog_batch';
     rpcArgs = {
-      p_semester_number: body.semester_number,
-      p_exam_session: body.exam_session ?? null,
+      p_semester_number: semester,
+      p_exam_session: body.exam_session || meta.exam_session || null,
       p_filename: body.filename,
-      p_rows: rows
+      p_rows: records,
+      // Every subject column: what lets the database clear a backlog this
+      // defaulter list no longer marks. Null for a hand-made list.
+      p_subject_codes: meta.subject_codes
     };
+  } else {
+    const { meta, records } = await parseBlackDotNotice(buffer, body.filename);
+    rows = records;
+    fileMeta = meta;
+    rpcName = 'record_black_dot_batch';
+    rpcArgs = { p_filename: body.filename, p_rows: records };
   }
 
   const { data, error } = await context.asUser.rpc(rpcName, rpcArgs);
@@ -213,6 +248,8 @@ export default withApiDefaults(['POST'], async (req, res) => {
       total_rows: data?.total_rows ?? rows.length,
       matched: data?.matched ?? 0,
       failed: data?.failed ?? 0,
+      ...(body.action === 'backlog' ? { semester: data?.semester_number, cleared: data?.backlogs_cleared ?? 0 } : {}),
+      ...(body.action === 'black-dot' ? { cases: data?.case_numbers ?? [] } : {}),
       // Account creation is privileged; it belongs in the audit trail
       // even when the upload itself was routine.
       mentor_accounts_created: mentors.created
@@ -246,11 +283,49 @@ export default withApiDefaults(['POST'], async (req, res) => {
     );
   }
 
+  const payload = { ...(data ?? {}), file_meta: fileMeta };
+
+  if (body.action === 'gpa') {
+    const semesters = data?.semesters ?? [];
+    const what = [
+      semesters.length ? `semester ${semesters.join(', ')} GPA` : null,
+      data?.cgpa_recorded ? 'CGPA' : null
+    ].filter(Boolean).join(' and ');
+    const skipped = data?.skipped ?? 0;
+    return sendSuccess(
+      res,
+      `${matched} student(s) recorded${what ? ` (${what})` : ''}.` +
+        (failed ? ` ${failed} could not be recorded.` : '') +
+        (skipped ? ` ${skipped} had nothing graded yet.` : ''),
+      payload
+    );
+  }
+
+  if (body.action === 'backlog') {
+    const cleared = data?.backlogs_cleared ?? 0;
+    return sendSuccess(
+      res,
+      `${data?.backlogs_recorded ?? 0} backlog(s) recorded for semester ${data?.semester_number}` +
+        (cleared ? `, ${cleared} cleared.` : '.') +
+        (failed ? ` ${failed} row(s) could not be matched.` : ''),
+      payload
+    );
+  }
+
+  if (body.action === 'black-dot') {
+    return sendSuccess(
+      res,
+      `${matched} black dot(s) recorded across ${data?.cases ?? 0} case(s).` +
+        (failed ? ` ${failed} row(s) could not be recorded.` : ''),
+      payload
+    );
+  }
+
   sendSuccess(
     res,
     failed
       ? `${matched} row(s) recorded${scope}, ${failed} could not be matched.`
       : `${matched} row(s) recorded${scope}.`,
-    data ?? {}
+    payload
   );
 });
