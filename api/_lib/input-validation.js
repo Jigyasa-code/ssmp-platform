@@ -99,6 +99,12 @@ export const studentReportQuerySchema = z.object({
   format: z.enum(['json', 'pdf']).optional().default('json')
 });
 
+/** The academic cycle report: a cycle (default: the active one), whole or one semester. */
+export const cycleReportQuerySchema = z.object({
+  cycle_id: uuid.optional().nullable(),
+  semester: z.enum(['Odd', 'Even']).optional().nullable()
+});
+
 // ---------------------------------------------------------------------
 // Cluster Head uploads
 // ---------------------------------------------------------------------

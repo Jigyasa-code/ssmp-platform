@@ -64,6 +64,7 @@ const ClusterHeadBlackDotPage = lazy(() => import('../pages/clusterHead/ClusterH
 const ClusterHeadCoursesPage = lazy(() => import('../pages/clusterHead/ClusterHeadCoursesPage.jsx'));
 const ClusterHeadProfilePage = lazy(() => import('../pages/clusterHead/ClusterHeadProfilePage.jsx'));
 const ClusterHeadRosterPage = lazy(() => import('../pages/clusterHead/ClusterHeadRosterPage.jsx'));
+const ClusterHeadCyclesPage = lazy(() => import('../pages/clusterHead/ClusterHeadCyclesPage.jsx'));
 
 /** Sends a signed-in user to their own portal root. */
 function HomeRedirect() {
@@ -265,6 +266,14 @@ export default function AppRouter() {
           element={
             <Protected role="cluster_head">
               <RequireClusterHeadSetup><ClusterHeadDashboardPage /></RequireClusterHeadSetup>
+            </Protected>
+          }
+        />
+        <Route
+          path="/cluster-head/cycles"
+          element={
+            <Protected role="cluster_head">
+              <RequireClusterHeadSetup><ClusterHeadCyclesPage /></RequireClusterHeadSetup>
             </Protected>
           }
         />

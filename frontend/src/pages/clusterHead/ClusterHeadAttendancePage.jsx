@@ -32,6 +32,7 @@ import DataTable from '../../components/ui/DataTable.jsx';
 import AcademicUploadPanel from '../../components/clusterHead/AcademicUploadPanel.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
+import { cycleLabel } from '../../lib/academicCycles.js';
 import { describeError, formatDate } from '../../lib/formatters.js';
 
 export default function ClusterHeadAttendancePage() {
@@ -42,7 +43,7 @@ export default function ClusterHeadAttendancePage() {
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
-      .from('cluster_head_courses')
+      .from('current_cycle_courses')
       .select('id, course_name, course_code')
       .order('display_order');
     if (error) toast.error(describeError(error));
@@ -88,7 +89,7 @@ export default function ClusterHeadAttendancePage() {
 
           {lastUpload?.course_code && (
             <Panel className="mt-4" tab="Read from the file" tabIcon="description">
-              <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                 {[
                   ['Course code', lastUpload.course_code],
                   ['Course name', lastUpload.course_name],
@@ -96,6 +97,13 @@ export default function ClusterHeadAttendancePage() {
                   [
                     'Period',
                     `${formatDate(lastUpload.period_start)} — ${formatDate(lastUpload.period_end)}`
+                  ],
+                  // The period's end date decides the semester (migration 0036).
+                  [
+                    'Filed under',
+                    lastUpload.cycle
+                      ? `${cycleLabel(lastUpload.cycle)} · ${lastUpload.semester === 'Even' ? 'even' : 'odd'} semester`
+                      : null
                   ]
                 ].map(([label, value]) => (
                   <div key={label}>

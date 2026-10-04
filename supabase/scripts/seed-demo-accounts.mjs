@@ -261,7 +261,7 @@ async function main() {
   console.log('');
   console.log('At-risk demo: John Doe (attendance), Jane Smith (GPA), Mike Davis (backlog).');
   console.log('Emily Wilson cleared her backlog at the make-up, so she is deliberately NOT flagged.');
-  console.log('John Doe and Jane Smith each have a black dot on their student record.');
+  console.log('John Doe and Jane Smith each have a black dot, which is also an at-risk reason in its academic cycle.');
   console.log('Fire the 15-day jobs by hand from the HOD portal -> Scheduled Jobs.\n');
 }
 
@@ -281,7 +281,18 @@ async function seedClusterHeadData(idByEmail) {
     return;
   }
 
-  console.log('\nSetting up cluster head subjects');
+  // Subjects belong to an academic cycle (migration 0036): the same code
+  // appears once per cycle, and uploads go into the active one. Migration
+  // 0036 creates the first cycle, so there is always one active.
+  const { data: activeCycle, error: cycleError } = await db
+    .from('academic_cycles')
+    .select('id, label')
+    .eq('is_active', true)
+    .maybeSingle();
+  if (cycleError) throw cycleError;
+  if (!activeCycle) throw new Error('No active academic cycle. Apply migration 0036 before seeding.');
+
+  console.log(`\nSetting up cluster head subjects for ${activeCycle.label}`);
   const courseIdByCode = {};
 
   for (const [ownerId, courses] of [
@@ -292,13 +303,17 @@ async function seedClusterHeadData(idByEmail) {
     for (const [index, course] of courses.entries()) {
       // Written directly rather than through submit_cluster_head_setup(),
       // which keys off auth.uid() and so cannot act on someone else's
-      // behalf. Upsert on the same unique key the RPC uses.
-      const { data: existing } = await db
+      // behalf. Upsert on the same unique key the RPC uses: cluster head,
+      // cycle and code. The insert below is filed under the active cycle
+      // by a trigger.
+      const { data: existing, error: lookupError } = await db
         .from('cluster_head_courses')
         .select('id')
         .eq('cluster_head_id', ownerId)
+        .eq('cycle_id', activeCycle.id)
         .ilike('course_code', course.course_code)
         .maybeSingle();
+      if (lookupError) throw lookupError;
 
       if (existing) {
         courseIdByCode[course.course_code] = existing.id;

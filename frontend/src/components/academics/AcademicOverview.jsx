@@ -14,7 +14,13 @@
  * The pages fetch; this component only arranges. Its arithmetic lives in
  * lib/academicRecord.js so it can be tested without a browser.
  *
- * THE SEMESTER PICKER
+ * THE HEADER AND THE SEMESTER PICKER
+ * The block brings its own header: the "Academic performance overview"
+ * heading, a one-line description and the semester picker. The student's
+ * Academics page passes showHeader={false} and uses the heading as its
+ * page title instead, so the student gets no picker and always sees the
+ * current semester. The mentor and the HOD keep the picker.
+ *
  * "Sem N (Current)" is the live view: attendance from the latest uploads,
  * the latest graded GPA, every open backlog. Picking an earlier semester
  * shows that semester's GPA and the backlogs recorded against it.
@@ -54,6 +60,9 @@ const BASELINE = '#e7ddd6';
 
 const PREVIEW_ROWS = 5;
 
+/** The line under the heading; the student's page uses it as its subtitle. */
+export const OVERVIEW_DESCRIPTION = 'Attendance per subject, GPA, backlogs with their subjects, and black dots.';
+
 const CHIP_TONES = {
   info: 'bg-info-container text-info',
   primary: 'bg-primary-fixed text-primary',
@@ -76,7 +85,7 @@ const COPY = {
   student: {
     subject: 'you',
     attendanceEmpty: 'Your attendance appears here as soon as the department uploads it.',
-    gpaEmpty: 'GPAs the department publishes, and any you record below, appear here.',
+    gpaEmpty: 'Your GPA appears here once the department publishes it.',
     backlogsEmpty: 'No result uploaded so far lists you with a backlog.',
     blackDotsEmpty: 'No Proctorial Board notice uploaded so far lists you.',
     selfReported: 'You'
@@ -84,7 +93,7 @@ const COPY = {
   staff: {
     subject: 'this student',
     attendanceEmpty: 'Nothing has been uploaded for this student yet.',
-    gpaEmpty: 'No GPA has been published or recorded for this student yet.',
+    gpaEmpty: 'No GPA has been published for this student yet.',
     backlogsEmpty: 'No Defaulter Grade result uploaded so far lists this student.',
     blackDotsEmpty: 'No Proctorial Board notice uploaded so far lists this student.',
     selfReported: 'Self-reported'
@@ -477,6 +486,7 @@ export default function AcademicOverview({
   blackDots = [],
   semesterLabel = null,
   audience = 'staff',
+  showHeader = true,
   className = ''
 }) {
   const headingId = useId();
@@ -489,7 +499,11 @@ export default function AcademicOverview({
     [currentSemester, gpas, backlogs]
   );
   const [selected, setSelected] = useState('current');
-  const choice = choices.find((option) => option.value === selected) ?? choices.find((option) => option.value === 'current');
+  // Without the header there is no picker, so the view stays on the
+  // current semester.
+  const choice =
+    (showHeader ? choices.find((option) => option.value === selected) : null) ??
+    choices.find((option) => option.value === 'current');
   const isCurrent = choice.value === 'current';
   const viewSemester = isCurrent ? null : choice.semester;
 
@@ -701,27 +715,30 @@ export default function AcademicOverview({
     ) : null;
 
   return (
-    <section aria-labelledby={headingId} className={className}>
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id={headingId} className="text-headline-sm text-on-surface">Academic performance overview</h2>
-          <p className="mt-0.5 text-body-sm text-on-surface-variant">
-            Attendance per subject, GPA, backlogs with their subjects, and black dots.
-          </p>
+    <section
+      {...(showHeader ? { 'aria-labelledby': headingId } : { 'aria-label': 'Academic performance overview' })}
+      className={className}
+    >
+      {showHeader && (
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id={headingId} className="text-headline-sm text-on-surface">Academic performance overview</h2>
+            <p className="mt-0.5 text-body-sm text-on-surface-variant">{OVERVIEW_DESCRIPTION}</p>
+          </div>
+          <label className="flex items-center gap-2">
+            <span className="text-label-sm uppercase tracking-wide text-on-surface-variant">Semester</span>
+            <select
+              className="field-input w-auto min-w-[11rem] py-2"
+              value={choice.value}
+              onChange={(event) => setSelected(event.target.value)}
+            >
+              {choices.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
         </div>
-        <label className="flex items-center gap-2">
-          <span className="text-label-sm uppercase tracking-wide text-on-surface-variant">Semester</span>
-          <select
-            className="field-input w-auto min-w-[11rem] py-2"
-            value={choice.value}
-            onChange={(event) => setSelected(event.target.value)}
-          >
-            {choices.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-      </div>
+      )}
 
       {!isCurrent && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-info-container bg-info-container/40 px-4 py-3 text-body-sm text-on-surface-variant">

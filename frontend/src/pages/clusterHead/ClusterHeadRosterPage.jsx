@@ -12,9 +12,17 @@
  *
  * One page rather than three: the three uploads share a prerequisite
  * chain, and splitting them across three routes would hide it.
+ *
+ * ACADEMIC CYCLES (migration 0036)
+ * Rosters and the mapping are steps 2 and 3 of a cycle. A student roster
+ * creates the accounts that are missing and ACTIVATES the students who
+ * already have one: they join the active cycle with the semester, section
+ * and program in the file. The mapping records each student's mentor for
+ * the cycle. Neither touches what a closed cycle recorded.
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import PortalShell from '../../components/layout/PortalShell.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
@@ -23,13 +31,23 @@ import EmptyState from '../../components/ui/EmptyState.jsx';
 import AcademicUploadPanel from '../../components/clusterHead/AcademicUploadPanel.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
+import { useActiveCycle } from '../../hooks/useActiveCycle.js';
 import { describeError, formatDateTime } from '../../lib/formatters.js';
+import { cycleLabel } from '../../lib/academicCycles.js';
 
 /** created/skipped/failed, which is what the roster endpoint reports. */
 const rosterSummary = (data) => [
   { label: 'Rows in file', value: data.total_rows ?? 0 },
   { label: 'Accounts created', value: data.created?.length ?? 0 },
   { label: 'Already existed', value: data.skipped?.length ?? 0 },
+  { label: 'Problems', value: data.failed?.length ?? 0 }
+];
+
+/** The student roster also reports the existing students it activated. */
+const studentRosterSummary = (data) => [
+  { label: 'Rows in file', value: data.total_rows ?? 0 },
+  { label: 'Accounts created', value: data.created?.length ?? 0 },
+  { label: 'Existing students activated', value: data.activated?.length ?? 0 },
   { label: 'Problems', value: data.failed?.length ?? 0 }
 ];
 
@@ -43,13 +61,14 @@ const mentorSummary = (data) => [
 
 export default function ClusterHeadRosterPage() {
   const toast = useToast();
+  const { cycle } = useActiveCycle();
   const [batches, setBatches] = useState([]);
   const [credentials, setCredentials] = useState(null);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from('roster_import_batches')
-      .select('*')
+      .select('*, cycle:academic_cycles(label)')
       .order('created_at', { ascending: false })
       .limit(15);
     if (error) toast.error(describeError(error));
@@ -96,7 +115,17 @@ export default function ClusterHeadRosterPage() {
     <PortalShell>
       <PageHeader
         title="Rosters and mentors"
-        subtitle="Create accounts from the departmental spreadsheets, then map each student to their allotted mentor."
+        subtitle={
+          cycle
+            ? `Steps 2 and 3 of ${cycleLabel(cycle.label)}: bring this year's students into the cycle, then map each one to their allotted mentor.`
+            : 'Create accounts from the departmental spreadsheets, then map each student to their allotted mentor.'
+        }
+        actions={
+          <Link to="/cluster-head/cycles" className="btn-secondary">
+            <span className="material-symbols-outlined text-[18px]">event_repeat</span>
+            Academic cycle
+          </Link>
+        }
       />
 
       {credentials && (
@@ -135,9 +164,9 @@ export default function ClusterHeadRosterPage() {
         title="1 · Student roster"
         tabIcon="school"
         endpoint="/admin/import-roster-spreadsheet"
-        summarise={rosterSummary}
-        hint="CSV or XLSX. Columns: Registration No, Student Name, Email Id. Optional: Section, Semester, Program Name, Mobile Number, Father's Name / Number / Email."
-        submitLabel="Create student accounts"
+        summarise={studentRosterSummary}
+        hint="CSV or XLSX. Columns: Registration No, Student Name, Email Id. Optional: Section, Semester, Program Name, Mobile Number, Father's Name / Number / Email. Students who already have an account are activated in this cycle with the Semester, Section and Program in the file."
+        submitLabel="Import student roster"
         buildPayload={({ filename, file_base64 }) => ({
           import_type: 'student',
           create_accounts: true,
@@ -155,6 +184,7 @@ export default function ClusterHeadRosterPage() {
           summarise={rosterSummary}
           hint="CSV or XLSX. Columns: Faculty ID, Name, Email. Optional: Department, Password."
           submitLabel="Create faculty accounts"
+          showCycle={false}
           buildPayload={({ filename, file_base64 }) => ({
             import_type: 'faculty',
             create_accounts: true,
@@ -206,9 +236,21 @@ export default function ClusterHeadRosterPage() {
           </li>
           <li>
             <strong className="text-on-surface">Re-uploading is safe.</strong> An email that already has
-            an account is reported as &ldquo;already existed&rdquo; and left alone, so if an upload is
-            interrupted you can simply run the same file again and it picks up what is missing. Re-running
-            the mapping only touches students whose mentor actually changed.
+            an account is never created twice, so if an upload is interrupted you can simply run the same
+            file again and it picks up what is missing. Re-running the mapping only changes students whose
+            mentor actually changed.
+          </li>
+          <li>
+            <strong className="text-on-surface">Existing students are activated, not skipped.</strong> A
+            student on the roster who already has an account joins the current academic cycle, and the
+            Semester, Section and Program in the file become their current ones. A blank cell changes
+            nothing, and guardian details only fill in what is missing. This is how next year&apos;s roster
+            moves everyone into the new cycle.
+          </li>
+          <li>
+            <strong className="text-on-surface">Each cycle keeps its own record.</strong> The semester,
+            section and mentor a student had in a closed cycle stay in that cycle and its report, whatever
+            this year&apos;s files say.
           </li>
           <li>
             <strong className="text-on-surface">Changing a mentor notifies everyone.</strong> The student,
@@ -223,6 +265,7 @@ export default function ClusterHeadRosterPage() {
           dense
           columns={[
             { key: 'created_at', header: 'When', render: (row) => formatDateTime(row.created_at) },
+            { key: 'cycle', header: 'Cycle', render: (row) => cycleLabel(row.cycle?.label) },
             { key: 'import_type', header: 'Type' },
             { key: 'original_filename', header: 'File' },
             { key: 'total_rows', header: 'Rows', align: 'right' },

@@ -1,9 +1,13 @@
 /**
  * ClusterHeadDashboardPage
  * Deliberately sparse. A Cluster Head's whole job is uploading, so the
- * home screen is their subject list, their recent uploads, and shortcuts
- * into the four upload screens. No queries, no students, no reports —
- * none of that is theirs to see.
+ * home screen is the cycle they are uploading into, their subjects, their
+ * recent uploads, and shortcuts into the four upload screens. No queries,
+ * no students, no reports — none of that is theirs to see.
+ *
+ * Everything here is the ACTIVE academic cycle's (migration 0036): its
+ * subjects, and the uploads filed under it, which can be narrowed to one
+ * of its two semesters.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -15,11 +19,22 @@ import StatCard from '../../components/ui/StatCard.jsx';
 import DataTable from '../../components/ui/DataTable.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import { SkeletonCards } from '../../components/ui/Skeleton.jsx';
+import { FilterPills } from '../../components/ui/FormControls.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
+import { useActiveCycle } from '../../hooks/useActiveCycle.js';
 import { formatDateTime, describeError } from '../../lib/formatters.js';
 import { ACADEMIC_UPLOAD_LABELS } from '../../lib/constants.js';
+import { SEMESTERS, cycleLabel, semesterOn, semesterTitle, todayInIndia, uploadScope } from '../../lib/academicCycles.js';
+
+/** "Dr. Meera Iyer" -> "Dr. Iyer"; "Meera Iyer" -> "Meera". */
+function greetingName(fullName) {
+  const parts = (fullName ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'Cluster Head';
+  if (parts.length > 1 && /^(dr|prof|mr|mrs|ms)\.?$/i.test(parts[0])) return `${parts[0]} ${parts[parts.length - 1]}`;
+  return parts[0];
+}
 
 const SHORTCUTS = [
   { to: '/cluster-head/attendance', label: 'Upload attendance', icon: 'fact_check', tone: 'primary' },
@@ -31,23 +46,33 @@ const SHORTCUTS = [
 export default function ClusterHeadDashboardPage() {
   const { profile } = useAuth();
   const toast = useToast();
+  const { cycle, loading: cycleLoading } = useActiveCycle();
 
   const [courses, setCourses] = useState([]);
   const [batches, setBatches] = useState([]);
+  const [uploadCount, setUploadCount] = useState(0);
+  const [semester, setSemester] = useState('all');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!cycle) {
+      if (!cycleLoading) setLoading(false);
+      return;
+    }
+    let history = supabase
+      .from('academic_upload_history')
+      .select('id, upload_type, semester, course_code, section_label, period_start, period_end, semester_number, scope_label, original_filename, total_rows, matched_rows, failed_rows, created_at', { count: 'exact' })
+      .eq('cycle_id', cycle.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (semester !== 'all') history = history.eq('semester', semester);
+
     const [courseResult, batchResult] = await Promise.all([
       supabase
-        .from('cluster_head_courses')
+        .from('current_cycle_courses')
         .select('id, course_name, course_code')
         .order('display_order'),
-      supabase
-        .from('academic_upload_batches')
-        .select('id, upload_type, section_label, period_start, period_end, semester_number, scope_label, original_filename, total_rows, matched_rows, failed_rows, created_at')
-        .order('created_at', { ascending: false })
-        .limit(10)
+      history
     ]);
 
     if (courseResult.error) toast.error(describeError(courseResult.error));
@@ -55,28 +80,42 @@ export default function ClusterHeadDashboardPage() {
 
     setCourses(courseResult.data ?? []);
     setBatches(batchResult.data ?? []);
+    setUploadCount(batchResult.count ?? (batchResult.data ?? []).length);
     setLoading(false);
-  }, [toast]);
+  }, [cycle, cycleLoading, semester, toast]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const lastUpload = batches[0];
+  const currentSemester = cycle ? semesterOn(cycle, todayInIndia()) : null;
 
   return (
     <PortalShell>
       <PageHeader
-        title={`Welcome, ${profile?.full_name?.split(' ')[0] ?? 'Cluster Head'}`}
+        title={`Welcome, ${greetingName(profile?.full_name)}`}
         subtitle="Upload attendance and academic records for the subjects you handle. There is no fixed day for this — upload whenever the data is ready."
       />
 
-      {loading ? (
+      {loading || cycleLoading ? (
         <SkeletonCards count={4} />
       ) : (
         <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Subjects" value={courses.length} icon="menu_book" tone="primary" />
-          <StatCard label="Uploads recorded" value={batches.length} icon="cloud_upload" tone="success" />
+          <StatCard
+            label="Academic cycle"
+            value={cycle ? cycleLabel(cycle.label) : 'None'}
+            caption={cycle ? `Now: ${semesterTitle(cycle, currentSemester)}` : 'Start one under Academic Cycles'}
+            icon="event_repeat"
+            tone="primary"
+          />
+          <StatCard label="Subjects this cycle" value={courses.length} icon="menu_book" tone="info" />
+          <StatCard
+            label={semester === 'all' ? 'Uploads this cycle' : `Uploads, ${semesterTitle(cycle, semester)}`}
+            value={uploadCount}
+            icon="cloud_upload"
+            tone="success"
+          />
           <StatCard
             label="Last upload"
             value={lastUpload ? ACADEMIC_UPLOAD_LABELS[lastUpload.upload_type] ?? '—' : 'None yet'}
@@ -107,8 +146,13 @@ export default function ClusterHeadDashboardPage() {
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel tab="My subjects" tabIcon="menu_book" bodyClassName="">
+      <div className="grid gap-4 xl:grid-cols-5">
+        <Panel
+          className="xl:col-span-2"
+          tab={cycle ? `My subjects · ${cycleLabel(cycle.label)}` : 'My subjects'}
+          tabIcon="menu_book"
+          bodyClassName=""
+        >
           <DataTable
             columns={[
               { key: 'course_name', header: 'Course' },
@@ -119,50 +163,74 @@ export default function ClusterHeadDashboardPage() {
             emptyState={
               <EmptyState
                 icon="menu_book"
-                title="No subjects yet"
+                title="No subjects in this cycle yet"
                 description="Add your subjects from My Subjects to start uploading."
               />
             }
           />
         </Panel>
 
-        <Panel tab="Recent uploads" tabIcon="history" bodyClassName="">
+        <Panel
+          className="xl:col-span-3"
+          tab="Recent uploads"
+          tabIcon="history"
+          bodyClassName=""
+          actions={
+            <Link to="/cluster-head/cycles" className="text-label-md text-primary hover:underline">
+              Whole cycle
+            </Link>
+          }
+        >
+          {cycle && (
+            <div className="border-b border-surface-container px-5 py-3">
+              <FilterPills
+                ariaLabel="Semester"
+                value={semester}
+                onChange={setSemester}
+                options={[
+                  { value: 'all', label: 'Whole cycle' },
+                  ...SEMESTERS.map((value) => ({ value, label: semesterTitle(cycle, value) }))
+                ]}
+              />
+            </div>
+          )}
           <DataTable
             dense
             columns={[
               {
                 key: 'upload_type',
-                header: 'Type',
-                render: (row) => ACADEMIC_UPLOAD_LABELS[row.upload_type] ?? row.upload_type
+                header: 'Upload',
+                render: (row) => (
+                  <span className="block min-w-[9rem]">
+                    <span className="block text-label-md text-on-surface">
+                      {ACADEMIC_UPLOAD_LABELS[row.upload_type] ?? row.upload_type}
+                    </span>
+                    <span className="block text-label-sm text-tertiary">{uploadScope(row)}</span>
+                  </span>
+                )
               },
               {
-                key: 'scope',
-                header: 'Scope',
-                // The upload functions write what each file covered
-                // ("Semesters 1, 2 + CGPA", "2 cases"); older rows fall
-                // back to the section or semester.
-                render: (row) =>
-                  row.scope_label ??
-                  (row.upload_type === 'attendance'
-                    ? `Section ${row.section_label ?? '—'}`
-                    : `Semester ${row.semester_number ?? '—'}`)
+                key: 'semester',
+                header: 'Semester',
+                render: (row) => (row.semester ? <span className="whitespace-nowrap">{row.semester}</span> : '—')
               },
-              { key: 'matched_rows', header: 'Recorded', align: 'right' },
               {
-                key: 'failed_rows',
-                header: 'Failed',
+                key: 'matched_rows',
+                header: 'Recorded',
                 align: 'right',
-                render: (row) =>
-                  row.failed_rows > 0 ? (
-                    <span className="chip bg-error-container text-on-error-container">{row.failed_rows}</span>
-                  ) : (
-                    '—'
-                  )
+                render: (row) => (
+                  <span className="block whitespace-nowrap tabular-nums">
+                    {Number(row.matched_rows ?? 0).toLocaleString('en-IN')}
+                    {row.failed_rows > 0 && (
+                      <span className="mt-0.5 block text-label-sm text-error">{row.failed_rows} not matched</span>
+                    )}
+                  </span>
+                )
               },
               {
                 key: 'created_at',
                 header: 'When',
-                render: (row) => formatDateTime(row.created_at)
+                render: (row) => <span className="whitespace-nowrap">{formatDateTime(row.created_at)}</span>
               }
             ]}
             rows={batches}
@@ -171,7 +239,7 @@ export default function ClusterHeadDashboardPage() {
               <EmptyState
                 icon="cloud_upload"
                 title="Nothing uploaded yet"
-                description="Your uploads and any rows that could not be matched will appear here."
+                description="Your uploads in this cycle and any rows that could not be matched will appear here."
               />
             }
           />

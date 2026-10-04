@@ -29,14 +29,17 @@ import { fetchAllRows } from '../../lib/fetchAllRows.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
-import { describeError, formatDateTime, initialsOf } from '../../lib/formatters.js';
+import { describeError, formatDate, formatDateTime, initialsOf } from '../../lib/formatters.js';
 import { AT_RISK_MEETING_STATUS_LABELS } from '../../lib/constants.js';
+import { useActiveCycle } from '../../hooks/useActiveCycle.js';
+import { cycleLabel } from '../../lib/academicCycles.js';
 
 function ReasonChips({ row }) {
   const chips = [
     row.low_attendance && { label: 'Attendance', tone: 'bg-error-container text-on-error-container' },
     row.low_gpa && { label: 'GPA', tone: 'bg-warning-container text-on-warning-container' },
-    row.has_backlog && { label: 'Backlog', tone: 'bg-info-container text-on-info-container' }
+    row.has_backlog && { label: 'Backlog', tone: 'bg-info-container text-on-info-container' },
+    row.has_black_dot && { label: 'Black dot', tone: 'bg-inverse-surface text-inverse-on-surface' }
   ].filter(Boolean);
 
   if (!chips.length) return <span className="text-tertiary">—</span>;
@@ -52,16 +55,18 @@ function ReasonChips({ row }) {
 }
 
 /**
- * The two things a mentor asks next: WHICH subjects, and WHICH semester.
- * Both come from views that already exist and are already RLS-scoped to
- * this student — student_attendance_overview is one row per course
- * (latest period), and can_view_student_gpa() gates the GPA rows.
+ * The things a mentor asks next: WHICH subjects, WHICH semester, and
+ * WHICH incident. All come from tables and views that are already
+ * RLS-scoped to this student — student_attendance_overview is one row per
+ * course (latest period, active cycle), can_view_student_gpa() gates the
+ * GPA rows, and the black dots are the ones in the active academic cycle,
+ * the only ones the at-risk rule counts.
  *
  * Fetched on expand rather than up front: a mentor opens one or two of
  * these, not twenty, and the roster query stays a single round trip.
  */
-function RiskDetail({ studentId }) {
-  const [state, setState] = useState({ loading: true, subjects: [], gpas: [] });
+function RiskDetail({ studentId, cycleId, cycleName }) {
+  const [state, setState] = useState({ loading: true, subjects: [], gpas: [], dots: [] });
 
   useEffect(() => {
     let active = true;
@@ -76,13 +81,21 @@ function RiskDetail({ studentId }) {
         .from('student_semester_gpas')
         .select('semester_number, gpa')
         .eq('student_id', studentId)
-        .order('semester_number')
-    ]).then(([subjects, gpas]) => {
+        .order('semester_number'),
+      cycleId
+        ? supabase
+            .from('student_black_dots')
+            .select('case_number, case_details, incident_date, incident_date_text')
+            .eq('student_id', studentId)
+            .eq('cycle_id', cycleId)
+            .order('incident_date', { ascending: false, nullsFirst: false })
+        : Promise.resolve({ data: [] })
+    ]).then(([subjects, gpas, dots]) => {
       if (!active) return;
-      setState({ loading: false, subjects: subjects.data ?? [], gpas: gpas.data ?? [] });
+      setState({ loading: false, subjects: subjects.data ?? [], gpas: gpas.data ?? [], dots: dots.data ?? [] });
     });
     return () => { active = false; };
-  }, [studentId]);
+  }, [studentId, cycleId]);
 
   if (state.loading) {
     return <p className="px-4 py-6 text-body-sm text-tertiary">Loading the breakdown...</p>;
@@ -157,6 +170,30 @@ function RiskDetail({ studentId }) {
           }
         />
       </Panel>
+
+      {state.dots.length > 0 && (
+        <Panel
+          className="lg:col-span-2"
+          tab={`Black dots in ${cycleName} (${state.dots.length})`}
+          tabIcon="gavel"
+          bodyClassName=""
+        >
+          <DataTable
+            dense
+            columns={[
+              { key: 'case_number', header: 'Case', render: (row) => <span className="whitespace-nowrap">{row.case_number}</span> },
+              { key: 'case_details', header: 'About', render: (row) => row.case_details || '—' },
+              {
+                key: 'incident_date',
+                header: 'Incident',
+                render: (row) => (row.incident_date ? formatDate(row.incident_date) : row.incident_date_text || '—')
+              }
+            ]}
+            rows={state.dots}
+            rowKey={(row) => row.case_number}
+          />
+        </Panel>
+      )}
     </div>
   );
 }
@@ -165,6 +202,8 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
   const { profile } = useAuth();
   const toast = useToast();
   const { run, pending } = useAsyncAction();
+  const { cycle } = useActiveCycle();
+  const cycleName = cycle ? cycleLabel(cycle.label) : 'this cycle';
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -261,6 +300,18 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
           <span className="text-tertiary">0</span>
         )
     },
+    {
+      // In the active academic cycle: the only black dots the rule counts.
+      key: 'black_dot_count',
+      header: 'Black dots',
+      align: 'right',
+      render: (row) =>
+        row.black_dot_count > 0 ? (
+          <span className="text-error">{row.black_dot_count}</span>
+        ) : (
+          <span className="text-tertiary">0</span>
+        )
+    },
     { key: 'reasons', header: 'Flagged for', render: (row) => <ReasonChips row={row} /> },
     {
       key: 'primary_parent_mobile',
@@ -347,12 +398,12 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
         title="At-risk students"
         subtitle={
           isHodView
-            ? 'Every student in the department currently flagged on attendance, GPA or backlogs, with parent contact details.'
-            : 'Your mentees currently flagged on attendance, GPA or backlogs. Click a name to open their full profile.'
+            ? 'Every student in the department currently flagged on attendance, GPA, backlogs or black dots, with parent contact details.'
+            : 'Your mentees currently flagged on attendance, GPA, backlogs or black dots. Click a name to open their full profile.'
         }
       />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Flagged students" value={rows.length} icon="e911_emergency" tone="error" />
         <StatCard
           label="Low attendance"
@@ -374,6 +425,13 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
           icon="assignment_late"
           tone="info"
           caption="One is enough to flag"
+        />
+        <StatCard
+          label="With black dots"
+          value={rows.filter((row) => row.has_black_dot).length}
+          icon="gavel"
+          tone="slate"
+          caption={`One in ${cycleName} is enough to flag`}
         />
       </div>
 
@@ -397,7 +455,9 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
             rows={filtered}
             rowKey={(row) => row.student_id}
             renderExpanded={(row) =>
-              expanded === row.student_id ? <RiskDetail studentId={row.student_id} /> : null
+              expanded === row.student_id ? (
+                <RiskDetail studentId={row.student_id} cycleId={cycle?.id} cycleName={cycleName} />
+              ) : null
             }
             emptyState={
               <EmptyState
@@ -406,7 +466,7 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
                 description={
                   rows.length
                     ? 'Try a different name, registration number or section.'
-                    : 'Students appear here automatically when attendance drops below 75%, GPA falls below 6, or a backlog is recorded.'
+                    : 'Students appear here automatically when attendance drops below 75%, GPA falls below 6, a backlog is recorded, or a black dot is recorded in the current academic cycle.'
                 }
               />
             }

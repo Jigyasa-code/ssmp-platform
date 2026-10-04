@@ -34,6 +34,16 @@
  * and re-running a finished import simply reports every row as "already
  * existed".
  *
+ * ACADEMIC CYCLES (migration 0036)
+ * ---------------------------------------------------------------------
+ * A roster is imported into the active cycle. New accounts join it on
+ * their own (a trigger on user_profiles). A student who already has an
+ * account is not created again, but is ACTIVATED: they join the cycle,
+ * and the Semester, Section and Program in the file become their current
+ * ones (a blank cell changes nothing; guardian details only fill gaps).
+ * That is what lets next year's roster move everyone into 2027-28
+ * without touching what 2026-27 recorded about them.
+ *
  * Within a request the rows are created a few at a time rather than one
  * after another, because almost all of the elapsed time is spent waiting
  * on Auth rather than doing anything. Deciding what to do with a row
@@ -50,27 +60,30 @@ import { runPool } from '../_lib/concurrency.js';
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
 
 /**
- * Every email already in use, read in pages.
+ * Every account already in use, by lower-cased email, read in pages.
  *
  * A plain select of the whole table can come back capped (PostgREST's
  * db-max-rows, 1000 on many projects) without saying so. That was
  * harmless while the import was one request; now that a later chunk
  * relies on seeing what the earlier ones created, a short read would make
- * it re-attempt hundreds of accounts that already exist.
+ * it re-attempt hundreds of accounts that already exist. The id and role
+ * are what activating an existing student needs. Ordered by id so the
+ * pages cannot overlap.
  */
-async function fetchExistingEmails(admin) {
+async function fetchExistingAccounts(admin) {
   const page = 1000;
-  const emails = [];
+  const accounts = new Map();
   for (let from = 0; ; from += page) {
     const { data, error } = await admin
       .from('user_profiles')
-      .select('email')
+      .select('id, email, role')
+      .order('id')
       .range(from, from + page - 1);
     if (error || !data?.length) break;
-    for (const row of data) emails.push(row.email.toLowerCase());
+    for (const row of data) accounts.set(row.email.toLowerCase(), { id: row.id, role: row.role });
     if (data.length < page) break;
   }
-  return emails;
+  return accounts;
 }
 
 export default withApiDefaults(['POST'], async (req, res) => {
@@ -135,11 +148,15 @@ export default withApiDefaults(['POST'], async (req, res) => {
     .eq('role', 'faculty');
   const facultyByEmail = new Map((facultyRows ?? []).map((f) => [f.email.toLowerCase(), f]));
 
-  const existingEmails = new Set(await fetchExistingEmails(admin));
+  const existingAccounts = await fetchExistingAccounts(admin);
+  const existingEmails = new Set(existingAccounts.keys());
 
   const created = [];
   const skipped = [];
   const failed = [];
+  // Students in the file who already have an account: activated in the
+  // active cycle once the chunk's new accounts are done.
+  const activate = [];
 
   // Leaves room inside the 30s cap for the parse, the two lookups above
   // and writing the history row below.
@@ -176,7 +193,23 @@ export default withApiDefaults(['POST'], async (req, res) => {
         return null;
       }
       if (existingEmails.has(email)) {
-        skipped.push({ row: record.rowNumber, email, reason: 'Account already exists' });
+        const existing = existingAccounts.get(email);
+        if (rowRole === 'student' && existing?.role === 'student') {
+          skipped.push({ row: record.rowNumber, email, reason: 'Already has an account — activated in this cycle' });
+          activate.push({
+            row: record.rowNumber,
+            email,
+            student_id: existing.id,
+            semester_label: record.semester_label ? sanitizeSingleLine(record.semester_label, 40) : null,
+            section: record.section ? sanitizeSingleLine(record.section, 10) : null,
+            branch: record.branch ? sanitizeSingleLine(record.branch, 60) : null,
+            parent_name: record.parent_name ? sanitizeSingleLine(record.parent_name, 120) : null,
+            parent_mobile: /^[0-9]{10}$/.test(record.parent_mobile ?? '') ? record.parent_mobile : null,
+            parent_email: record.parent_email ? sanitizeSingleLine(record.parent_email, 255).toLowerCase() : null
+          });
+        } else {
+          skipped.push({ row: record.rowNumber, email, reason: 'Account already exists' });
+        }
         return null;
       }
 
@@ -360,7 +393,26 @@ export default withApiDefaults(['POST'], async (req, res) => {
 
   // Concurrent rows finish out of order; the credentials download and the
   // error table both read better in the order of the spreadsheet.
-  for (const list of [created, skipped, failed]) list.sort((a, b) => a.row - b.row);
+  for (const list of [created, skipped, failed, activate]) list.sort((a, b) => a.row - b.row);
+
+  // Existing students on this roster join the active cycle with the
+  // semester, section and program the file gives them. Done after the
+  // chunk's accounts rather than row by row: one round trip per chunk.
+  let activation = { activated: 0, updated: 0, cycle: null };
+  if (activate.length && body.create_accounts) {
+    const { data, error } = await admin.rpc('activate_roster_students', {
+      p_rows: activate.map(({ row, email, ...fields }) => fields)
+    });
+    if (error) {
+      failed.push({
+        row: activate[0].row,
+        email: activate[0].email,
+        reason: `The existing students in this part of the file could not be activated: ${error.message}`
+      });
+    } else {
+      activation = { ...activation, ...(data ?? {}) };
+    }
+  }
 
   /**
    * One history row for the whole upload, not one per chunk. The first
@@ -468,6 +520,11 @@ export default withApiDefaults(['POST'], async (req, res) => {
       processed_through: nextOffset ?? orderedRecords.length,
       faculty_created: facultyCreated,
       student_created: studentCreated,
+      // A list rather than a count, so the browser can add the chunks up
+      // the way it does for created / skipped / failed.
+      activated: activate.map(({ row, email }) => ({ row, email })),
+      students_updated: activation.updated ?? 0,
+      cycle: activation.cycle,
       created, skipped, failed
     },
     201

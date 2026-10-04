@@ -313,10 +313,14 @@ export default withApiDefaults(['POST'], async (req, res) => {
   }
 
   if (body.action === 'black-dot') {
+    // A black dot is an at-risk condition (migration 0036), so everyone
+    // recorded has just been re-checked.
+    const rechecked = data?.students_reevaluated ?? 0;
     return sendSuccess(
       res,
       `${matched} black dot(s) recorded across ${data?.cases ?? 0} case(s).` +
-        (failed ? ` ${failed} row(s) could not be recorded.` : ''),
+        (failed ? ` ${failed} row(s) could not be recorded.` : '') +
+        (rechecked ? ` ${rechecked} student(s) re-checked against the at-risk rule.` : ''),
       payload
     );
   }

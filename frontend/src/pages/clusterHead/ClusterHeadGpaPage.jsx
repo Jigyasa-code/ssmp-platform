@@ -89,7 +89,8 @@ export default function ClusterHeadGpaPage() {
         <div className="space-y-2 text-body-sm text-on-surface-variant">
           <p>
             Each student in the file is re-checked against the at-risk rule straight away: attendance below
-            75%, a GPA below 6 in their latest graded semester, or an uncleared backlog. A newly flagged
+            75%, a GPA below 6 in their latest graded semester, an uncleared backlog, or a black dot in the
+            current academic cycle. A newly flagged
             student appears on their mentor&apos;s At-Risk Students page and the mentor is notified; the
             follow-up meeting is raised by the next at-risk meeting run. A corrected upload that clears the
             condition lifts the flag just as quickly.

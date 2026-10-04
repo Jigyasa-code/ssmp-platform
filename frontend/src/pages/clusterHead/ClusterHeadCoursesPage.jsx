@@ -4,6 +4,10 @@
  * validation, so the two cannot drift. The setup screen is a gate you pass
  * through once; this is where you come back to fix a code or add a subject
  * mid-semester.
+ *
+ * Subjects are kept per academic cycle (migration 0036): this edits the
+ * active cycle's list, which started as a copy of the previous cycle's,
+ * and nothing here can reach a closed cycle's subjects or attendance.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -15,6 +19,8 @@ import { SkeletonCards } from '../../components/ui/Skeleton.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
+import { useActiveCycle } from '../../hooks/useActiveCycle.js';
+import { cycleLabel } from '../../lib/academicCycles.js';
 import { describeError } from '../../lib/formatters.js';
 import { COURSE_CATALOGUE, OTHER_COURSE_OPTION } from '../../lib/constants.js';
 
@@ -38,6 +44,7 @@ function isTouched(subject) {
 export default function ClusterHeadCoursesPage() {
   const toast = useToast();
   const { run, pending } = useAsyncAction();
+  const { cycle } = useActiveCycle();
   const [subjects, setSubjects] = useState([]);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
@@ -45,7 +52,7 @@ export default function ClusterHeadCoursesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
-      .from('cluster_head_courses')
+      .from('current_cycle_courses')
       .select('course_name, course_code')
       .order('display_order');
     if (error) toast.error(describeError(error));
@@ -115,8 +122,8 @@ export default function ClusterHeadCoursesPage() {
   return (
     <PortalShell>
       <PageHeader
-        title="My subjects"
-        subtitle="An upload is matched to one of these by its course code. Removing a subject also removes its attendance history, so correct a code rather than deleting and re-adding it."
+        title={cycle ? `My subjects · ${cycleLabel(cycle.label)}` : 'My subjects'}
+        subtitle="An upload is matched to one of these by its course code. Each academic cycle keeps its own list, so changes here never touch last year's subjects or attendance. Within this cycle, removing a subject also removes the attendance uploaded for it, so correct a code rather than deleting and re-adding it."
       />
 
       {loading ? (

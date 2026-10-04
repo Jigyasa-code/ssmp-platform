@@ -61,7 +61,7 @@ export default function ClusterHeadSetupPage() {
   // saved — that is what makes this screen usable for fixing a typo later.
   const load = useCallback(async () => {
     const { data } = await supabase
-      .from('cluster_head_courses')
+      .from('current_cycle_courses')
       .select('course_name, course_code')
       .order('display_order');
 

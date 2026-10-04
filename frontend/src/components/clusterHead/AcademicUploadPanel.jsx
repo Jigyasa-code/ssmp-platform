@@ -21,14 +21,21 @@
  * Endpoints that finish in one request — attendance, GPA, backlogs, black
  * dots, the mentor mapping — simply never send a next_offset, and the loop
  * below runs once.
+ *
+ * ACADEMIC CYCLE
+ * Every upload is filed under the active cycle (migration 0036), so the
+ * panel says which one before anything is sent.
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import Panel from '../ui/Panel.jsx';
 import DataTable from '../ui/DataTable.jsx';
 import { FileField } from '../ui/FormControls.jsx';
 import { apiClient } from '../../lib/apiClient.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
+import { useActiveCycle } from '../../hooks/useActiveCycle.js';
+import { cycleLabel, semesterOn, semesterTitle, todayInIndia } from '../../lib/academicCycles.js';
 
 /** Tailwind needs whole class names, so the summary grid is picked from a list. */
 const TILE_GRID = {
@@ -73,9 +80,13 @@ export default function AcademicUploadPanel({
   // Attendance also accepts the ERP's .xls export, which is really an HTML
   // table rather than a spreadsheet.
   accept = '.csv,.xlsx',
-  placeholder = 'Choose a file (CSV or XLSX)'
+  placeholder = 'Choose a file (CSV or XLSX)',
+  // Faculty accounts belong to no cycle, so the faculty roster leaves the
+  // "Goes into the 2026–27 cycle" line out.
+  showCycle = true
 }) {
   const { run, pending } = useAsyncAction();
+  const { cycle, loading: cycleLoading, error: cycleError } = useActiveCycle();
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [progress, setProgress] = useState(null);
@@ -87,7 +98,7 @@ export default function AcademicUploadPanel({
         const base64 = await fileToBase64(file);
         const base = buildPayload({ filename: file.name, file_base64: base64 });
 
-        const collected = { created: [], skipped: [], failed: [], row_errors: [] };
+        const collected = { created: [], skipped: [], failed: [], row_errors: [], activated: [] };
         let last = {};
         let total = 0;
         let batchId = null;
@@ -131,7 +142,9 @@ export default function AcademicUploadPanel({
       {
         successMessage: (data) =>
           data?.created
-            ? `${data.created.length} account(s) created from ${data.total_rows} rows.`
+            ? `${data.created.length} account(s) created` +
+              (data.activated?.length ? ` and ${data.activated.length} existing student(s) activated` : '') +
+              ` from ${data.total_rows} rows.`
             : 'Upload recorded.',
         onSuccess: (data) => {
           setResult(data ?? null);
@@ -157,6 +170,21 @@ export default function AcademicUploadPanel({
     <>
       <Panel tab={title} tabIcon={tabIcon}>
         <div className="space-y-4">
+          {showCycle && !cycleLoading && (
+            cycle ? (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-on-surface-variant">
+                <span className="material-symbols-outlined text-[18px] text-primary" aria-hidden="true">event_repeat</span>
+                Goes into the <strong className="text-on-surface">{cycleLabel(cycle.label)}</strong> cycle
+                <span className="text-tertiary">· now: {semesterTitle(cycle, semesterOn(cycle, todayInIndia()))}</span>
+              </p>
+            ) : cycleError ? null : (
+              // Only when the read worked: a failed read is not "no cycle".
+              <p className="rounded-lg bg-warning-container/40 px-4 py-3 text-body-sm text-on-surface-variant">
+                There is no active academic cycle, so nothing can be filed yet.{' '}
+                <Link to="/cluster-head/cycles" className="text-primary hover:underline">Start one under Academic Cycles</Link>.
+              </p>
+            )
+          )}
           <FileField
             label="Data file"
             accept={accept}

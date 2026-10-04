@@ -272,6 +272,8 @@ export const NAVIGATION = {
   // reports.
   cluster_head: [
     { to: '/cluster-head', label: 'Home', icon: 'home', end: true },
+    // Where the year starts: the cycle, its semesters, and its workflow.
+    { to: '/cluster-head/cycles', label: 'Academic Cycles', icon: 'event_repeat' },
     { to: '/cluster-head/attendance', label: 'Upload Attendance', icon: 'fact_check' },
     { to: '/cluster-head/gpa', label: 'Upload GPA', icon: 'grade' },
     { to: '/cluster-head/backlogs', label: 'Upload Backlogs', icon: 'assignment_late' },

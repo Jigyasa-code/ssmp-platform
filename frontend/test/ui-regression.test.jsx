@@ -5,7 +5,10 @@
  *   3. The HOD's Students page stopped at 1,000 students (PostgREST's
  *      response cap) while the dashboard counted all of them.
  *   4. The student record showed a CGPA of 0 when nothing was uploaded;
- *      plus the arithmetic behind the Academic Performance Overview.
+ *      plus the arithmetic behind the Academic Performance Overview, and
+ *      the student's version of it (no header, no semester picker).
+ *   5. The academic-cycle helpers: which semester a date falls in, and
+ *      the checks on a new cycle's dates.
  */
 import { JSDOM } from 'jsdom';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -214,24 +217,23 @@ const { default: AcademicOverview } = await import('../src/components/academics/
   check('with nothing uploaded there is no CGPA of 0, only a dash',
     !markup.includes('0.00') && markup.includes('No GPA recorded yet'));
 }
+const sampleRecord = {
+  semesterLabel: '3rd Semester',
+  attendance: [
+    { course_id: 'a', course_code: 'IT2101', course_name: 'Data Structures', attendance_percent: 80, classes_held: 10, classes_attended: 8 },
+    { course_id: 'b', course_code: 'IT2102', course_name: 'Computer Organisation', attendance_percent: 70, classes_held: 10, classes_attended: 7 }
+  ],
+  semesterGpas: [{ semester: 1, gpa: 7.68, source: 'cluster_head' }, { semester: 2, gpa: 7.28, source: 'cluster_head' }],
+  cgpa: { value: 7.49, official: true, earnedCredits: 38 },
+  backlogs: [
+    { subject_code: 'MA1002', subject_name: 'ENGINEERING MATHEMATICS II', semester: 2, grade: 'F', is_cleared: false },
+    { subject_code: 'PH1001', subject_name: 'ENGINEERING PHYSICS', semester: 1, grade: 'UFM', is_cleared: true }
+  ],
+  blackDots: [{ case_number: '012/Odd Sem/2026', case_details: 'Found with banned items', incident_date: '2026-09-10' }]
+};
+
 {
-  const markup = renderToStaticMarkup(
-    <AcademicOverview
-      audience="student"
-      semesterLabel="3rd Semester"
-      attendance={[
-        { course_id: 'a', course_code: 'IT2101', course_name: 'Data Structures', attendance_percent: 80, classes_held: 10, classes_attended: 8 },
-        { course_id: 'b', course_code: 'IT2102', course_name: 'Computer Organisation', attendance_percent: 70, classes_held: 10, classes_attended: 7 }
-      ]}
-      semesterGpas={[{ semester: 1, gpa: 7.68, source: 'cluster_head' }, { semester: 2, gpa: 7.28, source: 'cluster_head' }]}
-      cgpa={{ value: 7.49, official: true, earnedCredits: 38 }}
-      backlogs={[
-        { subject_code: 'MA1002', subject_name: 'ENGINEERING MATHEMATICS II', semester: 2, grade: 'F', is_cleared: false },
-        { subject_code: 'PH1001', subject_name: 'ENGINEERING PHYSICS', semester: 1, grade: 'UFM', is_cleared: true }
-      ]}
-      blackDots={[{ case_number: '012/Odd Sem/2026', case_details: 'Found with banned items', incident_date: '2026-09-10' }]}
-    />
-  );
+  const markup = renderToStaticMarkup(<AcademicOverview audience="student" {...sampleRecord} />);
   check('the picker opens on the current semester', markup.includes('Sem 3 (Current)'));
   check('the attendance tile shows the average and the short subject',
     markup.includes('75%') && markup.includes('Below 75% in 1 subject'));
@@ -239,6 +241,50 @@ const { default: AcademicOverview } = await import('../src/components/academics/
   check('the backlog tile counts open backlogs only', markup.includes('Open from Sem 2'));
   check('the subject table lists every subject', markup.includes('IT2101') && markup.includes('IT2102'));
   check('the black dot is listed with its case number', markup.includes('Case 012/Odd Sem/2026'));
+}
+{
+  // The student's Academics page: the heading is the page title, so the
+  // block drops its own header and, with it, the semester picker.
+  const markup = renderToStaticMarkup(<AcademicOverview audience="student" showHeader={false} {...sampleRecord} />);
+  check('without the header there is no semester picker', !markup.includes('<select') && !markup.includes('Sem 3 (Current)'));
+  check('without the header the heading is not repeated', !markup.includes('<h2'));
+  check('without the header the block is still labelled', markup.includes('aria-label="Academic performance overview"'));
+  check('without the header the view is the current semester', markup.includes('Current GPA') && markup.includes('Open backlogs'));
+  check('the student is not told they can record a GPA',
+    !renderToStaticMarkup(<AcademicOverview audience="student" showHeader={false} />).includes('record below'));
+}
+
+// ── 5. Academic cycles ───────────────────────────────────────────────
+console.log('\nAcademic cycles');
+
+const cycles = await import('../src/lib/academicCycles.js');
+{
+  const cycle = { label: '2026-27', start_year: 2026, starts_on: '2026-07-01', even_starts_on: '2027-01-01', ends_on: '2027-06-30' };
+  check('the label is written with an en dash', cycles.cycleLabel(cycle.label) === '2026–27');
+  check('the semesters are named with their calendar year',
+    cycles.semesterTitle(cycle, 'Odd') === 'Odd semester 2026' && cycles.semesterTitle(cycle, 'Even') === 'Even semester 2027');
+  check('a date before the even semester starts is in the odd one',
+    cycles.semesterOn(cycle, '2026-12-31') === 'Odd' && cycles.semesterOn(cycle, '2027-01-01') === 'Even');
+  const odd = cycles.semesterRange(cycle, 'Odd');
+  check('the odd semester ends the day before the even one starts', odd.from === '2026-07-01' && odd.to === '2026-12-31', JSON.stringify(odd));
+  check('India is ahead of UTC: 20:00 UTC on 31 Dec is already 1 Jan',
+    cycles.todayInIndia(new Date('2026-12-31T20:00:00Z')) === '2027-01-01');
+  check('July starts a new academic year', cycles.academicYearOf('2027-06-30') === 2026 && cycles.academicYearOf('2027-07-01') === 2027);
+  check('the next cycle comes after the latest one, not after today',
+    cycles.nextCycleYear([{ start_year: 2026 }, { start_year: 2025 }], '2030-08-01') === 2027);
+  check('with no cycle yet, the next one is the current academic year', cycles.nextCycleYear([], '2026-09-28') === 2026);
+  check('labels match the database: 2027-28, 2009-10',
+    cycles.labelForYear(2027) === '2027-28' && cycles.labelForYear(2009) === '2009-10');
+  check('an attendance upload is named by its subject and section',
+    cycles.uploadScope({ upload_type: 'attendance', course_code: 'IT2101', section_label: 'A' }) === 'IT2101 · Section A');
+  check('other uploads keep the scope their upload function wrote',
+    cycles.uploadScope({ upload_type: 'gpa', scope_label: 'Semesters 1, 2 + CGPA' }) === 'Semesters 1, 2 + CGPA'
+    && cycles.uploadScope({ upload_type: 'backlog', semester_number: 3 }) === 'Semester 3');
+  check('the default dates pass the checks', cycles.validateCycleDates(2027, cycles.defaultCycleDates(2027)) === null);
+  check('dates out of order are refused',
+    /out of order/.test(cycles.validateCycleDates(2027, { starts_on: '2027-07-01', even_starts_on: '2027-06-01', ends_on: '2028-06-30' }) ?? ''));
+  check('dates far from the year are refused',
+    /fall around 2027–28/.test(cycles.validateCycleDates(2027, { starts_on: '2027-07-01', even_starts_on: '2028-01-01', ends_on: '2029-01-01' }) ?? ''));
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`}`);

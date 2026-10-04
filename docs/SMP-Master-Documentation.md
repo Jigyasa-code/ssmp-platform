@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). That is SQL migrations `0001`–`0035`. |
+| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). On 2026-09-28: academic cycles, black dots in the at-risk rule, and the end of student GPA entry (migrations `0036`–`0037`, §4.24, §4.14, §4.9). That is SQL migrations `0001`–`0037`. |
 | **Supersedes** | `docs/SSMP-Platform-Context.docx` (August 2026, which covered migrations 0001–0019). Where `README.md`, `SETUP_GUIDE.md`, `docs/SECURITY.md` or `docs/CLUSTER-HEAD-AND-CYCLE-JOBS.md` disagree with this document, this document is correct. Those files contain stale statements; see §15.5. |
-| **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 35 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
+| **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 37 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
 | **Secrets** | None appear here. Environment variables, the temporary password, the seed password and keys are documented by **name and purpose only**. |
 
 ### How to use this document
@@ -70,7 +70,8 @@ Every student has exactly one faculty **mentor**. The portal replaces paper, e-m
 
 - **Student queries** (support requests) go to the student's own mentor. A query can only be closed when the **student confirms** it is fixed. A student can reject a resolution at most 3 times. The mentor can **refer a query to the HOD**. Every query has timestamps (first response, resolution) and a 1–5 satisfaction rating.
 - **Form A** is the department's onboarding record: student, parents, address, alumni links. It is compulsory before the portal opens, as is a profile photo.
-- **Academic monitoring.** Cluster heads upload attendance (the ERP export), semester GPAs and backlogs. Every upload re-evaluates each affected student against the **at-risk rule**, and the mentor is notified. See §4.14.
+- **Academic monitoring.** Cluster heads upload attendance (the ERP export), semester GPAs, backlogs and the Proctorial Board's black dots. Every upload re-evaluates each affected student against the **at-risk rule**, and the mentor is notified. See §4.14.
+- **Academic cycles.** Each academic year is one **cycle** ("2026–27") with an odd and an even semester. Everything uploaded is filed under the cycle it belongs to, so the next year never overwrites the last. See §4.24.
 - **Pastoral channels:**
   - private **counselling** requests to one's mentor;
   - a class representative ("**star mentee**") who files **CR reports** (meeting minutes), whose action items become queries;
@@ -87,10 +88,10 @@ Roles are the Postgres enum `user_role`. A user has exactly one role, stored in 
 
 | Role | Who | Portal root | What they do |
 |---|---|---|---|
-| `student` | Enrolled student | `/student` | Fill Form A and upload a photo (both compulsory). Raise and track queries; confirm or reject resolutions; rate. Record semester GPA where the department has not published one. Maintain achievements. Answer the feedback survey. Request counselling. |
+| `student` | Enrolled student | `/student` | Fill Form A and upload a photo (both compulsory). Raise and track queries; confirm or reject resolutions; rate. See their academic record (attendance, GPA, backlogs, black dots) as the department recorded it. Maintain achievements. Answer the feedback survey. Request counselling. |
 | `faculty` | Faculty **mentor** | `/faculty` | Answer and resolve mentees' queries and refer them to the HOD. Set their department and HOD e-mail. View mentees and their dossiers; verify achievements. Choose one star mentee. Handle counselling. Act on CR-report items. Follow at-risk mentees. Produce their own activity report. |
 | `hod` | Head of Department | `/hod` | See every query and student. View faculty performance and reports (including the consolidated department report). Change faculty employment status and reassign mentees. Create single accounts. Run the periodic jobs. Can also upload rosters and academic data through the API, though there is no HOD screen for it. |
-| `cluster_head` | Staff member responsible for academic data | `/cluster-head` | One-time subject setup. Upload attendance, GPA, backlogs and black dots. Upload student and faculty rosters and the mentor–mentee mapping. Through RLS and the UI, cluster heads have **no** access to queries, Form A, GPA or risk data (but see §8.9 S2). They can read back only the backlog and black dot rows they uploaded. |
+| `cluster_head` | Staff member responsible for academic data | `/cluster-head` | One-time subject setup. Run the **academic cycles**: start each year's cycle, bring students into it, download the cycle report (§4.24). Upload attendance, GPA, backlogs and black dots. Upload student and faculty rosters and the mentor–mentee mapping. Through RLS and the UI, cluster heads have **no** access to queries, Form A, GPA or risk data (but see §8.9 S2). They can read back only the backlog and black dot rows they uploaded, and cycle-wide counts with no student named. |
 
 There are two further **flags** that are not roles:
 
@@ -108,27 +109,28 @@ Every account the portal creates starts on a shared temporary password (§4.1) a
 
 ### 1.3 End-to-end workflow
 
-The normal life of a semester, in order. Section numbers point to the detailed description.
+The normal life of an academic year, in order. Section numbers point to the detailed description.
 
-1. **Cluster head onboarding.** The cluster head signs in with the temporary password and sets a new one. They then complete the one-time **setup form**: the subjects they own, as course name and course code. Their portal opens only after that (§4.11).
-2. **Accounts.** The cluster head uploads the **student roster**, which creates student accounts keyed by e-mail, with the registration number stored as `login_id`. Then they upload the **faculty roster** (optional) and the **mentor–mentee mapping**, which links each registration number to a mentor e-mail and creates any missing mentor accounts (§4.13).
-3. **Student onboarding.** A student signs in, changes the temporary password, then fills **Form A**, then uploads a **profile photo**. Only then does the student portal open (§4.3).
-4. **Mentor set-up.** From My Mentees the mentor records their **department and HOD e-mail**. This decides which HOD receives their referrals (§4.5). They also choose a **star mentee** (§4.6).
-5. **Day-to-day mentoring:**
+1. **The academic cycle.** Each academic year is one cycle, such as 2026–27, with an odd semester (July to December) and an even semester (January to June). Migration `0036` creates the first one. When the next year begins, a cluster head starts the next cycle from Academic Cycles; the old one is closed and kept exactly as it was (§4.24).
+2. **Cluster head onboarding.** The cluster head signs in with the temporary password and sets a new one. They then complete the one-time **setup form**: the subjects they own, as course name and course code. Their portal opens only after that (§4.11).
+3. **Accounts.** The cluster head uploads the **student roster**, which creates student accounts keyed by e-mail, with the registration number stored as `login_id`. Then they upload the **faculty roster** (optional) and the **mentor–mentee mapping**, which links each registration number to a mentor e-mail and creates any missing mentor accounts (§4.13).
+4. **Student onboarding.** A student signs in, changes the temporary password, then fills **Form A**, then uploads a **profile photo**. Only then does the student portal open (§4.3).
+5. **Mentor set-up.** From My Mentees the mentor records their **department and HOD e-mail**. This decides which HOD receives their referrals (§4.5). They also choose a **star mentee** (§4.6).
+6. **Day-to-day mentoring:**
    - The student raises a **query**. The mentor replies (the first reply moves it to *In Progress*) and resolves it. The student confirms (closed) or rejects (reopened; at most 3 times), and can rate 1–5. At any point the mentor may **raise the query to the HOD** (§4.4, §4.5).
    - Students can send **counselling** requests that only their mentor sees (§4.8).
    - The star mentee files **CR reports**. Every action item becomes a query assigned to the mentor, who works through them from CR Reports (§4.7).
-6. **Academic data.** Whenever it is available, the cluster head uploads the ERP **attendance** export, the ERP **CGPA / GPA & Credits** export, the ERP **Defaulter Grade** result (backlogs) and the Proctorial Board's **black dot** notice. There is no date window. Students are matched on registration number only.
-   - Every attendance, GPA and backlog upload writes the data and re-evaluates the affected students' **at-risk** flags. Black dots are recorded on the student's record but are not part of the rule.
+7. **Academic data.** Whenever it is available, the cluster head uploads the ERP **attendance** export, the ERP **CGPA / GPA & Credits** export, the ERP **Defaulter Grade** result (backlogs) and the Proctorial Board's **black dot** notice. There is no date window. Students are matched on registration number only.
+   - Every upload is filed under the active cycle and writes the data. Each one then re-evaluates the affected students' **at-risk** flags: attendance below 75% in this cycle, latest GPA below 6, an uncleared backlog, or a black dot in this cycle.
    - The mentor is notified when a student becomes (or stops being) at risk.
-   - Students see their own attendance and GPA. They can self-report GPA only for semesters the department has not published (§4.9, §4.12, §4.14).
-7. **Periodic jobs.** These are nominally every 15 days (reminders every 7), but **they only run when triggered**, normally by the HOD from Scheduled Jobs (§4.16). The jobs:
+   - Students see their own attendance, GPA, backlogs and black dots. They no longer record GPA themselves; migration `0037` removed that (§4.9, §4.12, §4.14).
+8. **Periodic jobs.** These are nominally every 15 days (reminders every 7), but **they only run when triggered**, normally by the HOD from Scheduled Jobs (§4.16). The jobs:
    - re-sweep every student's risk;
    - raise a **mentor meeting** record for each flagged student (no video link is generated yet; that step is a placeholder);
    - open a new **feedback survey** cycle and notify every student;
    - remind students who have not answered.
-8. **Survey.** Every student answers 10 questions on a 1–5 scale. The star mentee sees who in the group has not answered, and the mentor sees per-mentee status (§4.15).
-9. **Oversight and reports.**
+9. **Survey.** Every student answers 10 questions on a 1–5 scale. The star mentee sees who in the group has not answered, and the mentor sees per-mentee status (§4.15).
+10. **Oversight and reports.**
    - Dashboards for each role (§4.17).
    - The HOD's faculty performance table.
    - Faculty activity, department and student-dossier reports, on screen and as PDFs (§4.18).
@@ -188,12 +190,13 @@ There is no other server. There is no application database outside Supabase, no 
 | Operation | Path | Examples |
 |---|---|---|
 | Reading lists, dashboards and detail pages | Browser → PostgREST (tables/views under RLS) or a read RPC | `support_queries`, `student_query_summary`, `get_dashboard_metrics`, `get_student_dossier` |
-| State transitions with rules or side effects | Browser → `supabase.rpc()` (SECURITY DEFINER) | `create_support_query`, `resolve_support_query`, `confirm_query_resolution`, `escalate_query_to_hod`, `set_star_mentee`, `submit_student_form_a`, `upsert_semester_gpa`, `request_counselling`, `submit_mom_report`, `submit_survey_response`, `submit_cluster_head_setup` |
+| State transitions with rules or side effects | Browser → `supabase.rpc()` (SECURITY DEFINER) | `create_support_query`, `resolve_support_query`, `confirm_query_resolution`, `escalate_query_to_hod`, `set_star_mentee`, `submit_student_form_a`, `request_counselling`, `submit_mom_report`, `submit_survey_response`, `submit_cluster_head_setup`, `create_academic_cycle`, `carry_over_cycle_students`, `reevaluate_students_batch` |
 | Simple self-edits allowed by RLS | Browser → direct `insert/update/delete` | own `phone` and `avatar_url`; own achievements; marking own notifications read; a mentor/HOD changing a query's `priority`; clearing `must_change_password` |
 | Creating accounts | API → Supabase Auth Admin (service role) | provision-user-accounts, import-roster-spreadsheet, mentor-map upload |
-| Parsing uploaded spreadsheets | API → parser → RPC as the user | upload-academic-data (attendance, GPA, backlog, mentor map) |
+| Parsing uploaded spreadsheets | API → parser → RPC as the user | upload-academic-data (attendance, GPA, backlog, black dot, mentor map) |
 | Faculty status and reassignment | API → RPC as the user, then a service-role update of `support_queries` | manage-faculty-roster |
 | PDFs | API → report RPC as the user → pdf-lib | faculty-activity-report, student-dossier-report |
+| Excel reports | API → report RPC as the user → ExcelJS | academic-cycle-report |
 | Periodic jobs | API → RPC as the user | run-cycle-job |
 | Rate limiting and audit | API → `consume_rate_limit`, `write_audit_entry` | every privileged endpoint |
 
@@ -290,7 +293,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 │   ├── _lib/                       shared server code (underscore = not deployed as an endpoint)
 │   ├── admin/                      provisioning, roster import, faculty roster, cycle jobs
 │   ├── cluster-head/               academic-data upload
-│   ├── reports/                    faculty activity / department report, student dossier
+│   ├── reports/                    faculty activity / department report, student dossier, academic cycle report
 │   └── health.js
 ├── frontend/                       the React SPA (npm package "ssmp-frontend")
 │   ├── index.html, vite.config.js, tailwind.config.cjs, postcss.config.cjs, package.json, .env.example
@@ -299,7 +302,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 │   └── test/ui-regression.test.jsx
 ├── supabase/
 │   ├── config.toml                 local Supabase stack configuration
-│   ├── migrations/0001…0035        the whole schema, in order
+│   ├── migrations/0001…0037        the whole schema, in order
 │   ├── seed.sql                    local-only seed (supabase db reset)
 │   └── scripts/{seed-demo-accounts.mjs, ci-supabase-stubs.sql}
 ├── sample-data/                    demo rosters, cluster-head sample generator, generated upload files
@@ -329,17 +332,18 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 |---|---|
 | `api/health.js` | `GET /api/health`. Liveness plus which required variables are set (never their values). |
 | `api/admin/provision-user-accounts.js` | `POST`, HOD only. Creates 1–500 Auth accounts (any role) with the shared temporary password and optionally sets a student's mentor. Used by the HOD's "Add account" modal. |
-| `api/admin/import-roster-spreadsheet.js` | `POST`, cluster head or HOD. Parses a student, faculty or combined roster and creates accounts in time-boxed chunks. Links mentors and parent contacts, and records one `roster_import_batches` row per upload. |
+| `api/admin/import-roster-spreadsheet.js` | `POST`, cluster head or HOD. Parses a student, faculty or combined roster and creates accounts in time-boxed chunks. Links mentors and parent contacts, and records one `roster_import_batches` row per upload. Students who already have an account are **activated** in the current academic cycle through `activate_roster_students` rather than skipped (§4.13). |
 | `api/admin/manage-faculty-roster.js` | `GET` (roster, mentees, reserve pool) and `POST` (set status, reassign), HOD only. On reassignment it also moves unresolved queries with the service role. |
 | `api/admin/run-cycle-job.js` | `GET` job status, `POST` run one job or all. HOD only. |
-| `api/cluster-head/upload-academic-data.js` | `POST`, cluster head or HOD. `action` = `attendance`, `gpa`, `backlog` or `mentor-map`. Parses the file and calls the matching RPC as the user. `mentor-map` first creates missing mentor accounts. |
+| `api/cluster-head/upload-academic-data.js` | `POST`, cluster head or HOD. `action` = `attendance`, `gpa`, `backlog`, `black-dot` or `mentor-map`. Parses the file and calls the matching RPC as the user. `mentor-map` first creates missing mentor accounts. Everything is filed under the active academic cycle by the database (§4.24). |
 | `api/reports/faculty-activity-report.js` | `GET`, faculty or HOD. The faculty activity report (JSON or PDF). `faculty_id=all` gives the HOD's department report. |
 | `api/reports/student-dossier-report.js` | `GET`, any signed-in user; the database decides access. Student dossier as JSON or PDF. |
+| `api/reports/academic-cycle-report.js` | `GET`, cluster head or HOD. The Excel report of one academic cycle, or one of its semesters, built from `get_cycle_overview` (§4.24, §6.10). Exports `buildCycleWorkbook` for testing. |
 | `api/_lib/http-response.js` | `withApiDefaults`, CORS, security headers, JSON envelope (`sendSuccess`, `sendError`, `sendJson`, `applyBaseHeaders`), `ApiError` |
 | `api/_lib/request-guards.js` | `requireAuthenticatedUser`, `requireRole`, `clientIp`, `enforceRateLimit`, `recordAuditEntry` |
 | `api/_lib/supabase-clients.js` | `createAdminClient()` (service role), `createUserClient(jwt)` (anon key plus the caller's JWT) |
 | `api/_lib/environment.js` | Reads and validates server variables once (`env` getters) and `describeConfigHealth()` |
-| `api/_lib/input-validation.js` | zod schemas for every request, `parseOrThrow`, `assertBodySize`, `sanitizeSingleLine`, `emailSchema` |
+| `api/_lib/input-validation.js` | zod schemas for every request (including `cycleReportQuerySchema`), `parseOrThrow`, `assertBodySize`, `sanitizeSingleLine`, `emailSchema` |
 | `api/_lib/spreadsheet-parser.js` | CSV / XLSX / ERP-HTML-`.xls` / `.docx` reading, and parsers for rosters, attendance, the mentor map, the CGPA / GPA & Credits export, the Defaulter Grade result and the PB black dot notice. `REGISTRATION_ALIASES` is the one list of registration-number headings |
 | `api/_lib/table-readers.js` | `readHtmlGrid` (HTML tables with rowspan/colspan filled in), `readDocxGrid` (Word tables, unzipped with `node:zlib`, with `gridSpan`/`vMerge` filled in), `decodeEntities` |
 | `api/_lib/spreadsheet-parser.check.mjs` | Self-check script for the parsers (17 checks: attendance, mentor map, GPA, backlogs, black dots), run by `npm test` |
@@ -355,7 +359,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `main.jsx`, `App.jsx` | Bootstrap. The provider order is `ErrorBoundary › BrowserRouter › ToastProvider › AuthProvider › NotificationProvider › AppRouter`. |
 | `index.css` | Tailwind layers plus component classes (§9.9) |
 | `assets/manipal-university-jaipur-logo.png` | Brand logo |
-| `routes/AppRouter.jsx` | The single route table (49 routes, §9.3). Most pages are `React.lazy` inside one `Suspense` with a `PageLoader` fallback. |
+| `routes/AppRouter.jsx` | The single route table (50 routes, §9.3). Most pages are `React.lazy` inside one `Suspense` with a `PageLoader` fallback. |
 | `routes/RouteGuards.jsx` | `RequireAuth`, `RequirePasswordChange`, `RequireRole`, `RequireOnboarding`, `RequireClusterHeadSetup` |
 | `context/AuthProvider.jsx` | Session, the signed-in `user_profiles` row with the mentor embedded, sign-in and out, password change and reset, live profile updates |
 | `context/NotificationProvider.jsx` | Bell data, realtime inserts, mark read / mark all read |
@@ -363,6 +367,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `hooks/useRealtimeQueries.js` | `useRealtimeQueries` (paged, filtered, live query list) and `useQueryThread` (one query and its messages, live) |
 | `hooks/useDashboardMetrics.js` | Calls `get_dashboard_metrics` |
 | `hooks/useAsyncAction.js` | `run(fn, {successMessage, onSuccess})` with toast handling |
+| `hooks/useActiveCycle.js` | `useActiveCycle()` → `{ cycle, loading, error, reload }`: the active `academic_cycles` row, cached for the whole page session. `refreshActiveCycle()` re-reads it after a cycle is started, edited or removed (§4.24). |
 | `lib/supabaseClient.js` | The single browser Supabase client and `getAccessToken()`. Shows a configuration-error page if the `VITE_SUPABASE_*` variables are missing. |
 | `lib/apiClient.js` | `apiClient.get`, `.post`, `.downloadFile` for `/api/*` |
 | `lib/fileUpload.js` | Client-side file validation, private uploads, signed URLs, `BUCKETS` |
@@ -370,6 +375,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `lib/formatters.js` | Date, number and duration formatting, `describeError` |
 | `lib/fetchAllRows.js` | Reads a whole list in pages of 1,000 with `.range()`, because PostgREST returns at most `max_rows` rows per request (§4.20) |
 | `lib/academicRecord.js` | The arithmetic behind the Academic Performance Overview: semester labels, the semester picker, the attendance mean, GPA change and trend points, backlog order (§4.9) |
+| `lib/academicCycles.js` | Naming and date arithmetic for academic cycles: `cycleLabel` ("2026–27"), `semesterTitle` ("Odd semester 2026"), `semesterRange`, `semesterOn`, `todayInIndia`, `defaultCycleDates`, `nextCycleYear`, `validateCycleDates` (the same checks as the database), `uploadScope` (§4.24) |
 | `components/layout/` | `PortalShell`, `SidebarNavigation`, `TopBar`, `NotificationBell` |
 | `components/ui/` | `Avatar`, `DataTable`, `EmptyState`, `ErrorBoundary`, `FormControls`, `Modal`, `PageHeader`, `Panel`, `ProfilePhotoUploader`, `Skeleton`, `StatCard`, `StatusBadge` |
 | `components/charts/Charts.jsx` | Recharts wrappers: `CategoryBarChart`, `GroupedBarChart`, `TrendLineChart`, `AreaTrendChart`, `DonutChart`, `GaugeChart`, `Sparkline` |
@@ -377,18 +383,20 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `components/queries/` | `CreateQueryModal`, `QueryConversation`, `ResolutionConfirmation`, `SatisfactionRating` (shared by all portals) |
 | `components/student/FormAFields.jsx` | The Form A field set, its state and its validation (`EMPTY_FORM_A`, `validateFormA`, `useFormAState`, `FormAFields`) |
 | `components/hod/AddAccountModal.jsx` | Single-account creation |
-| `components/clusterHead/AcademicUploadPanel.jsx` | The shared upload block, including the chunk loop |
+| `components/clusterHead/AcademicUploadPanel.jsx` | The shared upload block, including the chunk loop. Says which academic cycle an upload goes into (`showCycle`, off for the faculty roster). |
+| `components/clusterHead/cycles/CycleModules.jsx` | The Academic Cycles page's module tabs: students, attendance, GPA, backlogs, black dots, uploads (§4.24) |
+| `components/clusterHead/cycles/CycleDialogs.jsx` | `StartCycleModal` and `EditCycleDatesModal` |
 | `components/tickets/` | **Dead.** Pre-rename copies that nothing imports. They call RPCs dropped in 0031, and one imports a constant that no longer exists (§15.4). |
 | `pages/auth/` | `LoginPage`, `ChangePasswordPage` (also serves `/reset-password`) |
 | `pages/student/` | 13 pages (§9.6) |
 | `pages/faculty/` | 10 pages. Six are reused by the HOD with `isHodView`. |
 | `pages/hod/` | 6 pages. `HodProfilePage` re-exports `FacultyProfilePage`. |
-| `pages/clusterHead/` | 8 pages. `ClusterHeadProfilePage` re-exports `FacultyProfilePage`. |
+| `pages/clusterHead/` | 10 pages. `ClusterHeadProfilePage` re-exports `FacultyProfilePage`. |
 | `pages/NotFoundPage.jsx` | Catch-all 404 |
 
 Other files in `frontend/`:
 
-- `test/ui-regression.test.jsx` is a jsdom regression test for past bugs (Panel padding, Modal focus theft, the HOD Students 1,000-row cap, a CGPA of 0 with nothing uploaded) and for the overview's arithmetic (§13.4).
+- `test/ui-regression.test.jsx` is a jsdom regression test for past bugs (Panel padding, Modal focus theft, the HOD Students 1,000-row cap, a CGPA of 0 with nothing uploaded), for the overview's arithmetic and its header-less student version, and for the academic-cycle helpers (§13.4).
 - `vite.config.js` sets dev port 5173 and manual chunks `react-vendor`, `supabase-vendor`, `charts-vendor`.
 - `package.json` depends on `"ssmp-platform": "file:.."` to share the root package.
 
@@ -397,9 +405,9 @@ Other files in `frontend/`:
 | Path | Contents |
 |---|---|
 | `config.toml` | Local stack settings: API 54321, DB 54322 (Postgres 15), Studio 54323; auth settings (§12.3) |
-| `migrations/` | 33 ordered files (list below) |
+| `migrations/` | 37 ordered files (list below) |
 | `seed.sql` | **Local only.** Creates demo users directly in `auth.users`/`auth.identities`, sets mentors, inserts sample queries and messages, and inserts the 4 global canned replies ("Acknowledged", "Need more detail", "Escalated to IT", "Meet in person"). The seed script inserts the same four; no migration does. |
-| `scripts/seed-demo-accounts.mjs` | Hosted-safe seed through the Auth Admin API. It creates the demo accounts, mentors, sample queries, cluster heads and their subjects, uploads sample attendance, GPA and backlogs through the `record_*_batch` RPCs, and runs cycle jobs. See Appendix D. |
+| `scripts/seed-demo-accounts.mjs` | Hosted-safe seed through the Auth Admin API. It creates the demo accounts, mentors, sample queries, cluster heads and their subjects (in the active academic cycle), uploads sample attendance, GPA, backlogs and black dots through the `record_*_batch` RPCs, and runs cycle jobs. See Appendix D. |
 | `scripts/ci-supabase-stubs.sql` | Minimal `auth` and `storage` schema stubs (roles, `auth.uid()`, `auth.users`, storage tables) so CI can apply the migrations to plain Postgres |
 | `scripts/verify-security-policies.mjs` | **Missing.** `npm run verify:security` references it, so that script fails. |
 
@@ -442,6 +450,8 @@ Other files in `frontend/`:
 | 0033 | `resolve_students_per_upload` | `resolve_student_ids`; the four upload RPCs resolve identifiers once per file (fixes statement timeouts on ~2,300-row files) |
 | 0034 | `black_dot_upload_type` | Enum value `academic_upload_type.black_dot`, alone in its own file |
 | 0035 | `black_dots_and_erp_result_exports` | `student_black_dots`, `student_cgpas`; credits on `student_semester_gpas`; grade and credits on `student_backlogs`; `academic_upload_batches.scope_label`; `try_numeric`, `is_blank_mark`; rewritten `record_gpa_batch`, `record_backlog_batch` (new `p_subject_codes`), new `record_black_dot_batch`; `resolve_student_ids` registration-number-only with a caller check (S3); `login_id` protected (S5); `get_student_dossier` returns CGPA, backlogs and black dots |
+| 0036 | `academic_cycles_and_black_dot_risk` | `academic_cycles` (one per academic year, exactly one active) and `academic_cycle_students`, reusing the enum `semester_term` (0001) for the odd and even semesters; `cycle_id` on uploads, roster imports, subjects, attendance, backlogs, black dots and at-risk meetings, set by triggers and backfilled into the first cycle; subjects per cycle (`current_cycle_courses`); `student_attendance_overview` limited to the active cycle; `academic_upload_history`; black dots join the at-risk rule (`has_black_dot`, `black_dot_count`); `reevaluate_students_batch`; `activate_roster_students`, `carry_over_cycle_students`; `create_academic_cycle`, `update_academic_cycle_dates`, `delete_academic_cycle`, `list_academic_cycles`, `get_cycle_overview`; current bodies of `submit_cluster_head_setup`, `record_attendance_batch`, `map_students_to_mentors`, `evaluate_student_risk`, `notify_on_risk_flag_change`, `dispatch_at_risk_meetings`, `record_black_dot_batch`, `at_risk_student_overview` (§4.24) |
+| 0037 | `retire_student_gpa_entry` | Students no longer record GPA: `upsert_semester_gpa` is no longer executable by signed-in users, and the direct-write policies on `student_semester_gpas` are dropped (closes S1) (§4.9) |
 
 ### 3.6 Other folders
 
@@ -979,43 +989,39 @@ supabase.from('support_queries')
 - The policy `counselling_update_mentor` lets the mentor update **any column** of their requests directly, including the student's `concern` text.
 - `respond_to_counselling` without "close" sets `acknowledged` from any state, so replying to a closed request reopens it.
 
-### 4.9 Academics (student side): the academic performance overview and GPA entry
+### 4.9 Academics (student side): the academic performance overview
 
-**Status:** Implemented. There is one security gap.
+**Status:** Implemented. Students no longer record GPA themselves (removed 2026-09-28, migration `0037`).
 
 **Where:**
 
 - UI: `pages/student/StudentAcademicsPage.jsx`. The overview is `components/academics/AcademicOverview.jsx`, the same block the mentor and the HOD see on the student's page (§4.18); its arithmetic is in `lib/academicRecord.js`.
-- SQL: `upsert_semester_gpa`, `can_view_student_gpa`, `can_access_student`, `set_gpa_sharing` (dead).
-- Tables and views, all read directly and RLS-scoped to the student: `student_semester_gpas`, `student_cgpas`, `student_attendance_overview`, `student_backlogs`, `student_black_dots`.
+- SQL: `can_view_student_gpa`, `can_access_student`; `upsert_semester_gpa` (retired in 0037) and `set_gpa_sharing` (dead).
+- Tables and views, all read directly and RLS-scoped to the student: `student_semester_gpas`, `student_cgpas`, `student_attendance_overview` (the active academic cycle's attendance, §4.24), `student_backlogs`, `student_black_dots`.
+
+**The page** is the overview and nothing else. Its heading, "Academic performance overview", is the page title, with "Attendance per subject, GPA, backlogs with their subjects, and black dots." under it. The page passes `showHeader={false}`, so the overview's own heading, description and **semester picker are not shown to the student**: the student always sees the current view. The mentor's and the HOD's student page keep the header and the picker.
 
 **The academic performance overview** (2026-09-27):
 
-- **Semester picker.** It opens on "Sem N (Current)". N is read from the profile's `semester_label` ("3rd Semester", "Semester III", "V Sem"); a label that names a year, or no number beside "sem", gives nothing, and then N is the semester after the last graded one. Earlier semesters are always offered, and any later one that has data.
+- **Semester picker** (staff pages only). It opens on "Sem N (Current)". N is read from the profile's `semester_label` ("3rd Semester", "Semester III", "V Sem"); a label that names a year, or no number beside "sem", gives nothing, and then N is the semester after the last graded one. Earlier semesters are always offered, and any later one that has data.
   - **Current view:** attendance from the latest uploads, the latest graded semester's GPA, every backlog (open first) and every black dot.
-  - **An earlier semester:** that semester's GPA and the backlogs recorded against it. Attendance carries no semester in the portal (the view keeps the latest period per course), so its card says "No attendance for Sem n"; black dots are always the whole record. A banner says this, with "Back to Sem N".
+  - **An earlier semester:** that semester's GPA and the backlogs recorded against it. Attendance carries no programme semester in the portal (the view keeps the latest period per course), so its card says "No attendance for Sem n"; black dots are always the whole record. A banner says this, with "Back to Sem N".
 - **Four tiles:**
   - **Average attendance:** the mean of the per-course percentages, the at-risk rule's own figure. One decimal, but a value below 75 is never rounded up to "75%". Note: "Below the 75% target overall", "Below 75% in n subjects" or "75% or more in all n subjects"; footnote: the subject count and the latest `period_end`.
   - **Current GPA** ("GPA · Sem n" for an earlier semester): the GPA, and its change from the previous graded semester ("Up 0.40 from Sem 1", "Down …", "Same as …", "First graded semester"). Footnote: "Sem n result · CGPA x", where the CGPA is the official one once uploaded and otherwise the mean of the semesters, marked "(average)". With no GPA the tile shows "—" and "No GPA recorded yet", never 0.
   - **Open backlogs** ("Backlogs · Sem n"): the open count, with "Open from Sem 1 and 2", "None open · n cleared" or "None on record".
-  - **Black dots:** the count and the latest incident date.
+  - **Black dots:** the count and the latest incident date. This is the student's whole record; only the active cycle's black dots count towards the at-risk rule (§4.14).
 - **Subject-wise attendance:** one bar per subject, blue at or above 75% and red below, the percentage printed on each bar, a dashed 75% target line and a legend; the tooltip gives the subject name and "a of h classes". Below it, a table: Subject (code, name, teaching section), Attendance (with a small meter), Attended, Total classes. Empty: "No attendance uploaded yet".
-- **GPA trend:** semesters 1 up to the current or last graded one, a point only where there is a GPA (the line breaks at a gap), a dashed at-risk line at 6 and a label on each point. Below it, Semester | GPA | Credits | Recorded by ("Department" or "You"), and a strip with the CGPA ("Official" or "Average of semesters"), the credits earned and the highest semester.
+- **GPA trend:** semesters 1 up to the current or last graded one, a point only where there is a GPA (the line breaks at a gap), a dashed at-risk line at 6 and a label on each point. Below it, Semester | GPA | Credits | Recorded by ("Department", or "You" / "Self-reported" for a GPA a student recorded before `0037`), and a strip with the CGPA ("Official" or "Average of semesters"), the credits earned and the highest semester. Empty: "Your GPA appears here once the department publishes it." (student) or "No GPA has been published for this student yet." (staff).
 - **Backlogs (open count):** # | Code | Subject name | Sem | Grade | Status ("Backlog" or "Cleared"), up to 5 rows. "View all" opens every backlog with credits, exam and the date it was cleared.
 - **Black dots (count):** # | Date | Reason / incident (with the case number) | Block (and room) | Previous record, up to 5 rows. "View all" lists every case with course/branch and the date it was recorded.
 
-**Record your GPA** (below the overview): one box per semester 1–8.
+**GPA comes only from the department.** Until 2026-09-28 a "Record your GPA" panel under the overview let a student enter the GPA of any semester the department had not published, through `upsert_semester_gpa`. The panel is gone, and migration `0037` closes the database paths too:
 
-**Self-entry of GPA:**
+- `upsert_semester_gpa` is no longer executable by `authenticated` (it is kept, so the feature could return with one `GRANT`);
+- the policies `gpas_insert_own`, `gpas_update_own` and `gpas_delete_own` are dropped and the table grant is `SELECT` only. They never checked `source`, so they had also let a student change or delete a department-published GPA (S1, now closed).
 
-- **Input:** a value from 0 to 10, step 0.01 ("GPA must be a number between 0 and 10.").
-- **Processing:** `upsert_semester_gpa(p_semester_number, p_gpa)`:
-  - checks "Only a student can record their own GPA", "Semester must be between 1 and 8" and "GPA must be between 0 and 10";
-  - refuses when the department has published that semester ("Semester n GPA was published by the department and cannot be edited here");
-  - rounds to 2 dp and saves with `source = 'student'`.
-- **Output:** toast "Semester n GPA saved." The page reloads quietly, keeping the semester picked in the overview.
-- **Department rows:** rows with `source = 'cluster_head'` are shown read-only, with "Published by the department".
-- **No clearing:** the UI cannot clear a semester once saved.
+GPAs students recorded before `0037` are kept with `source = 'student'`. They still show (marked as the student's own) and still count as the latest GPA in the at-risk rule until the department uploads that semester, which replaces them as it always did. Nothing in the portal deletes them; if the department wants department figures only, that is `delete from public.student_semester_gpas where source = 'student'` in SQL.
 
 **Not shown to students:** anything about their own at-risk status. No student page reads `student_risk_flags` or meetings. Backlogs and black dots have been on this page since 2026-09-27; RLS already let a student read their own rows.
 
@@ -1024,12 +1030,7 @@ supabase.from('support_queries')
 - `student_form_a_profiles.gpa_sharing_enabled` (default `true`) still gates the **mentor's** read of GPAs through `can_view_student_gpa`, which returns:
   - `true` for the student themself and for the HOD;
   - for the mentor, `coalesce(gpa_sharing_enabled, true)`.
-- The **toggle was removed from the UI**, so sharing stays on unless it is changed outside the UI. Two routes remain: `set_gpa_sharing(false)` is still executable by any student through the API, and a student can update `gpa_sharing_enabled` on their own Form A row directly *(tested)*. Nothing in the code calls `set_gpa_sharing`.
-
-**Known issues:**
-
-- The RLS policies `gpas_insert_own`, `gpas_update_own` and `gpas_delete_own` ignore `source`. A student can therefore directly (through PostgREST) change or delete a department-published GPA, or insert a row claiming `source = 'cluster_head'` *(tested)*. The page comment "the database refuses it (see upsert_semester_gpa)" is true only of the RPC. See §8.9.
-- A self-entered GPA does not trigger a risk re-evaluation. It is picked up at the next upload or sweep.
+- The **toggle was removed from the UI**, so sharing stays on unless it is changed outside the UI. Two routes remain: `set_gpa_sharing(false)` is still executable by any student through the API, and a student can update `gpa_sharing_enabled` on their own Form A row directly *(tested)*. Nothing in the code calls `set_gpa_sharing` (S20).
 
 ### 4.10 Achievements
 
@@ -1067,8 +1068,10 @@ supabase.from('support_queries')
 
 **Where:**
 
-- UI: `pages/clusterHead/ClusterHeadSetupPage.jsx` (`/cluster-head/setup`, no shell), `pages/clusterHead/ClusterHeadCoursesPage.jsx` ("My Subjects"), `routes/RouteGuards.jsx` (`RequireClusterHeadSetup`).
-- SQL: `submit_cluster_head_setup`; table `cluster_head_courses`.
+- UI: `pages/clusterHead/ClusterHeadSetupPage.jsx` (`/cluster-head/setup`, no shell), `pages/clusterHead/ClusterHeadCoursesPage.jsx` ("My subjects · 2026–27"), `routes/RouteGuards.jsx` (`RequireClusterHeadSetup`).
+- SQL: `submit_cluster_head_setup`; table `cluster_head_courses`; view `current_cycle_courses`, which every cluster-head screen reads.
+
+**Subjects belong to an academic cycle** (since 0036). The same code appears once per cycle (unique on `(cluster_head_id, cycle_id, lower(course_code))`). Starting a new cycle copies every cluster head's list into it (§4.24), so editing next year's subjects never touches last year's, or the attendance recorded against them.
 
 **Gate.**
 
@@ -1084,16 +1087,17 @@ supabase.from('support_queries')
   - "Pick or type a course name";
   - "Course code is required";
   - "This course code is already used above" (case-insensitive).
-- **Processing:** `submit_cluster_head_setup(p_courses)`.
+- **Processing:** `submit_cluster_head_setup(p_courses)`, confined to the **active cycle**.
   - **Checks:**
     - caller is a cluster head: "Only a cluster head can submit the cluster head setup form";
+    - there is an active cycle: "There is no active academic cycle. Start one under Academic Cycles, then add your subjects.";
     - at least one subject: "Add at least one subject before submitting";
     - at most 60: "That is more subjects than one cluster head can handle (limit 60)";
     - name and code non-blank: "Every subject needs both a course name and a course code";
     - no duplicate codes: 'Course code "%" appears more than once'.
   - **Writes:**
-    1. Delete the caller's courses whose `lower(course_code)` is not in the new list.
-    2. Insert the rest, `ON CONFLICT (cluster_head_id, lower(course_code))`, updating name, `display_order` and `updated_at`.
+    1. Delete the caller's courses **in the active cycle** whose `lower(course_code)` is not in the new list.
+    2. Insert the rest into the active cycle, `ON CONFLICT (cluster_head_id, cycle_id, lower(course_code))`, updating name, `display_order` and `updated_at`.
     3. Under the trusted-operation flag, set `cluster_head_setup_completed = true` and `cluster_head_setup_completed_at` (first time).
 - **Output:**
   - Setup: toast "Setup saved. Your portal is ready." and navigate to `/cluster-head`.
@@ -1101,7 +1105,7 @@ supabase.from('support_queries')
 
 **Known issues:**
 
-- **Changing a course code in place is a delete plus an insert.** `student_attendance_records.course_id` and `student_course_sections.course_id` are `ON DELETE CASCADE`, so **that subject's whole attendance history is deleted**. `academic_upload_batches.course_id` is `SET NULL`. No risk re-evaluation follows.
+- **Changing a course code in place is a delete plus an insert.** `student_attendance_records.course_id` and `student_course_sections.course_id` are `ON DELETE CASCADE`, so **that subject's attendance in the current cycle is deleted** (earlier cycles have their own copy of the subject and are safe). `academic_upload_batches.course_id` is `SET NULL`. No risk re-evaluation follows.
   - The page's subtitle ("correct a code rather than deleting and re-adding it") suggests the opposite.
   - A case-only change to a code is silently not saved: the conflict key is case-insensitive, and the stored code is never updated.
 - The RLS policy `ch_courses_write_own` (FOR ALL) also lets a cluster head write their `cluster_head_courses` rows directly, bypassing the RPC's validation.
@@ -1116,8 +1120,10 @@ supabase.from('support_queries')
 - UI: `pages/clusterHead/ClusterHeadAttendancePage.jsx`, `ClusterHeadGpaPage.jsx`, `ClusterHeadBacklogPage.jsx`, `ClusterHeadBlackDotPage.jsx`, and `components/clusterHead/AcademicUploadPanel.jsx`.
 - API: `api/cluster-head/upload-academic-data.js`.
 - Parsers: `api/_lib/spreadsheet-parser.js` and `api/_lib/table-readers.js` (formats in §10.4).
-- SQL: `record_attendance_batch`, `record_gpa_batch`, `record_backlog_batch`, `record_black_dot_batch`, `resolve_student_ids`, `evaluate_student_risk`, and the helpers `try_numeric` and `is_blank_mark` (0035).
+- SQL: `record_attendance_batch`, `record_gpa_batch`, `record_backlog_batch`, `record_black_dot_batch`, `resolve_student_ids`, `evaluate_student_risk`, and the helpers `try_numeric` and `is_blank_mark` (0035); the cycle triggers of 0036.
 - Tables: `student_course_sections`, `student_attendance_records`, `student_semester_gpas`, `student_cgpas`, `student_backlogs`, `student_black_dots`, `academic_upload_batches`, `student_risk_flags`.
+
+**Every upload is filed under the active academic cycle** (0036, §4.24). A `BEFORE INSERT` trigger sets `cycle_id` on the batch and on the rows it writes: attendance takes its subject's cycle, a black dot the cycle its incident date falls in (the active one when the notice has no date or no cycle covers it), and everything else the active cycle. With no active cycle the upload is refused ("There is no active academic cycle..."). Each upload panel says where it is going: "Goes into the 2026–27 cycle · now: Odd semester 2026". Which **semester** an upload is filed under is worked out when it is read, not stored: attendance by its period's end date, backlogs by the programme semester's parity (3 → odd, 4 → even), black dots by incident date, everything else by upload date.
 
 **Every upload takes the file exactly as its source produces it.** Attendance, GPA and backlogs are the ERP's own exports (HTML tables saved as `.xls`); black dots are the Proctorial Board's Word notice. Each may also be re-saved as `.xlsx` or `.csv` with the same layout. Nothing on the screens has to be chosen, except two optional backlog fallbacks.
 
@@ -1145,7 +1151,7 @@ supabase.from('support_queries')
   - resolves all identifiers once with `resolve_student_ids`: **active students only, registration number only** (since 0035; it also refuses any other caller, closing S3);
   - inserts an `academic_upload_batches` row, and at the end writes its counts and `scope_label` (what the file covered, shown in Recent uploads);
   - loops over the rows, collecting per-row errors;
-  - calls `evaluate_student_risk` for every distinct student it changed (not for black dots, which are not part of the rule);
+  - calls `evaluate_student_risk` for every distinct student it changed (black dots too, since 0036: they are part of the rule);
   - returns `{batch_id, total_rows, matched, failed, row_errors, ...}` with upload-specific extras below.
 - **Row numbers in errors.** GPA, backlog and black dot errors carry the spreadsheet's own line number (the parser sends `row`); black dot errors also carry `where` ("Case 034/Even Sem/2026 · S/No 2"). Attendance and the mentor map still report the row's 1-based position in the parsed list; for attendance, among de-duplicated students.
 - **Transactions.** Each upload is **one transaction**. A per-row problem is reported and skipped. Values are validated before they are cast (`try_numeric`), so a stray word in a numeric cell is a row error; a constraint violation that slips past validation still **aborts the whole upload**. CHECK violations are rewritten by `describeError` into the generic "Some of the values entered are not valid. Please review the highlighted fields.", which is confusing on an upload page that has no highlighted fields.
@@ -1158,7 +1164,7 @@ supabase.from('support_queries')
   - Accepted formats and aliases are in §10.4.
 - **Processing:** `record_attendance_batch(p_course_code, p_course_name, p_section, p_period_start, p_period_end, p_filename, p_rows)`.
   - **Aborts the whole upload for:**
-    - an unknown course: 'Course code "%" is not in your subject list. Add it under My Subjects, then upload this file again.' The match is case-insensitive against the caller's own subjects; a HOD matches any cluster head's.
+    - an unknown course: 'Course code "%" is not in your subject list for 2026–27. Add it under My Subjects, then upload this file again.' The match is case-insensitive against the caller's own subjects **in the active cycle**; a HOD matches any cluster head's.
     - reversed dates: "The From/To dates in the file header are missing or out of order". Missing dates never reach SQL: the parser substitutes today, so an undated file (or one with dates in another format) is recorded as a one-day period ending today;
     - constraint violations: attended ≤ held, held ≤ 2000, section label pattern `^[A-Za-z0-9][A-Za-z0-9 .-]{0,11}$`.
   - **Per-row errors:**
@@ -1184,7 +1190,7 @@ supabase.from('support_queries')
   - **Per-row errors:** "No registration number in this row"; the e-mail message above; 'CGPA "x" is not a number between 0 and 10'; the same for each credit value (totals 0–400, per semester 0–100) and each semester GPA (0–10); "Semester n is outside 1-8"; "No semester on this row, and none chosen for the upload"; "No student matches this registration number".
   - A row with no graded semester and no CGPA (a row of dashes) is **skipped**, not failed, and counted in `skipped_rows`.
 - **Writes:**
-  - `student_semester_gpas` upsert on `(student_id, semester_number)`, **always overwriting** the GPA, with `source = 'cluster_head'`, `round(gpa, 2)`, `recorded_by` and `batch_id`. Credits are kept when the new file has none. A department value replaces a student's self-entered one and locks it in the student UI.
+  - `student_semester_gpas` upsert on `(student_id, semester_number)`, **always overwriting** the GPA, with `source = 'cluster_head'`, `round(gpa, 2)`, `recorded_by` and `batch_id`. Credits are kept when the new file has none. A department value replaces any GPA a student recorded before `0037`.
   - `student_cgpas` upsert on `student_id` when the row has a CGPA, replacing CGPA and both totals.
 - **Output** adds `skipped, semester_gpas_recorded, semesters, cgpa_recorded`. `scope_label` is e.g. "Semesters 1, 2 + CGPA". The page shows the semesters in the file, the ones recorded and the ones not graded yet.
 - **Where the CGPA shows:** the mentor's and HOD's student page and the student report PDF (`gpa_stats.cgpa` is the official CGPA when there is one, `cgpa_official` says so), and the student's Academics page. Until one is uploaded they show the mean of the semester GPAs, as before.
@@ -1204,7 +1210,7 @@ supabase.from('support_queries')
   - **The clearing pass.** `p_subject_codes` is every subject column in the file. The Defaulter Grade list is the whole truth for those subjects in that semester, so every open backlog in them that the file no longer marks is cleared (`cleared_at` set once): a student listed with a blank cell, and a student not listed at all. Subjects the file does not name, and other semesters, are never touched. A hand-made list sends no subject codes and gets no clearing pass.
   - **Hand-made Cleared values** are case-insensitive: `yes`, `y`, `true`, `cleared`, `pass`, `passed`, `1` clear; `no`, `n`, `false`, `not cleared`, `fail`, `failed`, `0` reopen; a blank cell or no Cleared column leaves an existing backlog's state alone (new rows start open).
 - **Output** adds `semester_number, exam_session, backlogs_recorded, backlogs_cleared`. `scope_label` is "Semester 3 · END TERM EXAMNINATION 24-25". The page shows semester, exam, programme and the subject table.
-- **Where backlogs show:** the mentor's and HOD's student page (subject, semester, grade, open/cleared with date, exam), and the at-risk pages' counts. Students still do not see them.
+- **Where backlogs show:** the student's own Academics page (§4.9), the mentor's and HOD's student page (subject, semester, grade, open/cleared with date, exam), the at-risk pages' counts, and the cycle overview (§4.24). A backlog keeps the cycle it was first recorded in; it stays open, and counts towards the at-risk rule, across cycles until a later result clears it.
 
 **Black dots** (`action: 'black-dot'`; body `{filename, file_base64}` only):
 
@@ -1218,7 +1224,8 @@ supabase.from('support_queries')
   - **Per-row errors:** "No registration number in this row"; the e-mail message; 'No case number for this row. The notice needs a "Case No: ..." line above each table, or a Case No column'; "No student in the portal has this registration number (they may be from another department)" (a PB notice covers the whole university, so this is expected for most rows); and the **name check**: when the notice gives a name it must share a word (two letters or more) with the account's name, otherwise 'The name in the notice ("…") does not match the student with this registration number. Check the registration number'. The account's name is not revealed.
   - **Writes:** `student_black_dots` upsert on `(student_id, lower(case_number))`, so a corrected notice re-uploaded updates rather than duplicates (blank cells keep the stored values). `previous_black_dots` is read from Previous Record ("NIL" → 0, "8 black dot" → 8).
 - **Output** adds `cases, case_numbers, students`. `scope_label` is "Case 034/Even Sem/2026" or "2 cases". The page lists the cases read from the notice.
-- **Where black dots show:** the student's own Academics page (§4.9), the mentor's and HOD's student page, and `get_student_dossier`. They are **not** part of the at-risk rule and send no notification.
+- **Where black dots show:** the student's own Academics page (§4.9), the mentor's and HOD's student page, `get_student_dossier`, the at-risk pages and the cycle overview.
+- **At-risk (since 0036):** one black dot **in the active cycle** flags the student (§4.14). The upload re-checks every student it names and returns `students_reevaluated`; the page shows "Students re-checked" and the success message ends "N student(s) re-checked against the at-risk rule." A newly flagged student's mentor gets the usual at-risk notification.
 
 **Known issues:**
 
@@ -1226,9 +1233,7 @@ supabase.from('support_queries')
 - **A mistyped registration number clears.** In a Defaulter Grade list, a student whose registration number is wrong is "not listed", so their open backlogs in those subjects are cleared until the corrected file is uploaded. ERP exports make this unlikely; hand-edited copies do not.
 - **No way to remove a black dot** from the UI; a wrongly recorded one needs SQL.
 - **Misleading page copy:** the attendance page says the section is "taken from the file header". The per-row Section wins.
-- **Dashboard gaps:**
-  - The cluster-head dashboard's "Uploads recorded" is at most 10 (the query has `limit 10`).
-  - Mentor-map uploads and roster imports never appear in it.
+- **Dashboard gap:** mentor-map uploads and roster imports never appear in the dashboard's Recent uploads (they are not `academic_upload_batches`). The Academic Cycles page counts roster imports separately.
 - **Dead code:** the notification type `academic_data_uploaded` is never sent; `skipped_rows` is written only by the GPA upload.
 
 ### 4.13 Rosters and mentor–mentee mapping
@@ -1239,12 +1244,12 @@ supabase.from('support_queries')
 
 - UI: `pages/clusterHead/ClusterHeadRosterPage.jsx` ("Rosters & Mentors") and `components/clusterHead/AcademicUploadPanel.jsx`.
 - API: `api/admin/import-roster-spreadsheet.js` (rosters), `api/cluster-head/upload-academic-data.js` (`action: 'mentor-map'`).
-- SQL: `map_students_to_mentors`, `resolve_student_ids`, `notify_on_mentor_reassignment`.
-- Tables: `roster_import_batches`, `user_profiles`, `mentor_reassignment_log`.
+- SQL: `map_students_to_mentors`, `resolve_student_ids`, `notify_on_mentor_reassignment`; `activate_roster_students` and the cycle enrolment trigger (0036).
+- Tables: `roster_import_batches`, `user_profiles`, `mentor_reassignment_log`, `academic_cycle_students`.
 
-The page has three upload panels plus an import-history table (the caller's last 15 `roster_import_batches`). The intended order:
+The page is steps 2 and 3 of an academic cycle (§4.24), and its subtitle says so ("Steps 2 and 3 of 2026–27: bring this year's students into the cycle, then map each one to their allotted mentor"), with an "Academic cycle" button back to the cycle page. It has three upload panels plus an import-history table (the caller's last 15 `roster_import_batches`, with a Cycle column). The intended order:
 
-1. **Student roster**, posted with `{import_type: 'student', create_accounts: true, filename, file_base64}`. It creates student accounts, with the registration number as `login_id`.
+1. **Student roster**, posted with `{import_type: 'student', create_accounts: true, filename, file_base64}`. It creates student accounts, with the registration number as `login_id`, and **activates** students who already have one (below).
 2. **Faculty roster** (optional), with `import_type: 'faculty'`. It creates faculty accounts.
 3. **Mentor–mentee mapping**. The students must already exist: the mapping matches them by registration number and cannot create them.
 
@@ -1258,11 +1263,12 @@ The page has three upload panels plus an import-history table (the caller's last
 - **Per row (`planRow`), in order:**
   1. The e-mail must pass `emailSchema`, which includes the `ALLOWED_EMAIL_DOMAINS` allow-list.
   2. The name must have at least 2 characters ("Missing or too-short Name").
-  3. An e-mail that already exists, **including earlier in the same file**, is skipped ("Account already exists").
+  3. An e-mail that already exists, **including earlier in the same file**, gets no new account. For a **student** who already has an account, the row is instead **activated in the current cycle** (reported as skipped with "Already has an account — activated in this cycle", and listed in `activated`); any other existing account is skipped ("Account already exists").
   4. For a student with a Mentor Email, that mentor must be an existing faculty account ('Mentor "X" is not a registered faculty member. Import the faculty roster first.') and must be active. Otherwise **the row fails and no account is created**.
   5. A Password cell, if present, must be at least 8 characters.
   6. `createUser` (§4.1). A rate-limit error from Auth is retried once after 1.5 s.
   7. A follow-up profile update sets `assigned_mentor_id` and, for students, `parent_name`, `parent_mobile` (10 digits only) and `parent_email`.
+- **Activation of existing students** (since 0036). After the chunk's accounts are created, the API calls `activate_roster_students(p_rows)` with the service role, one row per existing student in the chunk: `{student_id, semester_label, section, branch, parent_name, parent_mobile, parent_email}`. It enrols each student in the active cycle (`activated_via = 'roster'`), then makes the file's **Semester, Section and Program** their current ones (a blank cell changes nothing) and fills parent contacts only where the profile has none. It returns `{activated, updated, cycle}`; the response carries `activated[]`, `students_updated` and `cycle`, and the panel adds an "Existing students activated" tile. This is how next year's roster moves everyone into the new cycle with their new semester and section. A failure is reported in `failed[]` and does not undo the accounts created.
 - **Chunking.**
   - Accounts are created in **waves of 25, 5 concurrently** (`runPool`).
   - After each wave the server checks a **20 s time budget**, measured from after parsing. When the budget is spent it returns `next_offset`, the first row not processed.
@@ -1271,10 +1277,11 @@ The page has three upload panels plus an import-history table (the caller's last
   - The first chunk inserts a `roster_import_batches` row.
   - Later chunks find it by `batch_id` **and** `uploaded_by = caller`, then add their counts and append row errors (capped at 200).
   - The audit entry `admin.import_<type>_roster` is written only by the **last** chunk.
-- **Response (201):** `batch_id, total_rows, offset, next_offset, processed_through, faculty_created, student_created, created[], skipped[], failed[]`.
+- **Response (201):** `batch_id, total_rows, offset, next_offset, processed_through, faculty_created, student_created, created[], skipped[], failed[], activated[], students_updated, cycle`.
   - `created` entries include `temporary_password` and `password_from_file`.
   - The panel merges the chunks: `failed` and `row_errors` are capped at 200 in the UI.
-  - Tiles: Rows in file, Accounts created, Already existed, Problems.
+  - Tiles: Rows in file, Accounts created, Existing students activated (student roster), Already existed, Problems.
+  - The faculty roster panel does not show the cycle line: faculty accounts belong to no cycle, though the import is still logged against it.
   - Then the **credentials panel** (§4.1).
 
 **Mentor–mentee mapping in detail.**
@@ -1290,6 +1297,7 @@ The page has three upload panels plus an import-history table (the caller's last
   4. 'Mentor "%s" is marked %s' when the mentor is not active.
   5. If the mentor is unchanged, the row is counted as `unchanged`.
   6. Otherwise `assigned_mentor_id` is updated under the trusted-operation flag.
+  7. Either way the student is enrolled in the active cycle (`activated_via = 'mentor_map'` if they were not in it yet), and the cycle's snapshot records the mentor.
 
   If a student appears twice, the last row wins.
 - **Side effects of each real change:** the trigger `notify_on_mentor_reassignment` writes `mentor_reassignment_log` and sends `mentor_reassigned` notifications to the student ("Your faculty mentor has changed"), the new mentor ("New mentee assigned") and the old mentor, if any ("Mentee reassigned").
@@ -1300,7 +1308,7 @@ The page has three upload panels plus an import-history table (the caller's last
 - **A failed mentor link during a roster import is silent.** The follow-up profile update (mentor link, parent fields) is not checked for errors, so the row is still reported as created.
 
 - **A chunk failure loses the progress display.** When a chunk fails (a 429, a network error or a timeout), the loop stops. Results collected so far, including created credentials, are **not displayed**, and re-uploading starts again from offset 0. Already-created accounts are then skipped as existing, but their credentials are not shown again. They all share the temporary password anyway, unless the file supplied per-row passwords.
-- **Mapping does not re-evaluate risk, record history or move queries.**
+- **Mapping does not re-evaluate risk or move queries.**
 - **Unaudited accounts.** Mentor accounts created by the mapping stay even if the mapping RPC then fails, and they are not audited separately. The count is in the upload's audit metadata only when the RPC succeeds.
 
 ### 4.14 At-risk detection and mentor meetings
@@ -1315,25 +1323,31 @@ The page has three upload panels plus an import-history table (the caller's last
 - SQL: `evaluate_student_risk`, `evaluate_all_students_risk`, `dispatch_at_risk_meetings`, `create_at_risk_meeting_link`, `set_at_risk_meeting_status`, `notify_on_risk_flag_change`, `notify_on_at_risk_meeting`; the view `at_risk_student_overview`; tables `student_risk_flags` and `at_risk_meetings`.
 - UI: `pages/faculty/FacultyAtRiskPage.jsx` (also `/hod/at-risk`) and `HodOperationsPage`.
 
-**The rule** (`evaluate_student_risk`, verbatim conditions). A student is **at risk if ANY one** of these holds:
+**The rule** (`evaluate_student_risk`, current body in 0036, verbatim conditions). A student is **at risk if ANY one** of these holds:
 
 | Condition | How it is computed | Test |
 |---|---|---|
-| Low attendance | Mean of the **latest** `attendance_percent` per course. The latest is by `period_start desc, created_at desc`; only courses with records count. | `v_attendance < 75` |
-| Low GPA | The GPA of the **highest-numbered semester** on record, from any source (department or self-entered) | `v_gpa < 6` |
-| Backlog | Count of `student_backlogs` rows with `is_cleared = false` | `v_backlogs >= 1` |
+| Low attendance | Mean of the **latest** `attendance_percent` per course **in the active academic cycle**. The latest is by `period_start desc, created_at desc`; only courses with records count. | `v_attendance < 75` |
+| Low GPA | The GPA of the **highest-numbered semester** on record, from any source (department, or a GPA a student recorded before `0037`) | `v_gpa < 6` |
+| Backlog | Count of `student_backlogs` rows with `is_cleared = false`, whatever cycle they were recorded in | `v_backlogs >= 1` |
+| Black dot (since 0036) | Count of `student_black_dots` rows **in the active academic cycle** | `v_black_dots >= 1` |
 
-- The function upserts `student_risk_flags`: the booleans, the metrics, human-readable `reasons[]` (for example "Attendance 64.00% (below 75%)"), `first_flagged_at` (never reset), `last_flagged_at`, `cleared_at` and `last_evaluated_at`.
-- It runs in two places:
-  1. inside the attendance, GPA and backlog upload RPCs, for every student they changed (including backlogs cleared because a Defaulter Grade list no longer marks them);
-  2. in the `at_risk_sweep` job (`evaluate_all_students_risk`, HOD or no JWT; **active** students only).
+Attendance and black dots are per cycle; GPA and backlogs are not. A black dot cannot be cleared the way a backlog can, so counting the whole history would flag a student for the rest of their degree: it is the new cycle that lifts the flag. The reason reads "1 black dot in 2026–27".
 
-  It does **not** run on a student's own GPA entry or on a mentor-map upload.
+- The function upserts `student_risk_flags`: the booleans (`has_black_dot` since 0036), the metrics (`black_dot_count`), human-readable `reasons[]` (for example "Attendance 64.00% (below 75%)"), `first_flagged_at` (never reset), `last_flagged_at`, `cleared_at` and `last_evaluated_at`.
+- It runs in three places:
+  1. inside the attendance, GPA, backlog and black dot upload RPCs, for every student they changed (including backlogs cleared because a Defaulter Grade list no longer marks them);
+  2. in the `at_risk_sweep` job (`evaluate_all_students_risk`, HOD or no JWT; **active** students only);
+  3. in `reevaluate_students_batch(p_after, p_limit)` (cluster head, HOD or no JWT), which re-checks every active student in slices of `p_limit` (default 300, at most 1,000) ordered by id and returns `{evaluated, done, total, next_after}`. The Academic Cycles page calls it in a loop right after a cycle starts, and from "Re-check now" (§4.24).
 
-**Notifications** (`notify_on_risk_flag_change`, AFTER INSERT/UPDATE on `student_risk_flags`). These go **only to the mentor**; the student and the HOD are not notified.
+  It does **not** run on a mentor-map upload, and migration 0036 does not run it: flags evaluated before 0036 know nothing about black dots or cycles until the next upload, sweep or re-check. The Academic Cycles page counts such flags (`stale_risk_flags`, evaluated before the active cycle started) and offers "Re-check now".
+
+**Notifications** (`notify_on_risk_flag_change`, AFTER INSERT/UPDATE on `student_risk_flags`, current body in 0036). These go **only to the mentor**; the student and the HOD are not notified.
 
 - On a change to at-risk: `student_at_risk`, "<name> is now flagged as at-risk", with the reasons.
 - On a change to not-at-risk: `at_risk_cleared`, "<name> is no longer at-risk".
+- The first-ever evaluation of a student who is **not** at risk sends nothing (this was bug B2; fixed in 0036).
+- While `ssmp.quiet_risk_notifications` is `on` (set by `reevaluate_students_batch` for its own transaction), "no longer at-risk" notices are **suppressed**, so starting a new cycle, which lifts every attendance and black-dot flag at once, does not send mentors hundreds of them. Newly flagged students are still notified.
 
 **Meetings** (`at_risk_meeting_dispatch` job → `dispatch_at_risk_meetings`, HOD or no JWT):
 
@@ -1345,16 +1359,15 @@ The page has three upload panels plus an import-history table (the caller's last
 **At-risk page** (mentor: own mentees; HOD: everyone, with a Mentor column):
 
 - **Data:** `at_risk_student_overview` where `is_at_risk`, ordered by attendance (then `student_id`), read in pages of 1,000 with `fetchAllRows` so a department-wide list is never cut at PostgREST's `max_rows` (§4.20).
-- **KPIs:** Flagged, Low attendance, Low GPA, With backlogs.
-- **Columns:** Student (link to the dossier page), Registration no., Backlogs, "Flagged for" chips, Parent contact, Meeting status, Actions.
+- **KPIs:** Flagged, Low attendance, Low GPA, With backlogs, With black dots ("One in 2026–27 is enough to flag").
+- **Columns:** Student (link to the dossier page), Registration no., Backlogs, Black dots (`black_dot_count`, this cycle's), "Flagged for" chips (Attendance, GPA, Backlog, Black dot), Parent contact, Meeting status, Actions.
   - Parent contact is `primary_parent_mobile`: the Form A father's, then the mother's, then the roster `parent_mobile`, shown as a `tel:` link.
-- **Expanding a row** shows the courses below 75% (`student_attendance_overview`) and the semester GPAs (`student_semester_gpas`, which RLS gates by GPA sharing).
+- **Expanding a row** shows the courses below 75% (`student_attendance_overview`), the semester GPAs (`student_semester_gpas`, which RLS gates by GPA sharing) and, when there are any, "Black dots in 2026–27": the case, what it was about and the incident date, from `student_black_dots` for the active cycle.
 - A banner appears when open meetings have no link.
 - The only action is **"Mark done"**: `set_at_risk_meeting_status(open_meeting_id, 'completed')`, toast "Meeting with <name> marked as done." After that the row reads "Not raised yet", because the view only joins open meetings.
 
 **Known issues:**
 
-- **Spurious "no longer at-risk" notifications.** The first-ever evaluation of a student who is **not** at risk (an `INSERT` with `is_at_risk = false`) sends the mentor "<name> is no longer at-risk". On a first upload or sweep this happens once per healthy mentee.
 - **Anyone can re-evaluate anyone.** `evaluate_student_risk` has no caller check and is executable by any authenticated user, including students and cluster heads *(tested)*. It also writes: it upserts the flag row and can trigger notifications. A student could call it for any student id; the function returns that student's metrics (attendance mean, latest GPA, backlog count, reasons). See §8.9.
 - **No status validation.** `set_at_risk_meeting_status` accepts any enum value, including moving backwards. The UI only offers "completed".
 - **The view leaks GPA past the sharing setting.** It exposes `latest_gpa` from `student_risk_flags`, whose RLS is `can_access_student`, not `can_view_student_gpa`.
@@ -1528,12 +1541,13 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - Charts: resolved vs still active, and average first response (top 8).
 - Table columns: Faculty, Branch, Status, Mentees, Queries, Resolved, Reopened, Avg first response, Avg resolution, Rate, Rating, and Report ("View" links to `/hod/reports?faculty_id=…`; "PDF" uses the default 90-day window).
 
-**Cluster-head dashboard (`/cluster-head`):**
+**Cluster-head dashboard (`/cluster-head`),** everything for the active academic cycle (§4.24):
 
-- KPIs: Subjects, "Uploads recorded" (**at most 10**), Last upload.
+- Greeting: "Welcome, Dr. Iyer" (an honorific keeps the surname; otherwise the first name).
+- KPIs: Academic cycle ("2026–27", "Now: Odd semester 2026"), Subjects this cycle, Uploads this cycle (an exact count; "Uploads, Odd semester 2026" when a semester is picked), Last upload.
 - Shortcuts to the four academic upload pages (attendance, GPA, backlogs, black dots).
-- "My subjects" table.
-- "Recent uploads": the last 10 `academic_upload_batches` rows, with Type, Scope, Recorded and Failed. Scope is the batch's `scope_label` ("Semesters 1, 2 + CGPA", "2 cases") and falls back to the section or semester for older rows.
+- "My subjects · 2026–27" (`current_cycle_courses`).
+- "Recent uploads": the last 10 rows of `academic_upload_history` for the cycle, narrowed by the pills Whole cycle / Odd semester 2026 / Even semester 2027, with a "Whole cycle" link to Academic Cycles. Columns: Upload (type, and what it covered: the batch's `scope_label` such as "Semesters 1, 2 + CGPA" or "2 cases", or "IT2101 · Section A" for attendance), Semester, Recorded (with "n not matched" under it), When.
 
 ### 4.18 Reports and PDFs
 
@@ -1542,8 +1556,8 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 **Where:**
 
 - UI: `pages/faculty/FacultyActivityReportPage.jsx` (`/faculty/report`, and `/hod/reports` with `isHodView`), `pages/faculty/FacultyMenteeDetailPage.jsx` (dossier), `FacultyMenteesPage` (PDF button per mentee).
-- API: `api/reports/faculty-activity-report.js`, `api/reports/student-dossier-report.js`, `api/_lib/report-document-builder.js`, `api/_lib/pdf-chart-primitives.js`.
-- SQL: `get_faculty_activity_report`, `get_department_faculty_report`, `get_student_dossier`.
+- API: `api/reports/faculty-activity-report.js`, `api/reports/student-dossier-report.js`, `api/_lib/report-document-builder.js`, `api/_lib/pdf-chart-primitives.js`; the academic cycle report is `api/reports/academic-cycle-report.js` (Excel, §4.24, §6.10).
+- SQL: `get_faculty_activity_report`, `get_department_faculty_report`, `get_student_dossier`, `get_cycle_overview`.
 
 **Faculty activity report.**
 
@@ -1740,7 +1754,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 | `star_mentee_assigned` | trigger on `is_star_mentee` false → true | student | "You are now the student representative" | `/student/group-queries` |
 | `achievement_verified` | trigger on verification false → true | student | "Achievement verified" | `/student/achievements` |
 | `student_at_risk` | trigger on `student_risk_flags` | mentor | "<name> is now flagged as at-risk" | `/faculty/at-risk` |
-| `at_risk_cleared` | same trigger | mentor | "<name> is no longer at-risk" (see the bug in §4.14) | `/faculty/at-risk` |
+| `at_risk_cleared` | same trigger | mentor | "<name> is no longer at-risk" (not on a first evaluation, and not during a bulk re-check; §4.14) | `/faculty/at-risk` |
 | `at_risk_meeting_required` | trigger on `at_risk_meetings` INSERT | mentor | "Schedule a meeting with <name>" | `/faculty/at-risk` |
 | `survey_published` | `open_survey_cycle` | every active student | "Mentor feedback survey #n is open" | `/student/survey` |
 | `survey_reminder` | `send_survey_reminders` | active students who have not responded | "Reminder: survey #n is still open" | `/student/survey` |
@@ -1795,6 +1809,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 | `academic-upload` | 30 / 300 s |
 | `faculty-report` | 30 / 60 s |
 | `student-report` | 30 / 60 s |
+| `cycle-report` | 20 / 60 s |
 
 **Audit.**
 
@@ -1812,7 +1827,115 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - `hod.reassign_mentees`
 - `hod.run_cycle_job`
 - `cluster_head.upload_<action>`
-- `report.faculty_activity_pdf`, `report.department_pdf`, `report.student_dossier_pdf`
+- `report.faculty_activity_pdf`, `report.department_pdf`, `report.student_dossier_pdf`, `report.academic_cycle_xlsx`
+- From SQL (written by the definer functions themselves): `academic_cycle.create`, `academic_cycle.update_dates`, `academic_cycle.delete`
+
+### 4.24 Academic cycles
+
+**Status:** Implemented (2026-09-28, migration `0036`).
+
+**Where:**
+
+- UI: `pages/clusterHead/ClusterHeadCyclesPage.jsx` ("Academic Cycles", `/cluster-head/cycles`, second in the cluster-head sidebar), `components/clusterHead/cycles/CycleModules.jsx` and `CycleDialogs.jsx`, `hooks/useActiveCycle.js`, `lib/academicCycles.js`. The dashboard, My Subjects, the four upload pages and Rosters & Mentors all read the active cycle.
+- API: `api/reports/academic-cycle-report.js` (§6.10).
+- SQL: tables `academic_cycles` and `academic_cycle_students`; enum `semester_term` (`Odd`, `Even`); views `current_cycle_courses` and `academic_upload_history`; functions `active_cycle_id`, `cycle_semester_on`, `semester_term_of_number`, `cycle_containing`, `create_academic_cycle`, `update_academic_cycle_dates`, `delete_academic_cycle`, `list_academic_cycles`, `get_cycle_overview`, `carry_over_cycle_students`, `activate_roster_students`, `enroll_student_in_cycle`, `reevaluate_students_batch`; the `cycle_id` triggers.
+
+**The model.**
+
+```
+Cycle 2026–27                          one academic year; exactly one cycle is active
+├── Odd semester 2026    1 Jul 2026 – 31 Dec 2026
+└── Even semester 2027   1 Jan 2027 – 30 Jun 2027
+
+Programme semester 1–8                 a student's own semester ("3rd Semester"), on the profile
+```
+
+- **A cycle is not a semester.** Its two semesters are date ranges inside it: odd from `starts_on`, even from `even_starts_on` to `ends_on`. They are called "Odd semester 2026" and "Even semester 2027" so they can never be mistaken for a student's programme semester.
+- `academic_cycles` holds one row per year: `start_year`, a generated `label` ("2026-27", shown as "2026–27"), the three dates, `is_active` (a partial unique index allows exactly one), `activated_at`, `closed_at`, `created_by`. The dates must be in order (odd start < even start ≤ end) and fall within a year either side of the label. Every signed-in user can read the table; only the cycle functions write it.
+- **The first cycle** is created by the migration from the date it runs (July starts an academic year, so applying it in September 2026 makes 2026–27) with the default dates 1 July, 1 January and 30 June, and **everything already in the database is filed under it**.
+- **What carries a cycle.** `cycle_id` is set by `BEFORE INSERT` triggers and was backfilled by the migration:
+
+  | Table | Its cycle |
+  |---|---|
+  | `academic_upload_batches`, `cluster_head_courses` | the active cycle (required) |
+  | `roster_import_batches`, `at_risk_meetings` | the active cycle (optional) |
+  | `student_attendance_records` | its subject's cycle |
+  | `student_backlogs` | the cycle it was first recorded in |
+  | `student_black_dots` | the cycle its incident date falls in; the active one when the notice has no date or no cycle covers it |
+
+- **Which semester** a row is in is never stored. It is worked out from the row's own date against the cycle's `even_starts_on` each time it is read, so correcting a cycle's dates re-files everything at once:
+
+  | Row | Filed by |
+  |---|---|
+  | Attendance | its period's end date |
+  | Backlogs | the programme semester's parity: 1, 3, 5, 7 → odd; 2, 4, 6, 8 → even |
+  | Black dots | the incident date, or the upload date when the notice gives none |
+  | GPA uploads, roster imports, anything else | the upload date, in India time |
+
+- **Per cycle, and what carries on:**
+  - **Subjects** are copied into each new cycle (§4.11), so next year's edits never touch last year's list or the attendance recorded against it.
+  - **Attendance** on every screen, and in the at-risk rule, is the active cycle's (`student_attendance_overview` is filtered to it). Last year's stays in the database and in that cycle's report.
+  - **Students.** `academic_cycle_students` is each cycle's own list, with a snapshot of the semester, section, branch and mentor the student had in it, and how they joined (`activated_via`: `existing` from the migration, `account`, `roster`, `mentor_map`, `carried_over` or `profile`). The trigger `sync_student_cycle_enrollment` on `user_profiles` enrols new students and keeps the **active** cycle's snapshot in step with profile changes; a closed cycle's rows are never touched. RLS: `can_access_student` (the student, their mentor, the HOD); cluster heads see counts only.
+  - **Black dots** count towards the at-risk rule only in their own cycle (§4.14).
+  - **GPA and open backlogs** are not per cycle: a GPA belongs to a programme semester, and an uncleared backlog from last year is still owed this year.
+
+**The Academic Cycles page** (cluster head; the database lets the HOD call every function too, but the HOD has no screen for it):
+
+- **Header:** "Academic cycles", with **Download report** and **Start next cycle**.
+- **What is shown:** a cycle select (every cycle, marked "(active)" or "(closed)") and the semester pills Whole cycle / Odd semester 2026 / Even semester 2027. The semester narrows every module except Students, which belongs to the whole cycle.
+- **The cycle card:** the label with Active or Closed, its dates, when it started or closed, **Edit dates**, and the two semester cards with a "Now" chip on the one today falls in. A closed cycle adds "A closed cycle is kept exactly as it was. Uploads go into 2027–28."
+- **Stale flags:** when at-risk flags were last evaluated before the active cycle started, a banner ("At-risk flags for n students were last checked before 2026–27 started, so they may still count last year's attendance or black dots.") offers **Re-check now**.
+- **The year's workflow** (active cycle only). Five steps, each marked done, needs attention or to do:
+  1. **Create the cycle.**
+  2. **Import or activate students:** "Import roster", and "Carry over n from 2025–26" while the previous cycle has students this one lacks.
+  3. **Assign mentors:** "n of m have a mentor; k still need one", "Upload mapping".
+  4. **Track data:** the upload count, with links to the four upload pages.
+  5. **Generate the report:** "Download .xlsx".
+- **Module tabs**, each with a count:
+  - **Students:** in the cycle, with and without a mentor, mentors; how they joined; by semester, section and branch; mentor workload.
+  - **Attendance:** per semester, the average, students below 75%, subjects and sections; then by subject.
+  - **GPA:** uploads, rows recorded, the last upload and what the files covered. No values.
+  - **Backlogs:** recorded, open, cleared, students with one open; by programme semester (with the semester it is filed under); the subjects with the most open backlogs.
+  - **Black dots:** count, students, cases; the case list with incident date and semester.
+  - **Uploads:** counts by type, roster imports, and the list (Upload, Semester, File, Recorded, When and who).
+  - Long lists show 10 rows and "Show all".
+- **All cycles:** every cycle with its dates, students, uploads and roster imports; **View**, and **Remove** while a cycle has nothing uploaded into it.
+- **Privacy.** Everything comes from `get_cycle_overview`: counts and averages, mentor names, case numbers and subject codes, but **no student is named**, and there are no GPA values or at-risk flags, which a cluster head cannot read.
+
+**Starting the next cycle.** The dialog offers the year after the latest cycle and the one after that, with the default dates (each can be changed), explains what happens, and needs the box "I understand that uploads will go into 2027–28 from now on" ticked. `create_academic_cycle(p_start_year, p_starts_on, p_even_starts_on, p_ends_on)`:
+
+- **Checks:** "Only a cluster head or the HOD can start an academic cycle"; "The 2027-28 cycle already exists"; "A new cycle has to come after the latest one (2027-28)"; the date checks ("The dates are out of order: the odd semester starts, then the even semester, then the cycle ends", "The dates have to fall around 2027-28"). The page runs the same date checks first (`validateCycleDates`).
+- **Writes:** closes the active cycle (`closed_at`), creates and activates the new one, copies every cluster head's subjects into it, and writes the audit entry `academic_cycle.create`.
+- **Returns** `{cycle, previous, subjects_copied}`.
+- The page then re-checks every student's at-risk flags with `reevaluate_students_batch` in slices of 300, showing "Re-checking at-risk flags: n of m students...". Last year's attendance and black dots stop counting, and those flags lift without a "no longer at-risk" notice to every mentor (§4.14). Toast: "2027–28 has started. 6 subject(s) copied across. Next: import the student roster or carry students over."
+
+**Bringing students in.** A new cycle starts with no students, apart from accounts created after it started and students whose semester, section, branch or mentor is changed after it started (`profile`). Three ways fill it, in any combination:
+
+- **The student roster** (§4.13): new accounts are enrolled as they are created (`account`), and students who already have one are **activated** (`roster`), with the file's semester, section and programme becoming their current ones.
+- **Carry over:** `carry_over_cycle_students(p_from_cycle_id)` enrols every active student of the earlier cycle with their current profile values (`carried_over`) and returns `{carried_over}`. It changes no profile, so semesters stay as they were until a roster or a profile edit moves them.
+- **The mentor mapping** enrols anyone it matches (`mentor_map`) and records their mentor for the cycle.
+
+**Correcting and undoing.**
+
+- **Edit dates:** `update_academic_cycle_dates(p_cycle_id, p_starts_on, p_even_starts_on, p_ends_on)`, the same date checks, audit `academic_cycle.update_dates`. It moves nothing: which semester each row is in is recomputed on read. Toast: "Dates saved. Uploads are re-filed under the semesters the new dates give them."
+- **Remove:** `delete_academic_cycle(p_cycle_id)`, only while the cycle has no uploads, roster imports, attendance, backlogs or black dots ("2027–28 already has uploads or roster imports in it, so it cannot be removed"), and never the only cycle ("This is the only cycle. The portal always needs one"). Its copied subjects and its student list go with it. Removing the active cycle re-activates the latest remaining one, and the page re-checks the at-risk flags. Audit `academic_cycle.delete`. This is the undo for a cycle started by mistake.
+
+**Reading.**
+
+- `list_academic_cycles()`: every cycle, newest first, with `students`, `uploads`, `roster_imports`, `can_delete` and `current_semester`.
+- `get_cycle_overview(p_cycle_id default null, p_semester default null)`: one cycle (the active one by default), whole or one semester, as `{cycle (with current_semester), previous_cycle, semester, students, mentors, uploads, roster_imports, attendance, gpa, backlogs, black_dots, stale_risk_flags, generated_at}`. Cluster head, HOD or no JWT.
+- `current_cycle_courses` (the active cycle's subjects) and `academic_upload_history` (`academic_upload_batches` with the cycle label, the semester each upload is filed under, and the subject code) are `security_invoker` views.
+- `useActiveCycle()` reads the active cycle once per page session; `refreshActiveCycle()` re-reads it after a change.
+
+**The cycle report** (`GET /api/reports/academic-cycle-report?cycle_id=&semester=`, §6.10): an Excel workbook with the sheets Summary, Students, Mentors, Attendance, Backlogs, Black dots and Uploads, for the whole cycle or one semester. It has the same numbers as the page, because both come from `get_cycle_overview`. File name `cycle-report-2026-27.xlsx` or `cycle-report-2026-27-odd-semester.xlsx`.
+
+**Performance** (measured on Postgres 16 with 1,949 students, 60 mentors, 11,694 attendance rows and 52 uploads): `get_cycle_overview` about 130 ms for a whole cycle; `reevaluate_students_batch` under 30 ms per slice of 300 (7 calls for everyone); `create_academic_cycle` 6 ms; `carry_over_cycle_students` 40 ms; `activate_roster_students` with 1,949 rows 0.8 s. All are far inside Supabase's 8-second statement timeout for signed-in users.
+
+**Known issues and limits:**
+
+- **Any cluster head can start the next cycle for everyone.** A cycle is department-wide. The dialog's tick box, and Remove while nothing has been uploaded, are the safety net.
+- **A backlog is filed under the cycle it was first recorded in**, which is when the result was uploaded, not the year of the exam. Last year's results uploaded after the new cycle starts land in the new cycle (as an odd or even semester by parity). They still count towards the at-risk rule either way, because backlogs are not per cycle.
+- **Legacy `semester_cycles`** (0006, the retired semester-setup wizard) is unrelated and unused; `roster_import_batches.semester_cycle_id` is no longer written. "Cycle" in `cycle_job_*` and `survey_cycles` means the 15-day job cycle and the survey round, not an academic cycle (Appendix E).
 
 ---
 
@@ -1940,6 +2063,9 @@ Everything is drawn with vector primitives: no images except the logo, and no HT
 | `lib/formatters.js` | `formatDate`, `formatDateTime`, `formatRelativeTime`, `formatHours` ("—" for 0 or null), `formatNumber`, `initialsOf`, `percentage` | Pure presentation helpers |
 | | `describeError(err, fallback)` | Maps errors to readable text; the mapping is listed below the table. |
 | `hooks/useAsyncAction.js` | `useAsyncAction()` → `{run, pending}` | `run(fn, {successMessage, onSuccess})`. `successMessage` may be a function of the result. Errors become `toast.error(describeError(err))`. |
+| `hooks/useActiveCycle.js` | `useActiveCycle()` → `{cycle, loading, error, reload}` | The active `academic_cycles` row, read once and shared by every component on the page session (a module-level cache) |
+| | `refreshActiveCycle()` | Re-reads it and updates every mounted `useActiveCycle`; called after a cycle is started, edited or removed |
+| `lib/academicCycles.js` | `cycleLabel`, `semesterTitle`, `semesterYear`, `semesterRange`, `semesterOn`, `todayInIndia`, `academicYearOf`, `defaultCycleDates`, `labelForYear`, `nextCycleYear`, `validateCycleDates`, `uploadScope`, `SEMESTERS`, `SEMESTER_NAMES` | Cycle naming ("2026–27", "Odd semester 2026") and date arithmetic that never lets a time zone move a day; `validateCycleDates` runs the database's own date checks before the RPC does (§4.24) |
 | `hooks/useDashboardMetrics.js` | `useDashboardMetrics()` → `{metrics, loading, error, reload}` | `rpc('get_dashboard_metrics')` |
 | `hooks/useRealtimeQueries.js` | `useRealtimeQueries({status, category, search, pageSize = 25})` → `{queries, loading, error, page, setPage, pageCount, total, reload}` | The paged, filtered, live list (§4.4) |
 | | `useQueryThread(queryId)` → `{query, messages, loading, error, reload, appendMessage}` | One query and its messages, live |
@@ -1983,26 +2109,35 @@ All functions live in schema `public`. Read the table this way:
   A function with nothing in this column is unused.
 - **Purpose** is written against the current function body.
 
-79 functions.
+96 functions (0036 added 17).
 
 | Function | Returns | Security | Execute | Migrations | Used by | Purpose |
 |---|---|---|---|---|---|---|
+| `activate_roster_students(p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `import-roster-spreadsheet.js` | Cluster head/HOD/no JWT. For each existing student on a roster: enrol in the active cycle (`roster`), make the file's non-blank semester, section and branch current (trusted operation), fill parent contacts only where empty. Returns `{activated, updated, cycle}`. |
+| `active_cycle_id()` | `uuid` | definer, stable | authenticated, service_role | 0036 | SQL: 8 functions; views `current_cycle_courses`, `student_attendance_overview` | The id of the active academic cycle (null when there is none). |
 | `assign_query_code()` | `trigger` | invoker, volatile | owner only | 0004, 0031 | trigger `trg_assign_query_code` on `support_queries` | BEFORE INSERT trigger on `support_queries`: sets `query_code = 'AN-' \|\| nextval(query_code_seq)` (AN-1001 onwards). |
 | `can_access_query(p_query_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007, 0031 | 1 RLS/storage policy | True when the caller is the query's student, its mentor, or the HOD. Used by the `query_messages` SELECT policy. |
-| `can_access_student(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007 | 10 RLS/storage policies | True for the student themself, their assigned mentor, or the HOD. The main read-scope helper in RLS and storage policies. |
+| `can_access_student(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007 | 12 RLS/storage policies | True for the student themself, their assigned mentor, or the HOD. The main read-scope helper in RLS and storage policies. |
 | `can_view_student_gpa(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: `get_student_dossier`; 1 RLS/storage policy | True for the student and the HOD; for the mentor, `coalesce(gpa_sharing_enabled, true)`. Gates `student_semester_gpas` reads and the dossier GPA. |
+| `carry_over_cycle_students(p_from_cycle_id uuid)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Enrols every active student of an earlier cycle in the active one (`carried_over`) with their current profile values; changes no profile. Returns `{carried_over}`. |
 | `confirm_query_resolution(p_query_id uuid, p_response confirmation_response, p_comment text)` | `support_queries` | definer, volatile | authenticated | 0009, 0018, 0031 | `ResolutionConfirmation.jsx` | Student answers "was it fixed?". `yes` → confirmed (closed). `no` → reopened, In Progress, `reopen_count+1`; refused at the cap of 3. Comment ≤ 1000. Writes a system message. |
 | `consume_rate_limit(p_bucket_key text, p_max_requests integer, p_window_seconds integer)` | `boolean` | definer, volatile | service_role | 0015 | `request-guards.js` | Fixed-window counter for the API: upserts `(bucket_key, window_start)`, 1% chance to purge rows > 1 day old, returns `count <= max`. Service role only. |
+| `create_academic_cycle(p_start_year integer, p_starts_on date default null, p_even_starts_on date default null, p_ends_on date default null)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Starts the next cycle: after the latest one, dates checked (defaults 1 Jul / 1 Jan / 30 Jun); closes the active cycle, activates the new one, copies every cluster head's subjects, audits `academic_cycle.create`. Returns `{cycle, previous, subjects_copied}`. |
 | `create_at_risk_meeting_link(p_meeting_id uuid)` | `at_risk_meetings` | definer, volatile | authenticated, service_role | 0022 | SQL: `dispatch_at_risk_meetings` | **Placeholder.** Checks mentor/HOD/no-JWT, then returns the meeting unchanged (`TODO(provider)`: Teams/Meet link creation is not implemented). |
 | `create_support_query(p_subject text, p_category query_category, p_description text, p_priority query_priority)` | `support_queries` | definer, volatile | authenticated | 0009, 0031 | `CreateQueryModal.jsx` | Student raises a query: active student with a mentor, subject ≤ 200, description ≤ 5000, fewer than 20 unresolved. Inserts the query and its first message. |
 | `current_user_role()` | `user_role` | definer, stable | authenticated, service_role | 0007 | — (unused) | Returns the caller's `user_profiles.role`. **Unused.** |
-| `dispatch_at_risk_meetings(p_job_run_id uuid)` | `jsonb` | definer, volatile | authenticated, service_role | 0022 | SQL: `run_cycle_job` | HOD/no JWT. For every flagged student with a mentor and no open meeting, inserts an `awaiting_link` meeting and calls the link stub. Returns `{meetings_created, already_open, without_mentor}`. |
+| `cycle_containing(p_date date)` | `uuid` | definer, stable | authenticated, service_role | 0036 | SQL: `tag_black_dot_with_cycle` | The cycle whose dates contain the date (the active one first if two overlap), or null. |
+| `cycle_semester_on(p_cycle_id uuid, p_date date)` | `semester_term` | definer, stable | authenticated, service_role | 0036 | SQL: `get_cycle_overview`, `list_academic_cycles`, `record_attendance_batch` | `Even` on or after the cycle's `even_starts_on`, otherwise `Odd`. |
+| `delete_academic_cycle(p_cycle_id uuid)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Removes a cycle with no uploads, roster imports, attendance, backlogs or black dots, never the only one; its subjects and student list go with it; removing the active one re-activates the latest remaining. Audits `academic_cycle.delete`. Returns `{deleted, active}`. |
+| `dispatch_at_risk_meetings(p_job_run_id uuid)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0036 | SQL: `run_cycle_job` | HOD/no JWT. For every flagged student with a mentor and no open meeting, inserts an `awaiting_link` meeting (with the black dot count in its snapshot, filed under the active cycle) and calls the link stub. Returns `{meetings_created, already_open, without_mentor}`. |
 | `enqueue_notification(p_recipient uuid, p_actor uuid, p_type notification_type, p_title text, p_body text, p_query uuid, p_link text)` | `void` | definer, volatile | owner only | 0011, 0031 | SQL: 13 functions | The only notification writer. Skips a NULL recipient and recipient = actor. Not executable by clients. |
+| `enroll_student_in_cycle(p_cycle_id uuid, p_student_id uuid, p_via text)` | `void` | definer, volatile | owner only | 0036 | SQL: `activate_roster_students`, `map_students_to_mentors`, `sync_student_cycle_enrollment` | Internal. Upserts the student's `academic_cycle_students` row with their current semester, section, branch and mentor; keeps the first `activated_via`. |
 | `escalate_query_to_hod(p_query_id uuid, p_note text)` | `support_queries` | definer, volatile | authenticated | 0018, 0030, 0031 | `FacultyQueryDetailPage.jsx`, `FacultyQueryQueuePage.jsx` | Mentor (or HOD) refers a query to the HOD: any status, once, note ≤ 1000. Notifies the active HOD matching the **caller's** `hod_email` (else all active HODs except the caller) and the student; writes a system message. |
 | `evaluate_all_students_risk()` | `jsonb` | definer, volatile | authenticated, service_role | 0022 | SQL: `run_cycle_job` | HOD/no JWT. Runs `evaluate_student_risk` for every active student. Returns `{evaluated, at_risk}`. |
-| `evaluate_student_risk(p_student_id uuid)` | `student_risk_flags` | definer, volatile | authenticated, service_role | 0022, 0025 | SQL: `evaluate_all_students_risk`, `record_attendance_batch`, `record_backlog_batch`, `record_gpa_batch` | Recomputes one student's flags: mean latest attendance < 75, GPA of the latest semester < 6, uncleared backlogs ≥ 1. Upserts `student_risk_flags`. **No caller check** (see §8.9). |
+| `evaluate_student_risk(p_student_id uuid)` | `student_risk_flags` | definer, volatile | authenticated, service_role | 0022, 0025, 0036 | SQL: `evaluate_all_students_risk`, `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch`, `reevaluate_students_batch` | Recomputes one student's flags: mean latest attendance in the active cycle < 75, GPA of the latest semester < 6, uncleared backlogs ≥ 1, black dots in the active cycle ≥ 1. Upserts `student_risk_flags`. **No caller check** (see §8.9). |
 | `get_active_survey_for_student()` | `jsonb` | definer, stable | authenticated | 0023 | `StudentSurveyPage.jsx` | Student only. Returns the active cycle, whether the caller has submitted, and the active questions. |
 | `get_cycle_job_status()` | `jsonb` | definer, stable | authenticated | 0024 | `run-cycle-job.js` | HOD only. Job schedule rows, the last 25 runs, active survey cycle, at-risk count, open meeting count. |
+| `get_cycle_overview(p_cycle_id uuid default null, p_semester semester_term default null)` | `jsonb` | definer, stable | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx`, `academic-cycle-report.js` | Cluster head/HOD/no JWT. One cycle (default the active one), whole or one semester: students, mentors, uploads, roster imports, attendance, GPA upload counts, backlogs, black dots, stale risk flags. Counts and averages only, no student named (§4.24). |
 | `get_dashboard_metrics()` | `jsonb` | definer, stable | authenticated | 0013, 0031 | `useDashboardMetrics.js` | Role-aware dashboard numbers: student / faculty / everyone else (HOD branch, also reached by cluster heads). Category counts are legacy-only. |
 | `get_department_faculty_report(p_from date, p_to date)` | `jsonb` | definer, stable | authenticated | 0019, 0031 | `FacultyActivityReportPage.jsx`, `faculty-activity-report.js` | HOD only. Department-wide report JSON for a period (summary, by category/status, monthly trend, per-faculty rows). |
 | `get_faculty_activity_report(p_faculty_id uuid, p_from date, p_to date)` | `jsonb` | definer, stable | authenticated | 0013, 0030, 0031 | `FacultyActivityReportPage.jsx`, `faculty-activity-report.js` | Faculty (self only) or HOD (anyone). Activity report JSON for a period; defaults to the last 90 days. |
@@ -2013,13 +2148,14 @@ All functions live in schema `public`. Read the table this way:
 | `handle_auth_user_email_change()` | `trigger` | definer, volatile | PUBLIC | 0002 | trigger `trg_on_auth_user_email_changed` on `users` | AFTER UPDATE trigger on `auth.users`: copies a changed e-mail to `user_profiles.email`. |
 | `handle_new_auth_user()` | `trigger` | definer, volatile | PUBLIC | 0002, 0021 | trigger `trg_on_auth_user_created` on `users` | AFTER INSERT trigger on `auth.users`: creates the `user_profiles` row from `raw_user_meta_data` (role of the four, else student; department default 'IoT & IS'; `must_change_password` default true). |
 | `is_blank_mark(p_value text)` | `boolean` | invoker, immutable | authenticated, service_role | 0035 | SQL: `record_gpa_batch`, `record_backlog_batch` | True for an empty cell or an ERP placeholder (`-`, `--`, `NA`, `N/A`): "nothing here". |
-| `is_cluster_head()` | `boolean` | definer, stable | authenticated, service_role | 0021 | SQL: 6 functions; 2 RLS/storage policies | Caller is an active cluster head. |
+| `is_cluster_head()` | `boolean` | definer, stable | authenticated, service_role | 0021 | SQL: 16 functions; 3 RLS/storage policies | Caller is an active cluster head. |
 | `is_faculty()` | `boolean` | definer, stable | authenticated, service_role | 0007 | 3 RLS/storage policies | Caller is an active faculty member. |
-| `is_hod()` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: 31 functions; 20 RLS/storage policies | Caller is an active HOD. |
+| `is_hod()` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: 41 functions; 20 RLS/storage policies | Caller is an active HOD. |
 | `is_mentor_of(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: `can_access_student`, `can_view_student_gpa`, `get_student_dossier`, `set_achievement_verification`, `set_star_mentee` | Caller is the assigned mentor of the given student. |
 | `is_non_blank(value text)` | `boolean` | invoker, immutable | PUBLIC | 0001 | SQL: 6 functions | `value is not null and length(btrim(value)) > 0`. Used in CHECK constraints and RPC validation. |
-| `is_student()` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: `get_active_survey_for_student`, `set_gpa_sharing`, `submit_survey_response`, `upsert_semester_gpa`; 4 RLS/storage policies | Caller is an active student. |
-| `map_students_to_mentors(p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0027, 0033 | `upload-academic-data.js` | Cluster head/HOD/no JWT. Sets `assigned_mentor_id` per row (registration no. → mentor e-mail), skipping unchanged; per-row errors. Triggers reassignment notifications and log. |
+| `is_student()` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: `get_active_survey_for_student`, `set_gpa_sharing`, `submit_survey_response`, `upsert_semester_gpa`; 3 RLS/storage policies | Caller is an active student. |
+| `list_academic_cycles()` | `jsonb` | definer, stable | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Every cycle, newest first, with students, uploads, roster imports, `can_delete` and `current_semester`. |
+| `map_students_to_mentors(p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0027, 0033, 0036 | `upload-academic-data.js` | Cluster head/HOD/no JWT. Sets `assigned_mentor_id` per row (registration no. → mentor e-mail), skipping unchanged; per-row errors. Enrols every matched student in the active cycle (`mentor_map`). Triggers reassignment notifications and log. |
 | `mark_all_notifications_read()` | `integer` | definer, volatile | authenticated | 0010 | `NotificationProvider.jsx` | Marks all of the caller's unread notifications read; returns the count. |
 | `max_resolution_rejections()` | `integer` | invoker, immutable | authenticated, service_role | 0018 | SQL: `confirm_query_resolution` | Returns 3: how many times a student may reject a resolution. |
 | `my_mentor_id()` | `uuid` | definer, stable | authenticated, service_role | 0007, 0016 | 2 RLS/storage policies | The caller's `assigned_mentor_id`. SECURITY DEFINER so policies can use it without recursion (0016). |
@@ -2030,16 +2166,17 @@ All functions live in schema `public`. Read the table this way:
 | `notify_on_query_created()` | `trigger` | definer, volatile | PUBLIC (default) | 0011, 0027, 0031 | trigger `trg_notify_query_created` on `support_queries` | Trigger: a new query notifies its mentor (skipped for CR-report items with `mom_id`). |
 | `notify_on_query_message()` | `trigger` | definer, volatile | PUBLIC (default) | 0011, 0031 | trigger `trg_notify_query_message` on `query_messages` | Trigger: a non-system message notifies the other party (student → mentor; anyone else → student). |
 | `notify_on_query_resolution_change()` | `trigger` | definer, volatile | PUBLIC (default) | 0011, 0031 | trigger `trg_notify_query_resolution` on `support_queries` | Trigger: resolution changes notify (pending → student; confirmed / reopened / rated → mentor). |
-| `notify_on_risk_flag_change()` | `trigger` | definer, volatile | PUBLIC (default) | 0022 | trigger `trg_notify_risk_flag_change` on `student_risk_flags` | Trigger: at-risk state changes notify the mentor. **Bug:** a first evaluation that is not at risk sends "no longer at-risk". |
+| `notify_on_risk_flag_change()` | `trigger` | definer, volatile | PUBLIC (default) | 0022, 0036 | trigger `trg_notify_risk_flag_change` on `student_risk_flags` | Trigger: at-risk state changes notify the mentor. A first evaluation that is not at risk sends nothing (B2 fixed in 0036); "no longer at-risk" is suppressed while `ssmp.quiet_risk_notifications` is on. |
 | `notify_on_star_mentee_change()` | `trigger` | definer, volatile | PUBLIC (default) | 0011, 0017, 0031 | trigger `trg_notify_star_mentee` on `user_profiles` | Trigger: becoming the star mentee notifies the student. |
 | `open_survey_cycle(p_trigger cycle_job_trigger, p_job_run_id uuid, p_window_days integer)` | `survey_cycles` | definer, volatile | authenticated, service_role | 0023 | SQL: `run_cycle_job` | HOD/no JWT. Deactivates the active cycle, opens cycle n+1 for `interval_days` (inclusive), notifies every active student. |
 | `post_query_message(p_query_id uuid, p_body text)` | `query_messages` | definer, volatile | authenticated | 0009, 0031 | `QueryConversation.jsx` | Participant or HOD posts a message (≤ 5000). First staff reply sets `first_response_at`; a staff reply moves Open → In Progress. |
 | `rate_support_query(p_query_id uuid, p_rating smallint)` | `support_queries` | definer, volatile | authenticated | 0009, 0031 | `SatisfactionRating.jsx` | Query owner rates a Resolved query 1–5, once. |
 | `reassign_mentees(p_student_ids uuid[], p_to_mentor_id uuid, p_reason text)` | `integer` | definer, volatile | authenticated, service_role | 0015 | `manage-faculty-roster.js` | HOD only. Moves up to 500 students to an active mentor (no capacity or ownership check). Log rows get the reason. Queries are moved by the API, not here. |
-| `record_attendance_batch(p_course_code text, p_course_name text, p_section text, p_period_start date, p_period_end date, p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0025, 0027, 0033 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One attendance upload: course by code (caller's subjects), per-row sections, upserts attendance for the period, re-evaluates risk. |
+| `record_attendance_batch(p_course_code text, p_course_name text, p_section text, p_period_start date, p_period_end date, p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0025, 0027, 0033, 0036 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One attendance upload into the active cycle: course by code among the caller's subjects **in the active cycle**, per-row sections, upsert per (student, course, period start), risk re-evaluation. Returns the counts plus `cycle` and `semester`. |
 | `record_backlog_batch(p_semester_number smallint, p_exam_session text, p_filename text, p_rows jsonb, p_subject_codes text[] default null)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0033, 0035 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One backlog upload for a semester: Defaulter Grade rows (a grade list per student) or one subject per row; matches subject codes case-insensitively; with `p_subject_codes`, clears every open backlog in those subjects the file no longer marks. Re-evaluates risk. (0035 dropped the four-argument version.) |
-| `record_black_dot_batch(p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0035 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One PB notice: a black dot per student per case, upsert on `(student, lower(case_number))`, with the notice's name checked against the account. No risk re-evaluation. |
+| `record_black_dot_batch(p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0035, 0036 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One PB notice: a black dot per student per case, upsert on `(student, lower(case_number))`, with the notice's name checked against the account. Re-evaluates every student it names (`students_reevaluated`). |
 | `record_gpa_batch(p_semester_number smallint, p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0025, 0033, 0035 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One GPA upload: every graded semester per student with credits, plus the official CGPA into `student_cgpas`; a row is all or nothing; values validated with `try_numeric`; rows of dashes skipped. The flat one-semester shape still works. Re-evaluates risk. |
+| `reevaluate_students_batch(p_after uuid default null, p_limit integer default 300)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Runs `evaluate_student_risk` for the next `p_limit` (1–1,000) active students after `p_after`, by id, with "no longer at-risk" notices quiet. Returns `{evaluated, done, total, next_after}`. |
 | `request_counselling(p_concern text)` | `counselling_requests` | definer, volatile | authenticated | 0029, 0031 | `StudentCounsellingPage.jsx` | Student with a mentor sends a concern (≤ 3000); at most 5 not-closed requests. |
 | `request_form_a_unlock()` | `void` | definer, volatile | authenticated | 0010 | — (unused) | **Dead** (no caller; Form A has been editable since 0017). Sets `unlock_requested` on a locked form. |
 | `resolve_student_ids(p_identifiers text[])` | `jsonb` | definer, stable | authenticated, service_role | 0033, 0035 | SQL: `map_students_to_mentors`, `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch` | Batch registration number → student id map for uploads (active students; **registration number only**). Cluster head, HOD or no JWT only (S3 closed in 0035). |
@@ -2049,6 +2186,7 @@ All functions live in schema `public`. Read the table this way:
 | `run_all_cycle_jobs_now(p_note text)` | `jsonb` | definer, volatile | authenticated, service_role | 0024 | `run-cycle-job.js` | HOD/no JWT. Runs at_risk_sweep → at_risk_meeting_dispatch → survey_cycle as manual (not the reminder sweep). |
 | `run_cycle_job(p_job_type cycle_job_type, p_trigger cycle_job_trigger, p_note text)` | `jsonb` | definer, volatile | authenticated, service_role | 0024 | `run-cycle-job.js`, `seed-demo-accounts.mjs`; SQL: `run_all_cycle_jobs_now`, `run_due_cycle_jobs` | HOD/no JWT. Runs one job with a `cycle_job_runs` row; manual runs leave `next_run_due_on`; scheduled runs advance it. A failure re-raises (rolls back the run row). |
 | `run_due_cycle_jobs()` | `jsonb` | definer, volatile | authenticated, service_role | 0024 | — (unused) | **Dead** (no caller, no scheduler). Would run every enabled job due today as `scheduled`. |
+| `semester_term_of_number(p_semester integer)` | `semester_term` | invoker, immutable | authenticated, service_role | 0036 | SQL: `get_cycle_overview`; view `academic_upload_history` | Programme semester parity: 1, 3, 5, 7 → `Odd`; 2, 4, 6, 8 → `Even`. Files backlogs under a semester. |
 | `send_survey_reminders()` | `jsonb` | definer, volatile | authenticated, service_role | 0023 | SQL: `run_cycle_job` | HOD/no JWT. Notifies active students without a response in the active cycle. |
 | `set_achievement_verification(p_achievement_id uuid, p_verified boolean)` | `student_achievements` | definer, volatile | authenticated | 0010 | `FacultyMenteeDetailPage.jsx` | Mentor or HOD sets `verified_by_faculty` on an achievement. |
 | `set_at_risk_meeting_status(p_meeting_id uuid, p_status at_risk_meeting_status)` | `at_risk_meetings` | definer, volatile | authenticated | 0022 | `FacultyAtRiskPage.jsx` | Organising mentor or HOD sets any meeting status; stamps completed/cancelled time. No transition validation. |
@@ -2058,13 +2196,18 @@ All functions live in schema `public`. Read the table this way:
 | `set_query_in_progress(p_query_id uuid)` | `support_queries` | definer, volatile | authenticated | 0027, 0031 | `FacultyCrReportsPage.jsx` | Mentor or HOD marks a query In Progress (resolution none); system message. Used for CR-report items, but accepts any query not yet confirmed. |
 | `set_star_mentee(p_student_id uuid, p_is_star boolean)` | `user_profiles` | definer, volatile | authenticated | 0010 | `FacultyMenteeDetailPage.jsx`, `FacultyMenteesPage.jsx` | Mentor or HOD sets/clears the star mentee; at most one per mentor (row lock, clears others; no unique index). |
 | `set_updated_at_timestamp()` | `trigger` | invoker, volatile | PUBLIC | 0001 | 16 `updated_at` triggers | BEFORE UPDATE trigger: `new.updated_at = now()`. |
-| `submit_cluster_head_setup(p_courses jsonb)` | `SETOF cluster_head_courses` | definer, volatile | authenticated | 0021, 0032 | `ClusterHeadCoursesPage.jsx`, `ClusterHeadSetupPage.jsx` | Cluster head only. Replaces the subject list (1–60, unique codes); deletes removed codes (cascades attendance); marks setup complete. |
+| `submit_cluster_head_setup(p_courses jsonb)` | `SETOF cluster_head_courses` | definer, volatile | authenticated | 0021, 0032, 0036 | `ClusterHeadCoursesPage.jsx`, `ClusterHeadSetupPage.jsx` | Cluster head only. Replaces the subject list **of the active cycle** (1–60, unique codes); deletes removed codes (cascades that cycle's attendance); marks setup complete. |
 | `submit_mom_report(p_meeting_date date, p_notes text, p_items jsonb, p_students_present integer, p_students_total integer)` | `mom_records` | definer, volatile | authenticated | 0027, 0031 | `StudentCrReportPage.jsx` | Star mentee files a CR report (≤ 12 items); each item becomes a query with `mom_id`; one summary notification to the mentor (each item's first message also notifies). |
 | `submit_student_form_a(p_payload jsonb)` | `student_form_a_profiles` | definer, volatile | authenticated | 0010, 0017 | `StudentOnboardingFormPage.jsx`, `StudentProfilePage.jsx` | Student submits/updates Form A (upsert), marks onboarding complete, copies phone/section/branch to the profile. |
 | `submit_survey_response(p_cycle_id uuid, p_answers jsonb)` | `survey_responses` | definer, volatile | authenticated | 0023 | `StudentSurveyPage.jsx` | Student answers the active cycle once; all active questions, ratings 1–5; stores the current mentor. |
+| `sync_student_cycle_enrollment()` | `trigger` | definer, volatile | owner only | 0036 | trigger `trg_sync_student_cycle_enrollment` on `user_profiles` | AFTER INSERT or UPDATE of mentor, section, semester, branch or role: enrols the student in the active cycle (`account` or `profile`) and refreshes that cycle's snapshot. Closed cycles are never touched. |
+| `tag_attendance_with_cycle()` | `trigger` | definer, volatile | owner only | 0036 | trigger `trg_attendance_cycle` on `student_attendance_records` | BEFORE INSERT: sets `cycle_id` to the subject's cycle. |
+| `tag_black_dot_with_cycle()` | `trigger` | definer, volatile | owner only | 0036 | trigger `trg_black_dots_cycle` on `student_black_dots` | BEFORE INSERT: sets `cycle_id` to the cycle containing the incident date, else the active cycle. |
+| `tag_row_with_active_cycle()` | `trigger` | definer, volatile | owner only | 0036 | 5 triggers: `academic_upload_batches`, `roster_import_batches`, `cluster_head_courses`, `student_backlogs`, `at_risk_meetings` | BEFORE INSERT: sets a missing `cycle_id` to the active cycle. With the argument `required`, refuses when there is none ("There is no active academic cycle..."). |
 | `try_numeric(p_value text)` | `numeric` | invoker, immutable | authenticated, service_role | 0035 | SQL: `record_gpa_batch`, `record_backlog_batch`, `record_black_dot_batch` | A plain decimal, or NULL instead of an error, so a stray word in a numeric cell is a row error (B7). |
 | `unlock_student_form_a(p_student_id uuid)` | `void` | definer, volatile | authenticated | 0010 | — (unused) | **Dead** (no caller). HOD only; clears the lock **and sets `form_a_completed = false`**, which would send the student back through onboarding. |
-| `upsert_semester_gpa(p_semester_number smallint, p_gpa numeric)` | `student_semester_gpas` | definer, volatile | authenticated | 0010, 0021 | `StudentAcademicsPage.jsx` | Student self-reports a semester GPA (1–8, 0–10); refused for department-published semesters. |
+| `update_academic_cycle_dates(p_cycle_id uuid, p_starts_on date, p_even_starts_on date, p_ends_on date)` | `academic_cycles` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Corrects a cycle's dates (same checks as creation); every row's semester is recomputed on read. Audits `academic_cycle.update_dates`. |
+| `upsert_semester_gpa(p_semester_number smallint, p_gpa numeric)` | `student_semester_gpas` | definer, volatile | owner only | 0010, 0021, 0037 | — (unused) | **Retired in 0037.** Was the student's own GPA entry (1–8, 0–10; refused for department-published semesters). No longer executable by signed-in users; kept so it could be re-granted. |
 | `write_audit_entry(p_actor_id uuid, p_action text, p_entity_type text, p_entity_id text, p_metadata jsonb, p_ip_address text, p_user_agent text)` | `void` | definer, volatile | service_role | 0015 | `request-guards.js` | Inserts into `audit_log`. Executable by `service_role` only. |
 
 ---
@@ -2160,7 +2303,7 @@ Processing, per account:
 | **Rate limit** | `roster-import`: 200 per 300 s |
 | **Body limit** | 10 MB (body parser) plus `assertBodySize` |
 | **Request** (`rosterImportSchema`) | See the table below. |
-| **Response 201** | `data: {batch_id, total_rows, offset, next_offset, processed_through, faculty_created, student_created, created: [{row, id, email, full_name, role, login_id, temporary_password, password_from_file}], skipped: [{row, email, reason}], failed: [{row, email, reason}]}` |
+| **Response 201** | `data: {batch_id, total_rows, offset, next_offset, processed_through, faculty_created, student_created, created: [{row, id, email, full_name, role, login_id, temporary_password, password_from_file}], skipped: [{row, email, reason}], failed: [{row, email, reason}], activated: [{row, email}], students_updated, cycle}` (the last three since 0036) |
 | **Errors** | 400 for parser errors (§10.4), a missing Role in a combined file, or validation |
 | **Audit** | Only on the final chunk: `admin.import_<import_type>_roster`, with `{filename, total, created, failed, dry_run}` |
 | **Caller** | `ClusterHeadRosterPage` → `AcademicUploadPanel` (chunk loop, merged results, credentials panel) |
@@ -2181,11 +2324,12 @@ Request fields:
 Processing (details in §4.13):
 
 1. Parse the whole file.
-2. Pre-load faculty and existing e-mails.
-3. Starting at `offset`, plan each row, and create accounts in waves of 25 with 5 at a time.
+2. Pre-load faculty and existing accounts (e-mail → id and role, paged).
+3. Starting at `offset`, plan each row, and create accounts in waves of 25 with 5 at a time. A row for an existing **student** is set aside for activation instead of being skipped outright.
 4. Stop when the 20 s budget is spent. `next_offset` = the index to resume from, or `null` when done.
-5. Insert or accumulate the `roster_import_batches` row.
-6. If `semester_cycle_id` is given, update that cycle's counters. The current UI never sends it.
+5. With `create_accounts`, call `activate_roster_students` (service role) for the chunk's existing students: they join the active academic cycle, and the file's semester, section and programme become their current ones (§4.13).
+6. Insert or accumulate the `roster_import_batches` row (filed under the active cycle by its trigger).
+7. If `semester_cycle_id` is given, update that legacy cycle's counters. The current UI never sends it.
 
 **Response message:** "Imported n row(s)… s already existed, f failed.", or for a dry run: "Validated … ready to import …".
 
@@ -2230,7 +2374,8 @@ Processing (details in §4.13):
 | **Request** (`clusterHeadUploadSchema`, discriminated on `action`) | Every action also takes `filename` (1–255) and `file_base64` (≤ 8,000,000 characters). See the table below. |
 | **Processing** | Decode (an empty result → 400 "The uploaded file is empty."), parse (§10.4), [mentor-map: `createMissingMentors`], then the RPC as the user. Backlogs: 400 "The file does not say which semester it is for. Choose the semester, then upload it again." when neither the file nor the request names one. |
 | **Response 200** | `data` = the RPC's JSON plus `file_meta` (what the parser read from the file; `null` for attendance and the mentor map): `{batch_id, total_rows, matched, failed, students_reevaluated, row_errors: [{row, identifier, reason}]}`. Attendance adds `course_code, course_name, section, sections, period_start, period_end`. GPA adds `skipped, semester_gpas_recorded, semesters, cgpa_recorded`. Backlogs add `semester_number, exam_session, backlogs_recorded, backlogs_cleared`. Black dots add `cases, case_numbers, students`, and each row error a `where`. Mentor-map returns `{total_rows, matched, unchanged, failed, row_errors, mentors_created, mentor_errors}`. |
-| **Message** | "n row(s) recorded for <course> (section <s>), f could not be matched." / "n student(s) recorded (semester 1, 2 GPA and CGPA)." / "n backlog(s) recorded for semester s, c cleared." / "n black dot(s) recorded across c case(s)." / "n student(s) mapped to their mentor. m mentor account(s) created …" |
+| **Message** | "n row(s) recorded for <course> (section <s>), f could not be matched." / "n student(s) recorded (semester 1, 2 GPA and CGPA)." / "n backlog(s) recorded for semester s, c cleared." / "n black dot(s) recorded across c case(s). r student(s) re-checked against the at-risk rule." / "n student(s) mapped to their mentor. m mentor account(s) created …" |
+| **Academic cycle** | Every batch and row is filed under the active cycle by the database; with no active cycle the RPC refuses the upload (§4.24). Attendance also returns `cycle` and `semester`. |
 | **Audit** | `cluster_head.upload_<action>`, with `{action, filename, total_rows, matched, failed, mentor_accounts_created}`, plus `{semester, cleared}` for backlogs and `{cases}` for black dots |
 | **Callers** | `ClusterHeadAttendancePage`, `ClusterHeadGpaPage`, `ClusterHeadBacklogPage`, `ClusterHeadBlackDotPage`, `ClusterHeadRosterPage` (mentor map), all through `AcademicUploadPanel` |
 
@@ -2269,6 +2414,19 @@ Per-action fields and RPCs:
 | **Audit** | PDF only: `report.student_dossier_pdf` |
 | **Callers** | `FacultyMenteesPage` (PDF per mentee), `FacultyMenteeDetailPage` (PDF button; on-screen data uses the RPC directly) |
 
+### 6.10 `GET /api/reports/academic-cycle-report`
+
+| | |
+|---|---|
+| **Roles** | `cluster_head`, `hod` (the database's `get_cycle_overview` checks again) |
+| **Rate limit** | `cycle-report`: 20 per 60 s |
+| **Query** (`cycleReportQuerySchema`) | `cycle_id?` (uuid; default the active cycle), `semester?` (`Odd` or `Even`; default the whole cycle) |
+| **Processing** | `get_cycle_overview(p_cycle_id, p_semester)` as the user, then `buildCycleWorkbook(overview, {generatedBy})` with ExcelJS. |
+| **Response 200** | An `.xlsx` attachment, `cycle-report-<label>.xlsx` or `cycle-report-<label>-odd-semester.xlsx`, with the sheets Summary (semesters and key figures), Students, Mentors, Attendance, Backlogs, Black dots and Uploads. Counts and averages only: no student is named, and there are no GPA values or at-risk flags. Times are India time. |
+| **Errors** | database 42501 → 403; other database errors → 400; no cycle → 404 "No academic cycle was found" |
+| **Audit** | `report.academic_cycle_xlsx`, with `{cycle, semester}` |
+| **Caller** | `ClusterHeadCyclesPage` ("Download report", "Download .xlsx") through `apiClient.downloadFile` |
+
 ---
 
 ## 7. Database reference
@@ -2277,11 +2435,11 @@ Per-action fields and RPCs:
 
 The database is Postgres 15 on Supabase. There is a single application schema, `public`, which contains:
 
-- **30 tables**, **8 views**, **18 enums**, **79 functions**, and **29 triggers** (27 on `public` tables and 2 on `auth.users`);
+- **32 tables**, **10 views**, **18 enums**, **96 functions**, and **38 triggers** (36 on `public` tables and 2 on `auth.users`);
 - 2 sequences (`query_code_seq`, `audit_log_id_seq`);
 - the extensions `citext`, `pg_trgm` and `pgcrypto`.
 
-Everything in §7.3–§7.8 was **generated from the live catalogue** after replaying all 33 migrations (and updated for 0034–0035 on 2026-09-27), so column lists, constraints, indexes, policies and grants are exact. Where a table's own SQL comment has gone stale, a **Doc note** says so.
+Everything in §7.3–§7.8 was **generated from the live catalogue** after replaying all 33 migrations (and updated for 0034–0035 on 2026-09-27 and for 0036–0037 on 2026-09-28), so column lists, constraints, indexes, policies and grants are exact. Where a table's own SQL comment has gone stale, a **Doc note** says so.
 
 Conventions that hold across the schema:
 
@@ -2299,30 +2457,35 @@ Conventions that hold across the schema:
 
   Definer RPCs that legitimately change these set the flag with `set_config('ssmp.trusted_operation', 'on', true)`: `submit_student_form_a`, `set_star_mentee`, `set_faculty_employment_status`, `reassign_mentees`, `submit_cluster_head_setup`, `map_students_to_mentors`, `unlock_student_form_a`. Every other profile column is freely editable by its owner (§8.9).
 - **Notifications** are inserted only through `enqueue_notification` (§4.21).
-- **Timestamps.** `set_updated_at_timestamp` maintains `updated_at` on 16 tables.
+- **Timestamps.** `set_updated_at_timestamp` maintains `updated_at` on 17 tables.
+- **Academic cycles** (0036). Seven tables carry a `cycle_id`, set by `BEFORE INSERT` triggers (§4.24); which semester a row is in is computed on read, never stored.
 - **Enums.** Since 0020, new enum values get a migration of their own (0020, 0026, 0028, 0034). The earlier 0018 and 0019 added values inside larger files. Postgres refuses to use a value in the transaction that created it, and `supabase db push` may wrap a file in one transaction.
-- **Views.** All 8 are `security_invoker = true`, so they run with the caller's rights and RLS still applies.
+- **Views.** All 10 are `security_invoker = true`, so they run with the caller's rights and RLS still applies.
 
 ### 7.2 Relationships (foreign keys)
 
 `user_profiles.id` references `auth.users(id)`. Every person in the system is a `user_profiles` row, and almost every table hangs off it.
 
-- **`academic_upload_batches`**: `course_id` → `cluster_head_courses(id)` (on delete set null); `uploaded_by` → `user_profiles(id)` (on delete cascade)
-- **`at_risk_meetings`**: `mentor_id` → `user_profiles(id)` (on delete cascade); `student_id` → `user_profiles(id)` (on delete cascade)
+- **`academic_cycle_students`**: `cycle_id` → `academic_cycles(id)` (on delete cascade); `mentor_id` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
+- **`academic_cycles`**: `created_by` → `user_profiles(id)` (on delete set null)
+- **`academic_upload_batches`**: `course_id` → `cluster_head_courses(id)` (on delete set null); `cycle_id` → `academic_cycles(id)`; `uploaded_by` → `user_profiles(id)` (on delete cascade)
+- **`at_risk_meetings`**: `cycle_id` → `academic_cycles(id)` (on delete set null); `mentor_id` → `user_profiles(id)` (on delete cascade); `student_id` → `user_profiles(id)` (on delete cascade)
 - **`audit_log`**: `actor_id` → `user_profiles(id)` (on delete set null)
 - **`canned_replies`**: `owner_id` → `user_profiles(id)` (on delete cascade)
-- **`cluster_head_courses`**: `cluster_head_id` → `user_profiles(id)` (on delete cascade)
+- **`cluster_head_courses`**: `cluster_head_id` → `user_profiles(id)` (on delete cascade); `cycle_id` → `academic_cycles(id)` (on delete cascade)
 - **`counselling_requests`**: `mentor_id` → `user_profiles(id)` (on delete cascade); `responded_by` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
 - **`cycle_job_runs`**: `triggered_by` → `user_profiles(id)` (on delete set null)
 - **`mentor_reassignment_log`**: `from_mentor_id` → `user_profiles(id)` (on delete set null); `performed_by` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade); `to_mentor_id` → `user_profiles(id)` (on delete cascade)
 - **`mom_records`**: `mentor_id` → `user_profiles(id)` (on delete cascade); `reported_by` → `user_profiles(id)` (on delete cascade)
 - **`notifications`**: `actor_id` → `user_profiles(id)` (on delete set null); `query_id` → `support_queries(id)` (on delete cascade); `recipient_id` → `user_profiles(id)` (on delete cascade)
 - **`query_messages`**: `query_id` → `support_queries(id)` (on delete cascade); `sender_id` → `user_profiles(id)` (on delete set null)
-- **`roster_import_batches`**: `semester_cycle_id` → `semester_cycles(id)` (on delete set null); `uploaded_by` → `user_profiles(id)` (on delete set null)
+- **`roster_import_batches`**: `cycle_id` → `academic_cycles(id)`; `semester_cycle_id` → `semester_cycles(id)` (on delete set null); `uploaded_by` → `user_profiles(id)` (on delete set null)
 - **`semester_cycles`**: `created_by` → `user_profiles(id)` (on delete set null)
 - **`student_achievements`**: `student_id` → `user_profiles(id)` (on delete cascade); `verified_by` → `user_profiles(id)` (on delete set null)
-- **`student_attendance_records`**: `batch_id` → `academic_upload_batches(id)` (on delete set null); `course_id` → `cluster_head_courses(id)` (on delete cascade); `recorded_by` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
-- **`student_backlogs`**: `batch_id` → `academic_upload_batches(id)` (on delete set null); `recorded_by` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
+- **`student_attendance_records`**: `batch_id` → `academic_upload_batches(id)` (on delete set null); `course_id` → `cluster_head_courses(id)` (on delete cascade); `cycle_id` → `academic_cycles(id)`; `recorded_by` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
+- **`student_backlogs`**: `batch_id` → `academic_upload_batches(id)` (on delete set null); `cycle_id` → `academic_cycles(id)`; `recorded_by` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
+- **`student_black_dots`**: `batch_id` → `academic_upload_batches(id)` (on delete set null); `cycle_id` → `academic_cycles(id)`; `recorded_by` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
+- **`student_cgpas`**: `batch_id` → `academic_upload_batches(id)` (on delete set null); `recorded_by` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
 - **`student_course_sections`**: `course_id` → `cluster_head_courses(id)` (on delete cascade); `student_id` → `user_profiles(id)` (on delete cascade)
 - **`student_form_a_profiles`**: `student_id` → `user_profiles(id)` (on delete cascade); `unlocked_by` → `user_profiles(id)` (on delete set null)
 - **`student_risk_flags`**: `student_id` → `user_profiles(id)` (on delete cascade)
@@ -2355,10 +2518,79 @@ Real Postgres enums. Any value added in SQL must also be mirrored in `frontend/s
 | `query_status` (was `ticket_status` before 0031) | Open · In Progress · Resolved | 0001 |
 | `resolution_status` | none · pending_confirmation · confirmed · reopened | 0001 |
 | `roster_import_type` | faculty · student · combined | 0001 |
-| `semester_term` | Odd · Even | 0001 |
+| `semester_term` | Odd · Even | 0001 (used by `semester_cycles`; since 0036 also the odd and even semesters of an academic cycle) |
 | `user_role` | student · faculty · hod · cluster_head | 0001 |
 
 ### 7.4 Tables
+
+#### `academic_cycle_students`
+
+Which students are active in which cycle, with the semester, section, branch and mentor they had in it. Filled by new accounts, the roster import, the mentor mapping and "carry over"; the active cycle's rows follow the profile as it changes.
+
+*created in migration 0036 · RLS enabled*
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `cycle_id` | uuid | not null |  | **PK** (with `student_id`); FK → `academic_cycles(id) on delete cascade` |
+| `student_id` | uuid | not null |  | **PK**; FK → `user_profiles(id) on delete cascade` |
+| `semester_label` | text |  |  | The student's semester in that cycle |
+| `section` | text |  |  |  |
+| `branch` | text |  |  |  |
+| `mentor_id` | uuid |  |  | FK → `user_profiles(id) on delete set null`; the mentor in that cycle |
+| `activated_via` | text | not null | `'roster'::text` | How the student joined the cycle; the first way is kept |
+| `activated_at` | timestamp with time zone | not null | `now()` |  |
+| `updated_at` | timestamp with time zone | not null | `now()` |  |
+
+Constraints and indexes:
+
+- `academic_cycle_students_via` — `CHECK (activated_via = ANY (ARRAY['existing', 'account', 'roster', 'mentor_map', 'carried_over', 'profile']))`
+- index `academic_cycle_students_mentor_idx` — `btree (cycle_id, mentor_id)`
+- index `academic_cycle_students_student_idx` — `btree (student_id)`
+
+RLS policies:
+
+- `cycle_students_select_visible` — **SELECT** to authenticated; using `can_access_student(student_id)`
+
+Grants: `authenticated`: SELECT. Written only by the cycle functions and the trigger `trg_sync_student_cycle_enrollment` on `user_profiles`.
+
+#### `academic_cycles`
+
+One academic year ("2026-27") with an odd and an even semester. Exactly one is active; uploads, rosters, subjects, attendance, backlogs and black dots are filed against it. Written only by create_academic_cycle / update_academic_cycle_dates / delete_academic_cycle.
+
+*created in migration 0036 · RLS enabled*
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `id` | uuid | not null | `extensions.gen_random_uuid()` | **PK** |
+| `start_year` | smallint | not null |  | 2026 for 2026-27 |
+| `label` | text |  | generated: `start_year \|\| '-' \|\| lpad(((start_year + 1) % 100)::text, 2, '0')` | "2026-27"; the UI shows "2026–27" |
+| `starts_on` | date | not null |  | The odd semester starts |
+| `even_starts_on` | date | not null |  | The even semester starts; a date before it is in the odd semester |
+| `ends_on` | date | not null |  |  |
+| `is_active` | boolean | not null | `false` |  |
+| `activated_at` | timestamp with time zone |  |  |  |
+| `closed_at` | timestamp with time zone |  |  | Set when the next cycle starts |
+| `created_by` | uuid |  |  | FK → `user_profiles(id) on delete set null` |
+| `created_at` | timestamp with time zone | not null | `now()` |  |
+| `updated_at` | timestamp with time zone | not null | `now()` |  |
+
+Constraints and indexes:
+
+- `academic_cycles_one_per_year` — `UNIQUE (start_year)`
+- `academic_cycles_year_range` — `CHECK (start_year BETWEEN 2000 AND 2098)`
+- `academic_cycles_dates_ordered` — `CHECK ((starts_on < even_starts_on) AND (even_starts_on <= ends_on))`
+- `academic_cycles_dates_near_year` — `CHECK ((starts_on >= make_date(start_year - 1, 1, 1)) AND (ends_on < make_date(start_year + 2, 1, 1)))`
+- index `academic_cycles_one_active` — `unique btree ((true)) WHERE is_active`: at most one active cycle
+
+RLS policies:
+
+- `academic_cycles_select_all` — **SELECT** to authenticated; using `true`
+
+Grants: `authenticated`: SELECT
+
+Triggers:
+
+- `trg_academic_cycles_updated_at` — before update → `set_updated_at_timestamp()`
 
 #### `academic_upload_batches`
 
@@ -2386,11 +2618,13 @@ One row per Cluster Head upload (attendance / GPA / backlog / black dot), includ
 | `row_errors` | jsonb | not null | `'[]'::jsonb` |  |
 | `created_at` | timestamp with time zone | not null | `now()` |  |
 | `scope_label` | text |  |  | What the file covered: "Semesters 1, 2 + CGPA", "Semester 3 · END TERM …", "2 cases" |
+| `cycle_id` | uuid | not null |  | FK → `academic_cycles(id)`; set by `trg_upload_batches_cycle` (0036) |
 
 Constraints and indexes:
 
 - `academic_upload_batches_semester_range` — `CHECK (((semester_number IS NULL) OR ((semester_number >= 1) AND (semester_number <= 8))))`
 - index `academic_upload_batches_owner_idx` — `btree (uploaded_by, created_at DESC)`
+- index `academic_upload_batches_cycle_idx` — `btree (cycle_id, created_at DESC)`
 
 RLS policies:
 
@@ -2398,6 +2632,10 @@ RLS policies:
 - `academic_batches_select_own` — **SELECT** to authenticated; using `(uploaded_by = auth.uid())`
 
 Grants: `authenticated`: SELECT
+
+Triggers:
+
+- `trg_upload_batches_cycle` — before insert → `tag_row_with_active_cycle('required')`
 
 #### `api_rate_limits`
 
@@ -2441,6 +2679,8 @@ RLS policies: **none** — no client role can read or write this table directly;
 | `job_run_id` | uuid |  |  |  |
 | `created_at` | timestamp with time zone | not null | `now()` |  |
 | `updated_at` | timestamp with time zone | not null | `now()` |  |
+| `cycle_id` | uuid |  |  | FK → `academic_cycles(id) on delete set null`; set by `trg_at_risk_meetings_cycle` (0036) |
+| `black_dot_count` | integer | not null | `0` | Snapshot of the student's black dots in the cycle (0036) |
 
 Constraints and indexes:
 
@@ -2459,6 +2699,7 @@ Triggers:
 
 - `trg_at_risk_meetings_updated_at` — before update → `set_updated_at_timestamp()`
 - `trg_notify_at_risk_meeting` — after insert → `notify_on_at_risk_meeting()`
+- `trg_at_risk_meetings_cycle` — before insert → `tag_row_with_active_cycle('optional')`
 
 #### `audit_log`
 
@@ -2530,7 +2771,7 @@ The subjects a Cluster Head handles: course name and course code. Sections are n
 
 *created in migration 0021 · RLS enabled*
 
-> **Doc note:** the policy `ch_courses_write_own` (FOR ALL) lets a cluster head write these rows directly, bypassing `submit_cluster_head_setup`. Deleting a course — including changing its code in My Subjects — cascades to `student_attendance_records` and `student_course_sections` (§4.11).
+> **Doc note:** the policy `ch_courses_write_own` (FOR ALL) lets a cluster head write these rows directly, bypassing `submit_cluster_head_setup`. Deleting a course — including changing its code in My Subjects — cascades to `student_attendance_records` and `student_course_sections` (§4.11). Since 0036 each row belongs to one academic cycle, and a new cycle gets a copy of the list; the screens read `current_cycle_courses`.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -2541,13 +2782,15 @@ The subjects a Cluster Head handles: course name and course code. Sections are n
 | `display_order` | smallint | not null | `0` |  |
 | `created_at` | timestamp with time zone | not null | `now()` |  |
 | `updated_at` | timestamp with time zone | not null | `now()` |  |
+| `cycle_id` | uuid | not null |  | FK → `academic_cycles(id) on delete cascade`; set by `trg_courses_cycle` (0036) |
 
 Constraints and indexes:
 
 - `cluster_head_courses_code_not_blank` — `CHECK (is_non_blank(course_code))`
 - `cluster_head_courses_name_not_blank` — `CHECK (is_non_blank(course_name))`
 - index `cluster_head_courses_owner_idx` — `btree (cluster_head_id, display_order)`
-- index `cluster_head_courses_unique_code_idx` — `unique btree (cluster_head_id, lower(course_code))`
+- index `cluster_head_courses_unique_code_idx` — `unique btree (cluster_head_id, cycle_id, lower(course_code))` (per cycle since 0036)
+- index `cluster_head_courses_cycle_idx` — `btree (cycle_id, cluster_head_id, display_order)`
 
 RLS policies:
 
@@ -2560,6 +2803,7 @@ Grants: `authenticated`: DELETE,INSERT,SELECT,UPDATE
 Triggers:
 
 - `trg_cluster_head_courses_updated_at` — before update → `set_updated_at_timestamp()`
+- `trg_courses_cycle` — before insert → `tag_row_with_active_cycle('required')`
 
 #### `counselling_requests`
 
@@ -2819,10 +3063,12 @@ Triggers:
 | `row_errors` | jsonb | not null | `'[]'::jsonb` |  |
 | `uploaded_by` | uuid |  |  | FK → `user_profiles(id) on delete set null` |
 | `created_at` | timestamp with time zone | not null | `now()` |  |
+| `cycle_id` | uuid |  |  | FK → `academic_cycles(id)`; the academic cycle the import went into, set by `trg_roster_batches_cycle` (0036). `semester_cycle_id` is the retired wizard's link and is no longer written. |
 
 Constraints and indexes:
 
 - index `roster_batches_cycle_idx` — `btree (semester_cycle_id, created_at DESC)`
+- index `roster_import_batches_cycle_idx` — `btree (cycle_id, created_at DESC)`
 
 RLS policies:
 
@@ -2831,13 +3077,17 @@ RLS policies:
 
 Grants: `authenticated`: SELECT
 
+Triggers:
+
+- `trg_roster_batches_cycle` — before insert → `tag_row_with_active_cycle('optional')`
+
 #### `semester_cycles`
 
 HOD semester initialisation wizard state (5-step stepper).
 
 *created in migration 0006 · RLS enabled*
 
-> **Doc note:** stale. The HOD semester wizard was removed; no page writes this table. Only the roster import touches it, and only when a `semester_cycle_id` is sent (the UI never sends one).
+> **Doc note:** stale. The HOD semester wizard was removed; no page writes this table. Only the roster import touches it, and only when a `semester_cycle_id` is sent (the UI never sends one). It has nothing to do with the **academic cycles** of 0036 (`academic_cycles`, §4.24), which replaced the idea.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -2939,6 +3189,7 @@ Attendance per student, per course, per reporting period. Uploaded by a Cluster 
 | `course_code` | text |  |  |  |
 | `course_name` | text |  |  |  |
 | `attendance_percent` | numeric(5,2) | not null |  | Taken verbatim from the "%" column of the ERP export. Never recomputed from classes_held/classes_attended — the portal must not disagree with the ERP. |
+| `cycle_id` | uuid | not null |  | FK → `academic_cycles(id)`; its subject's cycle, set by `trg_attendance_cycle` (0036) |
 
 Constraints and indexes:
 
@@ -2949,6 +3200,7 @@ Constraints and indexes:
 - `attendance_period_ordered` — `CHECK ((period_end >= period_start))`
 - index `student_attendance_course_idx` — `btree (course_id, section_label)`
 - index `student_attendance_student_idx` — `btree (student_id, period_start DESC)`
+- index `student_attendance_records_cycle_idx` — `btree (cycle_id, student_id, course_id, period_start DESC)`
 
 RLS policies:
 
@@ -2962,6 +3214,7 @@ Grants: `authenticated`: SELECT
 Triggers:
 
 - `trg_student_attendance_updated_at` — before update → `set_updated_at_timestamp()`
+- `trg_attendance_cycle` — before insert → `tag_attendance_with_cycle()`
 
 #### `student_backlogs`
 
@@ -2985,6 +3238,7 @@ One row per backlog subject. A single row with is_cleared = false is enough to s
 | `updated_at` | timestamp with time zone | not null | `now()` |  |
 | `grade` | text |  |  | The defaulter grade (F, UFM, DT …), kept after clearing (0035) |
 | `credits` | numeric(4,2) |  |  | From the result's subject table (0035) |
+| `cycle_id` | uuid | not null |  | FK → `academic_cycles(id)`; the cycle it was first recorded in, set by `trg_backlogs_cycle` (0036) |
 
 Constraints and indexes:
 
@@ -2993,6 +3247,7 @@ Constraints and indexes:
 - `student_backlogs_unique` — `UNIQUE (student_id, subject_code, semester_number)` (the upload functions match `upper(subject_code)` and store codes upper-case since 0035)
 - index `student_backlogs_student_idx` — `btree (student_id) WHERE (is_cleared = false)`
 - index `student_backlogs_open_by_subject_idx` — `btree (semester_number, upper(subject_code)) WHERE (is_cleared = false)` (0035)
+- index `student_backlogs_cycle_idx` — `btree (cycle_id)`
 
 RLS policies:
 
@@ -3004,6 +3259,7 @@ Grants: `authenticated`: SELECT
 Triggers:
 
 - `trg_student_backlogs_updated_at` — before update → `set_updated_at_timestamp()`
+- `trg_backlogs_cycle` — before insert → `tag_row_with_active_cycle('required')`
 
 #### `student_black_dots`
 
@@ -3029,6 +3285,7 @@ Disciplinary black dots from Proctorial Board notices, one row per student per c
 | `recorded_by` | uuid |  |  | FK → `user_profiles(id) on delete set null` |
 | `created_at` | timestamp with time zone | not null | `now()` |  |
 | `updated_at` | timestamp with time zone | not null | `now()` |  |
+| `cycle_id` | uuid | not null |  | FK → `academic_cycles(id)`; the cycle the incident date falls in, else the active one, set by `trg_black_dots_cycle` (0036). Only the active cycle's black dots count towards the at-risk rule. |
 
 Constraints and indexes:
 
@@ -3036,6 +3293,7 @@ Constraints and indexes:
 - `student_black_dots_previous_sane` — `CHECK ((previous_black_dots IS NULL) OR ((previous_black_dots >= 0) AND (previous_black_dots <= 100)))`
 - unique index `student_black_dots_one_per_case` — `btree (student_id, lower(case_number))`
 - index `student_black_dots_student_idx` — `btree (student_id, incident_date DESC)`
+- index `student_black_dots_cycle_idx` — `btree (cycle_id, student_id)`
 
 RLS policies:
 
@@ -3047,6 +3305,7 @@ Grants: `authenticated`: SELECT (written only by `record_black_dot_batch`)
 Triggers:
 
 - `trg_student_black_dots_updated_at` — before update → `set_updated_at_timestamp()`
+- `trg_black_dots_cycle` — before insert → `tag_black_dot_with_cycle()`
 
 #### `student_cgpas`
 
@@ -3207,7 +3466,7 @@ At-risk state per student. ANY of low attendance / low GPA / a backlog sets is_a
 
 *created in migration 0022 · RLS enabled*
 
-> **Doc note:** `latest_gpa` is readable by anyone who passes `can_access_student` (this table and `at_risk_student_overview`), regardless of GPA sharing.
+> **Doc note:** `latest_gpa` is readable by anyone who passes `can_access_student` (this table and `at_risk_student_overview`), regardless of GPA sharing. `attendance_percent` and `black_dot_count` are the active cycle's (0036).
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -3227,6 +3486,8 @@ At-risk state per student. ANY of low attendance / low GPA / a backlog sets is_a
 | `last_evaluated_at` | timestamp with time zone | not null | `now()` |  |
 | `created_at` | timestamp with time zone | not null | `now()` |  |
 | `updated_at` | timestamp with time zone | not null | `now()` |  |
+| `has_black_dot` | boolean | not null | `false` | At least one black dot in the active cycle (0036) |
+| `black_dot_count` | integer | not null | `0` | Black dots in the active cycle (0036) |
 
 Constraints and indexes:
 
@@ -3249,7 +3510,7 @@ Feature 2 — semester GPA history. Visible to faculty/HOD only when the student
 
 *created in migration 0003 · RLS enabled*
 
-> **Doc note:** the HOD can always read GPAs; the mentor reads them per `gpa_sharing_enabled` (default true; the UI toggle was removed). `source` is `student` (self-reported) or `cluster_head` (department upload, which always overwrites). **Known gap:** the student's own INSERT/UPDATE/DELETE policies ignore `source` (§8.9).
+> **Doc note:** the HOD can always read GPAs; the mentor reads them per `gpa_sharing_enabled` (default true; the UI toggle was removed). `source` is `cluster_head` (department upload, which always overwrites) or `student` (self-reported before 0037, which ended student entry). Since 0037 only the definer upload functions write this table: the student's INSERT/UPDATE/DELETE policies, which ignored `source` (S1), are gone.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -3275,12 +3536,10 @@ Constraints and indexes:
 
 RLS policies:
 
-- `gpas_delete_own` — **DELETE** to authenticated; using `(student_id = auth.uid())`
-- `gpas_insert_own` — **INSERT** to authenticated; check `((student_id = auth.uid()) AND is_student())`
 - `gpas_select_permitted` — **SELECT** to authenticated; using `can_view_student_gpa(student_id)`
-- `gpas_update_own` — **UPDATE** to authenticated; using `(student_id = auth.uid())`; check `(student_id = auth.uid())`
+- (`gpas_insert_own`, `gpas_update_own` and `gpas_delete_own` were dropped in 0037.)
 
-Grants: `authenticated`: DELETE,INSERT,SELECT,UPDATE
+Grants: `authenticated`: SELECT (INSERT, UPDATE and DELETE revoked in 0037)
 
 Triggers:
 
@@ -3543,13 +3802,29 @@ Triggers:
 
 Every view is created `WITH (security_invoker = true)`, so it runs with the caller's privileges and the underlying tables' RLS still applies.
 
+#### `academic_upload_history`
+
+`academic_upload_batches` with the cycle label, the semester each upload is filed under (attendance by period end, backlogs by programme-semester parity, the rest by upload date) and the subject code. Powers the cluster-head dashboard's Recent uploads.
+
+*defined in migration 0036 · security_invoker=true · reads `academic_upload_batches`, `academic_cycles`, `cluster_head_courses`*
+
+Columns: `id`, `cycle_id`, `cycle_label`, `semester`, `upload_type`, `course_id`, `course_code`, `section_label`, `period_start`, `period_end`, `semester_number`, `scope_label`, `original_filename`, `total_rows`, `matched_rows`, `failed_rows`, `uploaded_by`, `created_at`
+
 #### `at_risk_student_overview`
 
 At-risk roster: attendance, GPA, backlog count and guardian contact in one row. Parent contact prefers Form A and falls back to the student roster import.
 
-*defined in migration 0022, 0027 · security_invoker=true · reads `at_risk_meetings`, `student_form_a_profiles`, `student_risk_flags`, `user_profiles`*
+*defined in migration 0022, 0027, 0036 · security_invoker=true · reads `at_risk_meetings`, `student_form_a_profiles`, `student_risk_flags`, `user_profiles`*
 
-Columns: `student_id`, `student_name`, `registration_no`, `email`, `section`, `branch`, `semester_label`, `assigned_mentor_id`, `mentor_name`, `is_at_risk`, `low_attendance`, `low_gpa`, `has_backlog`, `attendance_percent`, `latest_gpa`, `latest_gpa_semester`, `backlog_count`, `reasons`, `first_flagged_at`, `last_evaluated_at`, `father_name`, `father_mobile`, `mother_name`, `mother_mobile`, `primary_parent_mobile`, `primary_parent_email`, `open_meeting_id`, `open_meeting_status`, `open_meeting_join_url`, `open_meeting_created_at`
+Columns: `student_id`, `student_name`, `registration_no`, `email`, `section`, `branch`, `semester_label`, `assigned_mentor_id`, `mentor_name`, `is_at_risk`, `low_attendance`, `low_gpa`, `has_backlog`, `attendance_percent`, `latest_gpa`, `latest_gpa_semester`, `backlog_count`, `reasons`, `first_flagged_at`, `last_evaluated_at`, `father_name`, `father_mobile`, `mother_name`, `mother_mobile`, `primary_parent_mobile`, `primary_parent_email`, `open_meeting_id`, `open_meeting_status`, `open_meeting_join_url`, `open_meeting_created_at`, `has_black_dot`, `black_dot_count` (the last two appended in 0036)
+
+#### `current_cycle_courses`
+
+The active cycle's subjects. The Cluster Head screens read this rather than `cluster_head_courses`.
+
+*defined in migration 0036 · security_invoker=true · reads `cluster_head_courses`*
+
+Columns: `id`, `cluster_head_id`, `course_name`, `course_code`, `display_order`, `created_at`, `updated_at`, `cycle_id`
 
 #### `faculty_performance_summary`
 
@@ -3571,9 +3846,9 @@ Columns: `mentor_id`, `day`, `queries_created`, `queries_resolved`, `academic`, 
 
 #### `student_attendance_overview`
 
-One row per student per course — the most recent reporting period. Powers the attendance table on the student Academics page.
+One row per student per course **for the active academic cycle** (since 0036) — the most recent reporting period. Powers the attendance on the student Academics page, the student record and the at-risk breakdown.
 
-*defined in migration 0025 · security_invoker=true · reads `student_attendance_records`*
+*defined in migration 0025, 0036 · security_invoker=true · reads `student_attendance_records`*
 
 Columns: `student_id`, `course_id`, `course_code`, `course_name`, `section_label`, `attendance_percent`, `classes_held`, `classes_attended`, `period_start`, `period_end`, `updated_at`
 
@@ -3635,6 +3910,7 @@ Storage policies (on `storage.objects`):
 - Extensions: `citext`, `pg_trgm`, `pgcrypto`
 - Sequences: `audit_log_id_seq`, `query_code_seq`
 - Realtime publication `supabase_realtime`: `notifications`, `query_messages`, `student_achievements`, `support_queries`, `user_profiles`
+- Session setting `ssmp.quiet_risk_notifications` (0036): while `on`, `notify_on_risk_flag_change` sends no "no longer at-risk" notices. Set only by `reevaluate_students_batch`, for its own transaction.
 
 ### 7.10 Who reads and writes each table
 
@@ -3647,13 +3923,17 @@ Reads inside SQL functions and views are not listed.
 
 | Table / view | Browser / API direct | Written by SQL functions |
 |---|---|---|
-| `academic_upload_batches` | **select**: `ClusterHeadDashboardPage.jsx` | `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch` |
+| `academic_cycle_students` | — (counts through `get_cycle_overview`) | `enroll_student_in_cycle` (via `activate_roster_students`, `map_students_to_mentors`, `sync_student_cycle_enrollment`), `carry_over_cycle_students` |
+| `academic_cycles` | **select**: `useActiveCycle.js`, `seed-demo-accounts.mjs` | `create_academic_cycle`, `update_academic_cycle_dates`, `delete_academic_cycle` |
+| `academic_upload_batches` | — (read through `academic_upload_history` and `get_cycle_overview`) | `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch` |
+| `academic_upload_history` (view) | **select**: `ClusterHeadDashboardPage.jsx` | — |
 | `api_rate_limits` | — | `consume_rate_limit` |
-| `at_risk_meetings` | — | `dispatch_at_risk_meetings`, `notify_on_at_risk_meeting`, `set_at_risk_meeting_status` |
+| `at_risk_meetings` | — | `dispatch_at_risk_meetings`, `notify_on_at_risk_meeting`, `set_at_risk_meeting_status`, `delete_academic_cycle` (clears `cycle_id`) |
 | `at_risk_student_overview` (view) | **select**: `FacultyAtRiskPage.jsx` | — |
 | `audit_log` | — | `write_audit_entry` |
 | `canned_replies` | **select**: `FacultyQueryDetailPage.jsx` | — |
-| `cluster_head_courses` | **select**: `ClusterHeadAttendancePage.jsx`, `ClusterHeadCoursesPage.jsx`, `ClusterHeadDashboardPage.jsx`, `ClusterHeadSetupPage.jsx` | `submit_cluster_head_setup` |
+| `cluster_head_courses` | **select**, **insert**: `seed-demo-accounts.mjs` (the screens read `current_cycle_courses`) | `submit_cluster_head_setup`, `create_academic_cycle` (copies the list) |
+| `current_cycle_courses` (view) | **select**: `ClusterHeadAttendancePage.jsx`, `ClusterHeadCoursesPage.jsx`, `ClusterHeadDashboardPage.jsx`, `ClusterHeadSetupPage.jsx` | — |
 | `counselling_requests` | **select**: `FacultyCounsellingPage.jsx`, `StudentCounsellingPage.jsx` | `request_counselling`, `respond_to_counselling` |
 | `cycle_job_runs` | — | `run_cycle_job` |
 | `cycle_job_schedule` | — | `run_cycle_job` |
@@ -3670,13 +3950,13 @@ Reads inside SQL functions and views are not listed.
 | `student_attendance_overview` (view) | **select**: `FacultyAtRiskPage.jsx`, `FacultyMenteeDetailPage.jsx`, `StudentAcademicsPage.jsx` | — |
 | `student_attendance_records` | — | `record_attendance_batch` |
 | `student_backlogs` | **select**: `StudentAcademicsPage.jsx` (also through `get_student_dossier`) | `record_backlog_batch` |
-| `student_black_dots` | **select**: `StudentAcademicsPage.jsx` (also through `get_student_dossier`) | `record_black_dot_batch` |
+| `student_black_dots` | **select**: `StudentAcademicsPage.jsx`, `FacultyAtRiskPage.jsx` (also through `get_student_dossier`) | `record_black_dot_batch` |
 | `student_cgpas` | **select**: `StudentAcademicsPage.jsx` (also through `get_student_dossier`) | `record_gpa_batch` |
 | `student_course_sections` | — | `record_attendance_batch` |
 | `student_form_a_profiles` | **select**: `FormAFields.jsx` | `request_form_a_unlock`, `set_gpa_sharing`, `submit_student_form_a`, `unlock_student_form_a` |
 | `student_query_summary` (view) | **select**: `FacultyMenteesPage.jsx`, `HodStudentsPage.jsx` | — |
 | `student_risk_flags` | — | `evaluate_student_risk` |
-| `student_semester_gpas` | **select**: `FacultyAtRiskPage.jsx`, `StudentAcademicsPage.jsx` | `record_gpa_batch`, `upsert_semester_gpa` |
+| `student_semester_gpas` | **select**: `FacultyAtRiskPage.jsx`, `StudentAcademicsPage.jsx` | `record_gpa_batch`; `upsert_semester_gpa` (retired in 0037) |
 | `support_queries` | **select**: `FacultyCrReportsPage.jsx`, `StudentCrReportPage.jsx`, `manage-faculty-roster.js`, `useRealtimeQueries.js`<br>**update**: `FacultyQueryDetailPage.jsx`, `manage-faculty-roster.js`<br>**realtime**: `StudentGroupQueriesPage.jsx`, `useRealtimeQueries.js` | `confirm_query_resolution`, `create_support_query`, `escalate_query_to_hod`, `post_query_message`, `rate_support_query`, `resolve_support_query`, `set_query_in_progress`, `submit_mom_report` |
 | `survey_cycles` | — | `open_survey_cycle` |
 | `survey_group_completion` (view) | — | — |
@@ -3684,7 +3964,7 @@ Reads inside SQL functions and views are not listed.
 | `survey_questions` | — | — |
 | `survey_response_answers` | — | `submit_survey_response` |
 | `survey_responses` | — | `submit_survey_response` |
-| `user_profiles` | **select**: `AddAccountModal.jsx`, `AuthProvider.jsx`, `FacultyActivityReportPage.jsx`, `HodStudentsPage.jsx`, `import-roster-spreadsheet.js`, `manage-faculty-roster.js`, `provision-user-accounts.js`, `request-guards.js`, `upload-academic-data.js`<br>**update**: `AuthProvider.jsx`, `FacultyProfilePage.jsx`, `ProfilePhotoUploader.jsx`, `StudentProfilePage.jsx`, `import-roster-spreadsheet.js`, `provision-user-accounts.js`<br>**realtime**: `AuthProvider.jsx` | `handle_auth_user_email_change`, `handle_new_auth_user`, `map_students_to_mentors`, `reassign_mentees`, `set_faculty_employment_status`, `set_mentor_department_and_hod`, `set_star_mentee`, `submit_cluster_head_setup`, `submit_student_form_a`, `unlock_student_form_a` |
+| `user_profiles` | **select**: `AddAccountModal.jsx`, `AuthProvider.jsx`, `FacultyActivityReportPage.jsx`, `HodStudentsPage.jsx`, `import-roster-spreadsheet.js`, `manage-faculty-roster.js`, `provision-user-accounts.js`, `request-guards.js`, `upload-academic-data.js`<br>**update**: `AuthProvider.jsx`, `FacultyProfilePage.jsx`, `ProfilePhotoUploader.jsx`, `StudentProfilePage.jsx`, `import-roster-spreadsheet.js`, `provision-user-accounts.js`<br>**realtime**: `AuthProvider.jsx` | `activate_roster_students`, `handle_auth_user_email_change`, `handle_new_auth_user`, `map_students_to_mentors`, `reassign_mentees`, `set_faculty_employment_status`, `set_mentor_department_and_hod`, `set_star_mentee`, `submit_cluster_head_setup`, `submit_student_form_a`, `unlock_student_form_a` |
 
 ---
 
@@ -3727,23 +4007,24 @@ Reads inside SQL functions and views are not listed.
 | Own profile: read; update non-protected columns (phone, avatar, name, section…) | direct | direct | direct (any profile) | direct |
 | Read other profiles | own mentor | own mentees; all faculty | all | none |
 | Form A | own: read, RPC submit/edit, and a **direct insert/update of any column** (including `is_submitted`, `is_locked`, `gpa_sharing_enabled`) | mentees': read | all: read, direct update | — |
-| Semester GPA and official CGPA | own: read; GPA by RPC and direct write (CGPA read-only) | mentees': read if sharing | all: read | write via upload RPC only |
+| Semester GPA and official CGPA | own: read only (student entry ended in 0037) | mentees': read if sharing | all: read | write via upload RPC only |
 | Achievements | own: CRUD while unverified | mentees': read, RPC verify | all: read, RPC verify | — |
 | Queries | own: RPC create/confirm/rate/post; read | assigned: read, RPC resolve/escalate/post/in-progress, direct update | all: same as faculty | — |
 | Canned replies | — | read global and own; manage own (no UI) | same | — |
 | Counselling | own: RPC request; read | assigned: read, RPC respond, direct update | **none** | — |
 | CR reports (`mom_records`) | star mentee: RPC file; read the reports they filed | read reports addressed to them (`mentor_id`); act on items | read all | — |
-| At-risk flags, meetings, overview | own flags and meetings readable (RLS; no UI shows them) | mentees' (`can_access_student`); **direct UPDATE** of meetings they organise | all; direct UPDATE of meetings | — |
-| Attendance records and overview | own | mentees' | all | own uploads |
+| At-risk flags, meetings, overview | own flags and meetings readable (RLS; no UI shows them) | mentees' (`can_access_student`); **direct UPDATE** of meetings they organise | all; direct UPDATE of meetings | re-check everyone's flags by RPC (`reevaluate_students_batch`), without reading them |
+| Attendance records and overview | own (active cycle) | mentees' | all | own uploads |
 | Backlogs | own (Academics page) | mentees' (student page) | all (student page) | rows they uploaded |
 | Black dots | own (Academics page) | mentees' (student page) | all (student page) | rows they uploaded |
 | Surveys | own: RPC answer | mentees' status (view), **and each mentee's individual answers** (RLS; no UI) | all, including answers | — |
 | Star mentee | star: group queries and survey status (RPCs) | RPC set | RPC set | — |
 | Uploads (attendance, GPA, backlog, black dot, mentor map) | — | — | via API, or the RPCs directly | via API (after setup), or the RPCs directly (no setup check) |
+| Academic cycles | read `academic_cycles` | read `academic_cycles`; their mentees' cycle rows | all: read; start, edit, remove and carry over by RPC (no screen); the cycle report via API | read; start, edit, remove, carry over by RPC; the whole-cycle overview (counts only) and the cycle report via API |
 | Roster import, account creation | — | — | via API (roster, single accounts) | via API (roster; mentor-map creates mentors) |
 | Faculty status, reassignment | — | — | via API, or the RPCs directly (no query handover) | — |
 | Cycle jobs | — | — | via API, or the RPCs directly | — |
-| Reports | own dossier (API/RPC allow it; no UI) | own activity; mentees' dossiers | all, plus the department report | — |
+| Reports | own dossier (API/RPC allow it; no UI) | own activity; mentees' dossiers | all, plus the department report and cycle reports | cycle reports |
 | Notifications | own | own | own | own |
 | Audit log | — | — | read (no UI) | — |
 
@@ -3761,9 +4042,10 @@ Reads inside SQL functions and views are not listed.
   - everything for the HOD.
 
   Students cannot see classmates' profiles. The star mentee's group views come from narrow definer RPCs.
-- **Student records** (Form A, achievements, attendance, backlogs, black dots, risk flags, meetings): `can_access_student`, i.e. self, mentor or HOD. GPA and the official CGPA use `can_view_student_gpa` instead.
+- **Student records** (Form A, achievements, attendance, backlogs, black dots, risk flags, meetings, a student's per-cycle rows in `academic_cycle_students`): `can_access_student`, i.e. self, mentor or HOD. GPA and the official CGPA use `can_view_student_gpa` instead.
+- **Academic cycles.** `academic_cycles` is readable by every signed-in user. The cycle overview (`get_cycle_overview`, `list_academic_cycles`) is for cluster heads and the HOD and carries counts and averages only.
 - **Counselling.** Student and assigned mentor only. No HOD access.
-- **Cluster heads.** Their own profile, their own courses, sections and attendance they uploaded, the backlog and black dot rows they uploaded, and their own upload and roster batches. They have **no read access** to students' GPAs or CGPA, risk data, queries or Form A.
+- **Cluster heads.** Their own profile, their own courses, sections and attendance they uploaded, the backlog and black dot rows they uploaded, their own upload and roster batches, and each cycle's counts through `get_cycle_overview` (no student named; mentor names and e-mails are shown in the mentor workload). They have **no read access** to students' GPAs or CGPA, risk data, queries or Form A.
 - **Storage.** See §2.5. Profile photos are readable by any signed-in user.
 
 ### 8.5 API hardening
@@ -3803,11 +4085,11 @@ Reads inside SQL functions and views are not listed.
 
 ### 8.9 Known security gaps (verified)
 
-These were found while writing this document and verified in the code; several were tested in rolled-back transactions. **S3 is fixed and S5 is narrowed by migration 0035; the rest are not fixed.**
+These were found while writing this document and verified in the code; several were tested in rolled-back transactions. **S3 is fixed and S5 is narrowed by migration 0035, and S1 is fixed by 0037; the rest are not fixed.**
 
 | # | Gap | Impact | Where |
 |---|---|---|---|
-| S1 | Students can **directly** INSERT, UPDATE or DELETE their own `student_semester_gpas` rows regardless of `source`, including department-published GPAs *(tested)* | A student can falsify official GPA, which feeds risk evaluation, mentor views and the dossier | policies `gpas_insert_own`, `gpas_update_own`, `gpas_delete_own` |
+| S1 | **Fixed in 0037.** Students could **directly** INSERT, UPDATE or DELETE their own `student_semester_gpas` rows regardless of `source`, including department-published GPAs *(tested)* | A student could falsify official GPA, which feeds risk evaluation, mentor views and the dossier. 0037 dropped the three policies, narrowed the grant to SELECT and revoked `upsert_semester_gpa` *(tested)* | policies `gpas_insert_own`, `gpas_update_own`, `gpas_delete_own` (dropped) |
 | S2 | `evaluate_student_risk(p_student_id)` has **no caller check** and is executable by `authenticated` | Any signed-in user, including students and cluster heads, can read any student's attendance mean, latest GPA, backlog count and reasons *(tested)*. The call also writes: it upserts the flag row and can trigger notifications | function `evaluate_student_risk` |
 | S3 | **Fixed in 0035.** `resolve_student_ids(text[])` had no role check and was executable by `authenticated` | Any signed-in user could map registration numbers or e-mails to student UUIDs (enumeration). It now refuses anyone but a cluster head, the HOD or a no-JWT call, and matches registration numbers only | function `resolve_student_ids` (0033, 0035) |
 | S4 | The HOD dashboard branch of `get_dashboard_metrics` is the `else` branch | A `cluster_head` calling the RPC receives department-wide query and user counts | function `get_dashboard_metrics` |
@@ -3823,7 +4105,7 @@ These were found while writing this document and verified in the code; several w
 | S14 | Cluster heads can write `cluster_head_courses` directly | Bypasses setup validation. Deleting a course cascades attendance. | policy `ch_courses_write_own` |
 | S15 | Students can INSERT `support_queries` directly (`queries_insert_own`: own id and current mentor) | Bypasses `create_support_query`'s 20-unresolved cap and description rules. Only the subject's CHECK constraints (non-blank, ≤ 200) still apply. The row can carry any `status`, `resolution_status`, `priority`, rating, `resolved_by` or `escalated_*` value allowed by the column constraints (for example, a fake "Resolved, confirmed, rated 1/5" query credited to the mentor, *tested*). No first message is created. The creation notification still fires. | policy `queries_insert_own` |
 | S16 | Survey answers are readable by the mentor they are about | Individual ratings are not anonymous: `survey_responses` and `survey_response_answers` are visible to the mentor and the HOD through `can_access_student` *(tested)* | policies `survey_responses_select_scope`, `survey_answers_select_scope` |
-| S17 | The privileged RPCs behind the API are executable by `authenticated` and check only the caller's role: `record_*_batch`, `map_students_to_mentors`, `run_cycle_job`, `run_all_cycle_jobs_now`, `reassign_mentees`, `set_faculty_employment_status` | A cluster head or HOD calling them through PostgREST skips the API's setup gate (no SQL function checks `cluster_head_setup_completed`), rate limit and audit entry. A direct `reassign_mentees` also skips the query handover. | function grants |
+| S17 | The privileged RPCs behind the API are executable by `authenticated` and check only the caller's role: `record_*_batch`, `map_students_to_mentors`, `activate_roster_students` (0036), `run_cycle_job`, `run_all_cycle_jobs_now`, `reassign_mentees`, `set_faculty_employment_status` | A cluster head or HOD calling them through PostgREST skips the API's setup gate (no SQL function checks `cluster_head_setup_completed`), rate limit and audit entry. A direct `reassign_mentees` also skips the query handover. | function grants |
 | S18 | Mentors can UPDATE their counselling requests directly (`counselling_update_mentor`, all columns) | A mentor can rewrite the student's `concern` or change `status` outside `respond_to_counselling` | policy `counselling_update_mentor` |
 | S19 | The HOD bypasses the protected-column guard and has `profiles_update_hod` | The HOD can directly change any profile's role, activation, mentor or star flag, **including their own role** (by design, but with no audit trail) | `guard_protected_profile_columns`, `profiles_update_hod` |
 | S20 | `set_gpa_sharing` is still executable although the UI toggle was removed, and Form A rows are directly updatable | A student can turn GPA sharing off without the UI, hiding GPAs from the mentor | function `set_gpa_sharing`; policy `form_a_update_own` |
@@ -3878,7 +4160,7 @@ ErrorBoundary
 | `/student/queries` | `StudentQueriesPage` | same | |
 | `/student/queries/:queryId` | `StudentQueryDetailPage` | same | |
 | `/student/group-queries` | `StudentGroupQueriesPage` | same | Star mentee only (page redirect and RPC) |
-| `/student/academics` | `StudentAcademicsPage` | same | |
+| `/student/academics` | `StudentAcademicsPage` | same | Titled "Academic performance overview" |
 | `/student/survey` | `StudentSurveyPage` | same | |
 | `/student/survey-tracking` | `StudentSurveyTrackingPage` | same | Star mentee only |
 | `/student/cr-report` | `StudentCrReportPage` | same | Star mentee only |
@@ -3909,6 +4191,7 @@ ErrorBoundary
 | `/hod/profile` | `HodProfilePage` (re-exports `FacultyProfilePage`) | Protected hod | |
 | `/cluster-head/setup` | `ClusterHeadSetupPage` | Protected cluster_head | No shell |
 | `/cluster-head` | `ClusterHeadDashboardPage` | Protected cluster_head + `RequireClusterHeadSetup` | |
+| `/cluster-head/cycles` | `ClusterHeadCyclesPage` | same | "Academic Cycles" (0036) |
 | `/cluster-head/attendance` | `ClusterHeadAttendancePage` | same | |
 | `/cluster-head/gpa` | `ClusterHeadGpaPage` | same | |
 | `/cluster-head/backlogs` | `ClusterHeadBacklogPage` | same | |
@@ -3918,7 +4201,7 @@ ErrorBoundary
 | `/cluster-head/profile` | `ClusterHeadProfilePage` (re-exports `FacultyProfilePage`) | same | |
 | `*` | `NotFoundPage` | none | |
 
-That is 49 routes. **Removed** since the old document: `/hod/semester` and every `/…/tickets…` path. There is no HOD counselling route.
+That is 50 routes. **Removed** since the old document: `/hod/semester` and every `/…/tickets…` path. There is no HOD counselling route.
 
 ### 9.4 Guards (`routes/RouteGuards.jsx`)
 
@@ -3939,7 +4222,7 @@ The sidebar renders the list for `profile.role`. An item with a `when` predicate
 | student | Home `/student`; My Queries `/student/queries`; **Group Queries** `/student/group-queries`\*; Academics `/student/academics`; Feedback Survey `/student/survey`; **Survey Tracking** `/student/survey-tracking`\*; **CR Report** `/student/cr-report`\*; Counselling `/student/counselling`; Achievements `/student/achievements`; My Profile `/student/profile` |
 | faculty | Home; Query Queue; My Mentees; At-Risk Students; Counselling; CR Reports; My Report; My Profile |
 | hod | Home; All Queries; Faculty Performance; Faculty Reports; Faculty Roster; Students; At-Risk Students; CR Reports; Scheduled Jobs (`/hod/operations`); My Profile |
-| cluster_head | Home; Upload Attendance; Upload GPA; Upload Backlogs; Upload Black dot (`/cluster-head/black-dots`); My Subjects (`/cluster-head/courses`); Rosters & Mentors (`/cluster-head/rosters`); My Profile |
+| cluster_head | Home; Academic Cycles (`/cluster-head/cycles`); Upload Attendance; Upload GPA; Upload Backlogs; Upload Black dot (`/cluster-head/black-dots`); My Subjects (`/cluster-head/courses`); Rosters & Mentors (`/cluster-head/rosters`); My Profile |
 
 \* only when `profile.is_star_mentee`. Form A is deliberately not a menu item; after onboarding it lives inside My Profile.
 
@@ -3955,7 +4238,7 @@ Each page's behaviour is described in the feature section named in the last colu
 | `StudentDashboardPage` | `get_dashboard_metrics`, `useRealtimeQueries(5)`, `profile.mentor` | raise query | 4.17, 4.4 |
 | `StudentQueriesPage` / `StudentQueryDetailPage` | `useRealtimeQueries`, `useQueryThread` | create, post, confirm, rate | 4.4 |
 | `StudentGroupQueriesPage` | `get_mentor_group_queries` | — (read-only) | 4.6 |
-| `StudentAcademicsPage` | `student_semester_gpas`, `student_cgpas`, `student_attendance_overview`, `student_backlogs`, `student_black_dots` (Academic Performance Overview) | `upsert_semester_gpa` | 4.9 |
+| `StudentAcademicsPage` | `student_semester_gpas`, `student_cgpas`, `student_attendance_overview`, `student_backlogs`, `student_black_dots` (Academic Performance Overview, no semester picker) | — (read-only since 0037) | 4.9 |
 | `StudentSurveyPage` / `StudentSurveyTrackingPage` | `get_active_survey_for_student` / `get_mentor_group_survey_status` | `submit_survey_response` | 4.15 |
 | `StudentCrReportPage` | `mom_records`, `support_queries` (with `mom_id`) | `submit_mom_report` | 4.7 |
 | `StudentCounsellingPage` | `counselling_requests` | `request_counselling` | 4.8 |
@@ -3966,7 +4249,7 @@ Each page's behaviour is described in the feature section named in the last colu
 | `FacultyQueryDetailPage` | `useQueryThread`, `canned_replies` | post, priority, resolve, raise to HOD | 4.4, 4.5 |
 | `FacultyMenteesPage` | `student_query_summary`, `survey_mentee_status` | star, department and HOD, dossier PDF | 4.6, 4.5, 4.15 |
 | `FacultyMenteeDetailPage` | `get_student_dossier` (incl. official CGPA, backlogs, black dots), `student_attendance_overview` (Academic Performance Overview) | verify achievement, star, PDF | 4.18, 4.9, 4.10, 4.12 |
-| `FacultyAtRiskPage` | `at_risk_student_overview` (every row, paged), `student_attendance_overview`, `student_semester_gpas` | mark meeting done | 4.14 |
+| `FacultyAtRiskPage` | `at_risk_student_overview` (every row, paged), `student_attendance_overview`, `student_semester_gpas`, `student_black_dots` (active cycle), `academic_cycles` | mark meeting done | 4.14 |
 | `FacultyCounsellingPage` | `counselling_requests` | `respond_to_counselling` | 4.8 |
 | `FacultyCrReportsPage` | `mom_records`, `support_queries` | `set_query_in_progress`, `resolve_support_query` | 4.7 |
 | `FacultyActivityReportPage` | `get_faculty_activity_report` / `get_department_faculty_report` | PDF | 4.18 |
@@ -3976,11 +4259,12 @@ Each page's behaviour is described in the feature section named in the last colu
 | `HodFacultyRosterPage` | `/api/admin/manage-faculty-roster` | set status, reassign | 4.19 |
 | `HodStudentsPage` | `student_query_summary` (every row, paged), faculty names | Add account | 4.20 |
 | `HodOperationsPage` | `/api/admin/run-cycle-job` (GET) | run a job, run all | 4.16 |
-| `ClusterHeadSetupPage` / `ClusterHeadCoursesPage` | `cluster_head_courses` | `submit_cluster_head_setup` | 4.11 |
-| `ClusterHeadDashboardPage` | `cluster_head_courses`, `academic_upload_batches` (10) | — | 4.17 |
-| `ClusterHeadAttendancePage` | `cluster_head_courses` | attendance upload | 4.12 |
+| `ClusterHeadSetupPage` / `ClusterHeadCoursesPage` | `current_cycle_courses` | `submit_cluster_head_setup` | 4.11 |
+| `ClusterHeadDashboardPage` | `academic_cycles`, `current_cycle_courses`, `academic_upload_history` (10, exact count) | — | 4.17 |
+| `ClusterHeadCyclesPage` | `list_academic_cycles`, `get_cycle_overview` | start the next cycle, edit dates, remove, carry over, re-check flags, download the report | 4.24 |
+| `ClusterHeadAttendancePage` | `current_cycle_courses` | attendance upload | 4.12 |
 | `ClusterHeadGpaPage` / `BacklogPage` / `BlackDotPage` | — | GPA, backlog and black dot uploads; each shows what it read from the file | 4.12 |
-| `ClusterHeadRosterPage` | `roster_import_batches` (15) | roster uploads, mentor map | 4.13 |
+| `ClusterHeadRosterPage` | `roster_import_batches` (15, with the cycle label) | roster uploads (activating existing students), mentor map | 4.13 |
 
 ### 9.7 Shared components
 
@@ -4019,7 +4303,9 @@ Each page's behaviour is described in the feature section named in the last colu
 - `queries/*` — §4.4.
 - `student/FormAFields.jsx` — §4.3.
 - `hod/AddAccountModal.jsx` — §4.20.
-- `clusterHead/AcademicUploadPanel.jsx` — §4.12 and §4.13.
+- `clusterHead/AcademicUploadPanel.jsx` — §4.12 and §4.13. Shows the cycle the upload goes into (`showCycle`).
+- `clusterHead/cycles/CycleModules.jsx`, `clusterHead/cycles/CycleDialogs.jsx` — §4.24.
+- `academics/AcademicOverview.jsx` — §4.9. `showHeader={false}` drops its heading, description and semester picker (the student's page).
 
 ### 9.8 Data-access conventions
 
@@ -4313,6 +4599,8 @@ It is **not** run in CI.
 | Risk re-evaluation per upload | One `evaluate_student_risk` per distinct matched student, inside the upload transaction |
 | List pages | 25 rows per page, with an exact count; a realtime change re-runs the page query |
 | Long lists | Read in pages of 1,000 with `fetchAllRows` (HOD Students, at-risk list), because PostgREST caps each response at `max_rows` = 1,000 (§4.20) |
+| Re-checking everyone's at-risk flags (new cycle, "Re-check now") | `reevaluate_students_batch` in slices of 300, each its own request and transaction: under 30 ms per slice at 1,949 students (§4.24) |
+| The cycle overview and report | One `get_cycle_overview` call (about 130 ms for a whole cycle at 1,949 students and 11,694 attendance rows); every "this cycle" filter uses a `(cycle_id, …)` index |
 | Rate-limit table growth | A 1% chance per call to purge rows older than a day |
 
 ---
@@ -4445,7 +4733,7 @@ These are hard-coded. Changing one means editing code or SQL; they are collected
 
 **Automated tests** (these are all of them):
 
-1. `frontend/test/ui-regression.test.jsx` renders `Panel`, `Modal`, `TextField` and `TextAreaField` in jsdom. It asserts that the Panel body is padded, that the first field (not ✕) gets focus when a Modal opens, that focus stays in the input while typing, and that it stays in a textarea such as the Report-to-HOD note. Since 2026-09-27 it also checks that `fetchAllRows` returns every row past a 1,000-row cap (and past a smaller server page) with no duplicates; the overview arithmetic in `lib/academicRecord.js` (semester labels, the 75% rounding guard, the GPA change, gaps in the trend, backlog order, the semester picker); and that `AcademicOverview` renders its tiles and tables, with no CGPA of 0 when nothing is uploaded.
+1. `frontend/test/ui-regression.test.jsx` renders `Panel`, `Modal`, `TextField` and `TextAreaField` in jsdom. It asserts that the Panel body is padded, that the first field (not ✕) gets focus when a Modal opens, that focus stays in the input while typing, and that it stays in a textarea such as the Report-to-HOD note. Since 2026-09-27 it also checks that `fetchAllRows` returns every row past a 1,000-row cap (and past a smaller server page) with no duplicates; the overview arithmetic in `lib/academicRecord.js` (semester labels, the 75% rounding guard, the GPA change, gaps in the trend, backlog order, the semester picker); and that `AcademicOverview` renders its tiles and tables, with no CGPA of 0 when nothing is uploaded. Since 2026-09-28 it also checks the student's version (`showHeader={false}`: no heading, no semester picker, still the current view, no "record below" copy) and the academic-cycle helpers in `lib/academicCycles.js` (labels, which semester a date is in, India time, the next cycle's year, date validation, upload scope).
 2. `api/_lib/spreadsheet-parser.check.mjs` runs the 17 parser checks (§10.4).
 
 There are **no** tests for RLS, the RPCs or the API handlers.
@@ -4559,7 +4847,10 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 
 **Risk and meetings**
 
-- **The first sweep** notifies mentors that every healthy mentee is "no longer at-risk" (§4.14).
+- **The first sweep** no longer notifies mentors that every healthy mentee is "no longer at-risk" (B2, fixed in 0036).
+- **Starting a new academic cycle** lifts last year's attendance and black-dot flags; the page's re-check does it quietly, so mentors hear only about students who are newly flagged (§4.14, §4.24).
+- **A cycle started by mistake** can be removed while nothing has been uploaded into it; the previous cycle becomes active again (§4.24).
+- **Uploading with no active cycle** is refused with "There is no active academic cycle..." (only possible if someone deletes the cycles in SQL; the portal always keeps one).
 - **Students without a mentor** are evaluated, but no one is notified and no meeting is created. The dispatch result counts them as `without_mentor`.
 - **A completed meeting** is not re-raised while the student stays flagged, unless the dispatch job runs again. It then creates a new meeting, because only `awaiting_link` and `scheduled` count as open.
 
@@ -4602,14 +4893,14 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | Star mentee: group queries, survey tracking | **Implemented** | |
 | CR reports (minutes and action items) | **Implemented** | |
 | Counselling | **Implemented** | Single overwriting reply, no thread; no realtime |
-| Student GPA self-entry and attendance view | **Implemented** | Direct-write RLS gap (S1) |
+| Student GPA self-entry | **Removed** | 2026-09-28: the panel is gone and 0037 closes the database paths (S1 fixed). GPAs entered earlier are kept (§4.9) |
 | GPA sharing preference | **Partial** | Enforced in the database, but the UI toggle was removed. It can still be switched off through `set_gpa_sharing` or a direct Form A update (S20). |
 | Achievements and verification | **Implemented** | |
-| Cluster head setup and My Subjects | **Implemented** | Code edits delete attendance history (B5) |
-| Attendance, GPA and backlog uploads | **Implemented** | GPA and backlogs read the ERP's own exports since 0035; registration number only. See B9 and §4.12 known issues |
-| Student and faculty roster import (chunked) | **Implemented** | `combined` type supported by the API; no UI option |
+| Cluster head setup and My Subjects | **Implemented** | Subjects are per academic cycle since 0036; a code edit deletes that cycle's attendance for the subject (B5) |
+| Attendance, GPA, backlog and black dot uploads | **Implemented** | GPA and backlogs read the ERP's own exports since 0035; registration number only; filed under the active cycle since 0036. See B9 and §4.12 known issues |
+| Student and faculty roster import (chunked) | **Implemented** | `combined` type supported by the API; no UI option. Existing students are activated in the current cycle (0036) |
 | Mentor–mentee mapping (with mentor creation) | **Implemented** | Mentor creation errors are not shown |
-| At-risk detection and notifications | **Implemented** | First-evaluation spam (B2) |
+| At-risk detection and notifications | **Implemented** | Four conditions since 0036 (attendance and black dots per cycle); first-evaluation notices fixed (B2) |
 | At-risk meetings | **Partial** | Rows and notifications are created; **meeting links are a placeholder**; only "Mark done" in the UI; students never see meetings |
 | Feedback survey (cycles, answers, reminders, tracking) | **Partial** | Answers are collected but **no report or analysis reads them**. `closes_on` is not enforced, and answers are readable by the mentor at the database level (S16). |
 | Periodic jobs | **Partial** | Manual triggering works; **no scheduler exists** |
@@ -4622,18 +4913,19 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | Rate limiting | **Implemented** | Fails open |
 | HOD semester setup wizard | **Removed** | Route, page and navigation removed; the table remains unused |
 | Form A lock / unlock workflow | **Dead** | Functions exist; no callers; Form A is always editable |
-| "Upload Black dot" (PB notice), ERP CGPA / GPA & Credits and Defaulter Grade formats | **Implemented** | Added 2026-09-27 (0034–0035, §4.12). Black dots show on the student's Academics page and on the mentor's and HOD's student page; no removal UI and no notification |
-| Academic Performance Overview (student Academics page, mentor's and HOD's student page) | **Implemented** | Added 2026-09-27 (§4.9, §4.18). Attendance is shown for the current semester only, because uploads carry no semester |
+| "Upload Black dot" (PB notice), ERP CGPA / GPA & Credits and Defaulter Grade formats | **Implemented** | Added 2026-09-27 (0034–0035, §4.12). Black dots show on the student's Academics page, on the mentor's and HOD's student page and, since 0036, on the at-risk pages (one in the active cycle flags a student); no removal UI |
+| Academic Performance Overview (student Academics page, mentor's and HOD's student page) | **Implemented** | Added 2026-09-27 (§4.9, §4.18). Attendance is shown for the current semester only. Since 2026-09-28 the student's page is titled with it and has no semester picker |
+| Academic cycles (per-year filing, subjects, students, report) | **Implemented** | Added 2026-09-28 (0036, §4.24). Cluster-head screen only; the HOD can use the RPCs and the report API |
 
 ### 15.2 Known functional bugs (verified in the code)
 
 | ID | Bug | Where |
 |---|---|---|
 | B1 | Category counters and charts count only the legacy categories (Academic, ERP/Tech, Infrastructure), so current-category queries are missing from them. This affects the student, faculty and HOD dashboards, the mentee "Query mix", the three PDFs, `get_dashboard_metrics`, `get_student_dossier`, and the views `faculty_performance_summary`, `student_query_summary` and `query_daily_trend`. | §4.4 |
-| B2 | A student's first-ever risk evaluation that is **not** at risk sends the mentor "… is no longer at-risk" | `notify_on_risk_flag_change` |
+| B2 | **Fixed in 0036.** A student's first-ever risk evaluation that was **not** at risk sent the mentor "… is no longer at-risk" | `notify_on_risk_flag_change` |
 | B3 | The HOD 30-day trend reads the **oldest** 400 (mentor, day) rows once more exist; "resolved" is computed but not drawn | `HodDashboardPage` |
 | B4 | The activity report's "Active" / "Still open" column always shows "—" (it reads `open_count`; the RPC returns `open`). The department `monthly_trend` is sorted alphabetically. | `FacultyActivityReportPage`, PDF builder, `get_department_faculty_report` |
-| B5 | Editing a course code in My Subjects deletes and re-creates the course, **cascading away its attendance history**; a case-only edit is silently ignored | `submit_cluster_head_setup` |
+| B5 | Editing a course code in My Subjects deletes and re-creates the course, **cascading away its attendance in the current cycle** (since 0036 earlier cycles keep their own copy); a case-only edit is silently ignored | `submit_cluster_head_setup` |
 | B6 | **Fixed in 0035.** A backlog re-upload without a Cleared column un-cleared backlogs, and subject codes were matched case-sensitively, so a clearance could create a new row. A blank Cleared now leaves the state alone and codes match case-insensitively; the ERP list clears by its own rule (§4.12). | `record_backlog_batch` |
 | B7 | **Fixed in 0035.** A non-numeric GPA cell aborted the whole GPA upload with a raw Postgres message; it is now a row error | `record_gpa_batch` |
 | B8 | **Mostly fixed in 0035.** `exam_session` now shows on the student page's backlog list and in the upload's scope label; `skipped_rows` is written by the GPA upload only | `record_backlog_batch`, upload RPCs |
@@ -4645,7 +4937,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | B14 | A roster-chunk failure discards the displayed results of earlier chunks (including their credentials); there is no retry | `AcademicUploadPanel` |
 | B15 | The "Department & HOD" save toast reports only the number of mentees whose department actually changed, which can be 0, while the button promised to update all of them | `FacultyMenteesPage`, `set_mentor_department_and_hod` |
 | B16 | The student confirmation banner counts only the 5 most recent queries | `StudentDashboardPage` |
-| B17 | "Uploads recorded" on the cluster-head dashboard is capped at 10 | `ClusterHeadDashboardPage` |
+| B17 | **Fixed 2026-09-28.** "Uploads recorded" on the cluster-head dashboard was capped at 10; "Uploads this cycle" is now an exact count | `ClusterHeadDashboardPage` |
 | B18 | CR-report items count toward the representative's 20-unresolved cap once filed, so a large report can block them from raising normal queries | `submit_mom_report`, `create_support_query` |
 | B19 | Every new query notifies the mentor twice (`query_created` plus `query_message` for the first message), and a CR report with n items sends 1 + n notifications | `notify_on_query_message` |
 | B20 | When the HOD calls `escalate_query_to_hod`, routing uses the HOD's own `hod_email`. With a single HOD nobody is notified, and the system message names the HOD as the referrer. | `escalate_query_to_hod` |
@@ -4664,8 +4956,9 @@ Security gaps S1–S20 are in §8.9.
 |---|---|
 | `frontend/src/components/tickets/*` (4 files) | Unimported components calling dropped RPCs |
 | `request_form_a_unlock`, `unlock_student_form_a`, `set_gpa_sharing`, `resolve_students_for_upload`, `run_due_cycle_jobs`, `current_user_role` | SQL functions with no caller |
+| `upsert_semester_gpa` | Retired in 0037: not executable by signed-in users, kept so it could be re-granted |
 | `survey_group_completion` | View with no reader |
-| `semester_cycles` | Table with no UI writer (the import writes to it only if a cycle id is sent, and none is) |
+| `semester_cycles`, `roster_import_batches.semester_cycle_id` | Table with no UI writer (the import writes to it only if a cycle id is sent, and none is); unrelated to the academic cycles of 0036 |
 | `student_form_a_profiles.is_locked`, `unlock_requested`, `unlock_requested_at`, `unlocked_by` | Vestigial columns |
 | `academic_upload_batches.skipped_rows` | Written only by the GPA upload |
 | Notification types `onboarding_reminder`, `account_provisioned`, `academic_data_uploaded` | Never sent |
@@ -4803,6 +5096,7 @@ These parts of the old document still describe the code correctly. The names hav
 | Performance | `resolve_student_ids` (batch lookup), chunked roster import, `runPool` | 0033, API |
 | Frontend | `/reset-password`, `components/queries/*`, `PasswordField`, `AcademicUploadPanel`, `COURSE_CATALOGUE`, `SURVEY_SCALE`, `CYCLE_JOBS`, counselling and at-risk labels | frontend |
 | Config and docs | `SSMP_TEMPORARY_PASSWORD`, `[auth.sessions]`, `docs/CLUSTER-HEAD-AND-CYCLE-JOBS.md`, `sample-data/cluster-head-sample-data.mjs` and `generated/` | repo |
+| Academic cycles | `academic_cycles`, `academic_cycle_students`, `cycle_id` on seven tables, the Academic Cycles page, the cycle report, black dots in the at-risk rule; student GPA entry removed | 0036, 0037; `/cluster-head/cycles`; `/api/reports/academic-cycle-report` |
 | Fixes not in the old §12 | Blank "Referred to HOD" card (0030); attendance filed everyone under one section (0027); stale `/tickets` notification links (0031); roster-import timeouts (chunking and pool); statement timeouts on ~2,300-row uploads (0033); frequent sign-outs (localStorage and the 30-day window) | as listed |
 
 ### 16.6 Statements that were already wrong in the old document
@@ -4849,6 +5143,9 @@ Each rule exists because breaking it caused a real failure, or would cause one t
 13. **`Modal`'s setup effect depends only on `open`.** `onClose` is kept in a ref. The auto-focus prefers form fields over buttons, or focus lands on ✕ on every keystroke.
 14. **Uploads resolve identifiers once per file** (`resolve_student_ids`). Never reintroduce a per-row lookup: it exceeded the statement timeout at about 2,300 rows.
 15. **Long account-creation work must stay chunked.** Any loop of Auth calls must fit the 30 s function limit; follow the `offset` / `next_offset` pattern (§4.13).
+16. **Exactly one academic cycle is active, and a closed cycle is never rewritten** (§4.24). New tables whose rows belong to a year get a `cycle_id` set by a `BEFORE INSERT` trigger, never by the page. Screens and rules that mean "this year" filter on `active_cycle_id()`; nothing overwrites or deletes an earlier cycle's rows to start a new year.
+17. **A cycle is not a semester.** Which semester (odd or even) a row belongs to is computed from its own date against `even_starts_on` when it is read; it is never stored, so a date correction re-files everything. The programme semester (1–8) stays on the student and on GPA and backlog rows.
+18. **Anything that re-evaluates many students at once runs in slices** (`reevaluate_students_batch`, 300 at a time) and with `ssmp.quiet_risk_notifications` on, so no single call nears the statement timeout and mentors are not flooded with "no longer at-risk" notices.
 
 ## Appendix B — Change recipes
 
@@ -4891,7 +5188,7 @@ Each recipe ends with the verification loop in B.10.
 1. Create `api/<area>/<name>.js` exporting `withApiDefaults([...methods], handler)`.
 2. Follow the anatomy in §6.1: auth, role, rate limit, zod, `asUser` work, audit, envelope.
 3. Put the schema in `input-validation.js`.
-4. There are 8 functions today. The `action` / discriminated-union pattern keeps related operations in one function.
+4. There are 9 functions today. The `action` / discriminated-union pattern keeps related operations in one function.
 
 **B.7 Add a chart or KPI**
 
@@ -4905,6 +5202,10 @@ Each recipe ends with the verification loop in B.10.
 2. Render it on the page from `supabase.rpc`.
 3. Add a builder in `report-document-builder.js` using `pdf-chart-primitives.js`.
 4. Add an endpoint that calls the same RPC `asUser` and streams the PDF.
+
+**B.8a Start a new academic year.** Nothing to deploy. A cluster head opens Academic Cycles → **Start next cycle**, checks the dates and ticks the box; the page re-checks every student's at-risk flags. Then, in order: import this year's student roster (or **Carry over** last year's students), upload the mentor mapping, and review My Subjects, which starts as a copy of last year's. If the cycle was started by mistake and nothing has been uploaded into it yet, **Remove** it from All cycles.
+
+**B.8b Make a new kind of record per cycle.** Add `cycle_id uuid references academic_cycles(id)` in a new migration, backfill existing rows into the cycle they belong to, add a `BEFORE INSERT` trigger with `tag_row_with_active_cycle('required')` (or a function of its own if the row's date decides the cycle), index `(cycle_id, …)`, and read it with `where cycle_id = active_cycle_id()` where "this year" is meant. Add it to `get_cycle_overview`, `delete_academic_cycle`'s emptiness check and the report if the cluster head should see it.
 
 **B.9 Change the visual theme.** Change token **values** in `tailwind.config.cjs`, `CHART_COLORS` and the PDF `PALETTE`. Keep the token names; every screen depends on them.
 
@@ -4929,7 +5230,9 @@ Each recipe ends with the verification loop in B.10.
 | Referral note | 1,000 characters | `escalate_query_to_hod` |
 | Open counselling requests per student; concern / reply length | 5; 3,000 / 3,000 characters | counselling RPCs |
 | CR report items; notes | 12; 5,000 characters | `submit_mom_report` |
-| Subjects per cluster head | 1–60 | `submit_cluster_head_setup` |
+| Subjects per cluster head | 1–60 per academic cycle | `submit_cluster_head_setup` |
+| Academic cycles | one per `start_year` (2000–2098); exactly one active; dates within a year either side of the label | `academic_cycles` constraints |
+| At-risk re-check slice | 300 students per call (1–1,000) | `reevaluate_students_batch` |
 | Reassignment batch | 500 students | `reassign_mentees`, zod |
 | Provisioning batch | 1–500 accounts; body ≤ 2 MB | zod, `assertBodySize` |
 | Upload body; base64; effective file size | 10 MB (body parser); ≤ 8,000,000 characters (zod); about 3.3 MB in practice, because Vercel limits function request bodies to 4.5 MB | endpoints, platform |
@@ -4938,9 +5241,9 @@ Each recipe ends with the verification loop in B.10.
 | Function duration / memory | 30 s / 1,024 MB | `vercel.json` |
 | GPA | 0–10, 2 dp; semesters 1–8 | RPCs and CHECKs |
 | Attendance | 0–100%; held ≤ 2,000; attended ≤ held | CHECKs |
-| At-risk thresholds | attendance < 75, latest GPA < 6, uncleared backlogs ≥ 1 | `evaluate_student_risk` |
+| At-risk thresholds | attendance < 75 (active cycle), latest GPA < 6, uncleared backlogs ≥ 1, black dots ≥ 1 (active cycle) | `evaluate_student_risk` |
 | Survey | 10 questions, 1–5; 15-day window; reminders every 7 days | 0023/0024 |
-| Rate limits | provision 20/60 s; roster 200/300 s; faculty-roster 60/60 s per action; cycle-job 40/300 s; academic-upload 30/300 s; reports 30/60 s each | endpoints |
+| Rate limits | provision 20/60 s; roster 200/300 s; faculty-roster 60/60 s per action; cycle-job 40/300 s; academic-upload 30/300 s; faculty and student reports 30/60 s each; cycle report 20/60 s | endpoints |
 | Password (client) | ≥ 10 characters, upper, lower, digit, symbol | `ChangePasswordPage` |
 | Temporary password (roster column) | ≥ 8 characters | import endpoint |
 | Files | Form A and proofs 5 MB (png, jpg, webp, pdf); photos 3 MB (png, jpg, webp); signed URLs 300 s (avatars 3,600 s) | `fileUpload.js`, buckets |
@@ -4964,8 +5267,8 @@ Each recipe ends with the verification loop in B.10.
 - the accounts above, with mentor links;
 - sample queries and messages;
 - the 4 global canned replies;
-- the cluster heads' subjects;
-- uploaded sample attendance, GPA (the CGPA / GPA & Credits shape: semesters 1–2 and CGPA), two Defaulter Grade results for semester 2 (end term, then a make-up that clears Emily's backlog) and a black dot notice (John and Jane, plus one student from outside the portal who is reported back), through `record_attendance_batch`, `record_gpa_batch`, `record_backlog_batch` and `record_black_dot_batch`. Each demo student trips a different at-risk condition, and one trips none.
+- the cluster heads' subjects, in the active academic cycle (the seed stops with "No active academic cycle. Apply migration 0036 before seeding." if there is none);
+- uploaded sample attendance, GPA (the CGPA / GPA & Credits shape: semesters 1–2 and CGPA), two Defaulter Grade results for semester 2 (end term, then a make-up that clears Emily's backlog) and a black dot notice (John and Jane, plus one student from outside the portal who is reported back), through `record_attendance_batch`, `record_gpa_batch`, `record_backlog_batch` and `record_black_dot_batch`. Each demo student trips a different at-risk condition, and one trips none. Since 0036 John's and Jane's black dots are an at-risk reason of their own in the cycle they fall in.
 - The seed then runs the at-risk jobs and a survey cycle through `run_cycle_job`, and records sample survey responses.
 
 **`supabase/seed.sql`** (local `db reset` only) inserts the 8 non-cluster-head accounts directly into `auth.users`/`auth.identities`, plus mentors, sample queries and messages, and the canned replies.
@@ -4986,9 +5289,13 @@ Each recipe ends with the verification loop in B.10.
 | **Cluster head** | The staff role that uploads academic data and rosters for its subjects |
 | **Subjects / My Subjects** | A cluster head's `cluster_head_courses` (name and code) |
 | **ERP export** | The university ERP's Class Attendance file: an HTML table saved as `.xls` |
-| **At-risk** | A student meeting any of: attendance < 75%, latest GPA < 6, ≥ 1 uncleared backlog |
+| **At-risk** | A student meeting any of: attendance < 75% in the active cycle, latest GPA < 6, ≥ 1 uncleared backlog, ≥ 1 black dot in the active cycle |
+| **Academic cycle** | One academic year ("2026–27", `academic_cycles`), with an odd and an even semester. Exactly one is active; everything uploaded is filed under one (§4.24) |
+| **Odd / even semester** | The two halves of an academic cycle ("Odd semester 2026", July–December; "Even semester 2027", January–June). Not the same thing as a programme semester |
+| **Programme semester** | A student's own semester, 1–8 (`semester_label` "3rd Semester"; `semester_number` on GPA and backlog rows) |
+| **Carry over / activate** | Bringing students into a new cycle: from the previous cycle's list, or from a roster that lists students who already have accounts |
 | **Sweep / dispatch** | Re-evaluating everyone's risk / raising meetings for flagged students |
-| **Cycle job** | One of the four periodic jobs (§4.16); run manually |
+| **Cycle job** | One of the four periodic jobs (§4.16); run manually. "Cycle" here is the 15-day job cycle, not an academic cycle; a **survey cycle** (`survey_cycles`) is one round of the feedback survey |
 | **Reserve pool** | Active faculty accepting reassignments, with remaining capacity |
 | **Department-published GPA** | A `student_semester_gpas` row with `source = 'cluster_head'` |
 | **Trusted operation** | The transaction-local `ssmp.trusted_operation` flag that lets a definer RPC write protected profile columns |

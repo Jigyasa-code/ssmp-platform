@@ -14,8 +14,13 @@
  * for them; that is the expected outcome, not a failed upload.
  *
  * Black dots show on the student's record — on their own Academics page
- * and on the student page their mentor and the HOD open. They are
- * deliberately not part of the at-risk rule.
+ * and on the student page their mentor and the HOD open.
+ *
+ * AT-RISK (migration 0036)
+ * One black dot in the active academic cycle flags the student at-risk,
+ * the same as one uncleared backlog, and the upload re-checks everyone it
+ * names. A black dot cannot be cleared, so it counts only in the cycle its
+ * incident falls in; the next cycle lifts the flag.
  */
 
 import { useState } from 'react';
@@ -47,7 +52,8 @@ export default function ClusterHeadBlackDotPage() {
           { label: 'Students in notice', value: data.total_rows ?? 0 },
           { label: 'Black dots recorded', value: data.matched ?? 0 },
           { label: 'Not recorded', value: data.failed ?? 0 },
-          { label: 'Cases', value: data.cases ?? 0 }
+          { label: 'Cases', value: data.cases ?? 0 },
+          { label: 'Students re-checked', value: data.students_reevaluated ?? 0 }
         ]}
         buildPayload={({ filename, file_base64 }) => ({
           action: 'black-dot',
@@ -95,9 +101,14 @@ export default function ClusterHeadBlackDotPage() {
             be uploaded again.
           </li>
           <li>
+            <strong className="text-on-surface">At-risk</strong> — one black dot flags the student at-risk
+            for the academic cycle it falls in, the same as one uncleared backlog, and their mentor is told
+            straight away. It is filed under the cycle of its date of incidence (the upload date if the
+            notice gives none), so a new cycle starts every student afresh.
+          </li>
+          <li>
             <strong className="text-on-surface">Who sees it</strong> — the student, on their Academics page,
-            and their mentor and the HOD, on the student&apos;s record. Black dots are not part of the at-risk
-            rule.
+            and their mentor and the HOD, on the student&apos;s record and the At-Risk Students page.
           </li>
         </ul>
       </Panel>
