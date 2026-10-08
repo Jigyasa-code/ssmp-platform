@@ -227,9 +227,6 @@ export const EMPLOYMENT_STATUS_LABELS = {
 };
 
 export const CHART_COLORS = {
-  academic: '#c2410c',
-  erpTech: '#f97316',
-  infrastructure: '#a8a29e',
   open: '#dc2626',
   inProgress: '#d97706',
   resolved: '#16a34a',

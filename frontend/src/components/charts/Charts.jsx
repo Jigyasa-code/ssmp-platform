@@ -4,11 +4,13 @@
  * portals shares the same palette, tooltip style and empty state.
  */
 
+import { useEffect, useRef, useState } from 'react';
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, AreaChart
 } from 'recharts';
 import { CHART_COLORS } from '../../lib/constants.js';
+import { TILT_DEGREES, categoryAxisLayout, fitLabel } from './categoryAxis.js';
 
 const AXIS = { stroke: '#a8a29e', fontSize: 11, tickLine: false };
 const GRID = { stroke: '#f0e4dc', strokeDasharray: '3 3', vertical: false };
@@ -54,22 +56,67 @@ function ChartFrame({ title, subtitle, height = 260, isEmpty, emptyLabel, childr
   );
 }
 
-export function CategoryBarChart({ data, title, subtitle, height = 260, dataKey = 'value', nameKey = 'name' }) {
-  const isEmpty = !data?.length || data.every((d) => !d[dataKey]);
+/** The chart's own width, for laying out its axis labels. */
+function useWidth() {
+  const ref = useRef(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width];
+}
+
+/** A category label: level under its bar, or tilted when it is wider than the bar's slot. */
+function CategoryTick({ x, y, payload, tilted, maxLabel }) {
+  const label = fitLabel(payload?.value, maxLabel);
+  if (!tilted) {
+    return (
+      <text x={x} y={y} dy={12} textAnchor="middle" fill={AXIS.stroke} fontSize={AXIS.fontSize}>
+        {label}
+      </text>
+    );
+  }
   return (
-    <ChartFrame title={title} subtitle={subtitle} height={height} isEmpty={isEmpty}>
-      <BarChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-        <CartesianGrid {...GRID} />
-        <XAxis dataKey={nameKey} {...AXIS} axisLine={false} />
-        <YAxis {...AXIS} axisLine={false} allowDecimals={false} />
-        <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'rgba(194,65,12,0.06)' }} />
-        <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={56}>
-          {data.map((entry, index) => (
-            <Cell key={entry[nameKey]} fill={entry.color ?? CHART_COLORS.series[index % CHART_COLORS.series.length]} />
-          ))}
-        </Bar>
-      </BarChart>
-    </ChartFrame>
+    <text x={x} y={y} dy={8} textAnchor="end" fill={AXIS.stroke} fontSize={AXIS.fontSize}
+      transform={`rotate(-${TILT_DEGREES}, ${x}, ${y})`}>
+      {label}
+    </text>
+  );
+}
+
+/**
+ * Vertical bars, one colour per bar (each entry's `color`, else the series
+ * palette in order). With `allLabels`, every bar keeps its name, tilted
+ * when the panel is too narrow for it; otherwise Recharts drops labels that
+ * would overlap.
+ */
+export function CategoryBarChart({ data, title, subtitle, height = 260, dataKey = 'value', nameKey = 'name', allLabels = false }) {
+  const isEmpty = !data?.length || data.every((d) => !d[dataKey]);
+  const [ref, width] = useWidth();
+  const axis = categoryAxisLayout(allLabels ? (data ?? []).map((d) => d[nameKey]) : [], width);
+  const xAxis = allLabels
+    ? { interval: 0, height: axis.axisHeight, tick: <CategoryTick tilted={axis.tilted} maxLabel={axis.maxLabel} /> }
+    : {};
+  return (
+    <div ref={ref} className="h-full">
+      <ChartFrame title={title} subtitle={subtitle} height={height} isEmpty={isEmpty}>
+        <BarChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+          <CartesianGrid {...GRID} />
+          <XAxis dataKey={nameKey} {...AXIS} axisLine={false} {...xAxis} />
+          <YAxis {...AXIS} axisLine={false} allowDecimals={false} />
+          <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'rgba(194,65,12,0.06)' }} />
+          <Bar dataKey={dataKey} radius={[4, 4, 0, 0]} maxBarSize={56}>
+            {data.map((entry, index) => (
+              <Cell key={entry[nameKey]} fill={entry.color ?? CHART_COLORS.series[index % CHART_COLORS.series.length]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ChartFrame>
+    </div>
   );
 }
 

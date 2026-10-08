@@ -13,6 +13,7 @@ import { useDashboardMetrics } from '../../hooks/useDashboardMetrics.js';
 import { useRealtimeQueries } from '../../hooks/useRealtimeQueries.js';
 import { formatRelativeTime, formatHours, percentage } from '../../lib/formatters.js';
 import { CHART_COLORS } from '../../lib/constants.js';
+import { queryCategoryChartData } from '../../lib/queryCategoryChart.js';
 
 export default function FacultyDashboardPage() {
   const { profile } = useAuth();
@@ -32,15 +33,8 @@ export default function FacultyDashboardPage() {
     [metrics]
   );
 
-  const categoryData = useMemo(() => {
-    const counts = { Academic: 0, 'ERP/Tech': 0, Infrastructure: 0 };
-    for (const query of queries) counts[query.category] = (counts[query.category] ?? 0) + 1;
-    return [
-      { name: 'Academic', value: counts.Academic, color: CHART_COLORS.academic },
-      { name: 'ERP/Tech', value: counts['ERP/Tech'], color: CHART_COLORS.erpTech },
-      { name: 'Infrastructure', value: counts.Infrastructure, color: CHART_COLORS.infrastructure }
-    ];
-  }, [queries]);
+  // Every query assigned to this mentor, counted in SQL (0041).
+  const categoryData = useMemo(() => queryCategoryChartData(metrics?.queries_by_category), [metrics]);
 
   const weekOverWeek = (metrics?.resolved_this_week ?? 0) - (metrics?.resolved_last_week ?? 0);
 
@@ -132,8 +126,8 @@ export default function FacultyDashboardPage() {
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-3">
-            <Panel tab="Recent load by category" tabIcon="bar_chart">
-              <CategoryBarChart data={categoryData} height={230} />
+            <Panel tab="Load by category" tabIcon="bar_chart">
+              <CategoryBarChart data={categoryData} height={230} allLabels />
             </Panel>
 
             <Panel tab="Needs your attention" tabIcon="priority_high" className="lg:col-span-2" bodyClassName="">

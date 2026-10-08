@@ -10,9 +10,9 @@
 import pdfLib from 'pdf-lib';
 import { UNIVERSITY_LOGO_PNG_BASE64, UNIVERSITY_LOGO_ASPECT } from './university-logo-asset.js';
 
-const { PDFDocument, StandardFonts } = pdfLib;
+const { PDFDocument, StandardFonts, rgb } = pdfLib;
 import {
-  PALETTE, SERIES_COLORS, drawStatCards, drawBarChart, drawGroupedBarChart,
+  PALETTE, drawStatCards, drawBarChart, drawGroupedBarChart,
   drawLineChart, drawDonutChart, drawLegend, drawTable, drawSectionHeading,
   drawHorizontalBars, truncate
 } from './pdf-chart-primitives.js';
@@ -36,6 +36,47 @@ function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return `${formatDate(value)}, ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+// The query categories offered since migration 0026, and the three it
+// retired. Old queries keep the retired ones, so a chart shows the five
+// current categories and then any retired one that still has queries.
+// Same rule as frontend/src/lib/queryCategoryChart.js.
+const QUERY_CATEGORIES = ['Academics', 'Examination', 'Behavioural', 'Administrative', 'Others'];
+const LEGACY_QUERY_CATEGORIES = ['Academic', 'ERP/Tech', 'Infrastructure'];
+
+/** category -> count, from by_category rows ({category, total}) or query rows ({category}). */
+function countByCategory(rows, valueOf = () => 1) {
+  const counts = {};
+  for (const row of rows ?? []) {
+    if (row?.category) counts[row.category] = (counts[row.category] ?? 0) + (Number(valueOf(row)) || 0);
+  }
+  return counts;
+}
+
+/**
+ * Each category's bar colour: the portal's (frontend/src/lib/queryCategoryChart.js,
+ * CHART_COLORS.series in category order, then two more for the retired ones).
+ */
+const hex = (value) => rgb(...[1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16) / 255));
+const CATEGORY_COLORS = Object.fromEntries(
+  [...QUERY_CATEGORIES, ...LEGACY_QUERY_CATEGORIES].map((name, index) => [
+    name,
+    hex(['#c2410c', '#f97316', '#a8a29e', '#ea580c', '#d97706', '#16a34a', '#b45309', '#78716c'][index])
+  ])
+);
+
+/** Bars for drawBarChart, each in its category's colour. */
+function categoryBars(counts) {
+  const extra = Object.keys(counts)
+    .filter((name) => !QUERY_CATEGORIES.includes(name) && counts[name] > 0)
+    .sort((a, b) => {
+      const rank = (name) => (LEGACY_QUERY_CATEGORIES.includes(name) ? LEGACY_QUERY_CATEGORIES.indexOf(name) : 99);
+      return rank(a) - rank(b) || a.localeCompare(b);
+    });
+  return [...QUERY_CATEGORIES, ...extra].map((label) => ({
+    label, value: counts[label] ?? 0, color: CATEGORY_COLORS[label] ?? PALETTE.slate
+  }));
 }
 
 function hoursLabel(value) {
@@ -276,10 +317,7 @@ export async function buildFacultyActivityPdf(report) {
   // ── Category + confirmation charts side by side ────────────────────
   doc.heading('Query mix and resolution quality', 190);
 
-  const categoryData = ['Academic', 'ERP/Tech', 'Infrastructure'].map((category, index) => {
-    const found = (report.by_category ?? []).find((c) => c.category === category);
-    return { label: category, value: found ? found.total : 0, color: SERIES_COLORS[index] };
-  });
+  const categoryData = categoryBars(countByCategory(report.by_category, (row) => row.total));
 
   const chartTop = doc.y;
   const halfWidth = (CONTENT_WIDTH - 24) / 2;
@@ -464,11 +502,8 @@ export async function buildStudentDossierPdf(report) {
   drawBarChart(doc.page, doc.fonts, {
     x: MARGIN, y: activityTop - 12, width: halfWidth, height: 128,
     title: 'Queries by category',
-    data: [
-      { label: 'Academic', value: queries.academic, color: SERIES_COLORS[0] },
-      { label: 'ERP/Tech', value: queries.erp_tech, color: SERIES_COLORS[1] },
-      { label: 'Infra', value: queries.infrastructure, color: SERIES_COLORS[2] }
-    ]
+    // From the full query list: query_summary counts only the retired categories.
+    data: categoryBars(countByCategory(report.queries))
   });
 
   const statusSlices = [
@@ -650,10 +685,7 @@ export async function buildDepartmentReportPdf(report) {
   drawBarChart(doc.page, doc.fonts, {
     x: MARGIN, y: chartTop - 12, width: halfWidth, height: 132,
     title: 'Queries by category',
-    data: ['Academic', 'ERP/Tech', 'Infrastructure'].map((category, index) => {
-      const found = (report.by_category ?? []).find((c) => c.category === category);
-      return { label: category, value: found ? found.total : 0, color: SERIES_COLORS[index] };
-    })
+    data: categoryBars(countByCategory(report.by_category, (row) => row.total))
   });
 
   const status = report.by_status ?? {};

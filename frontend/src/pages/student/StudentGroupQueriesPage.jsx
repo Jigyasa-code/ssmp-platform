@@ -26,6 +26,7 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { CHART_COLORS, QUERY_CATEGORIES, QUERY_STATUSES } from '../../lib/constants.js';
+import { countQueriesByCategory, queryCategoryChartData } from '../../lib/queryCategoryChart.js';
 import { describeError, formatRelativeTime } from '../../lib/formatters.js';
 
 export default function StudentGroupQueriesPage() {
@@ -71,11 +72,7 @@ export default function StudentGroupQueriesPage() {
   const charts = useMemo(() => {
     const count = (key, value) => queries.filter((t) => t[key] === value).length;
     return {
-      category: QUERY_CATEGORIES.map((name, index) => ({
-        name,
-        value: count('category', name),
-        color: [CHART_COLORS.academic, CHART_COLORS.erpTech, CHART_COLORS.infrastructure][index]
-      })),
+      category: queryCategoryChartData(countQueriesByCategory(queries)),
       status: [
         { name: 'Open', value: count('status', 'Open'), color: CHART_COLORS.open },
         { name: 'In Progress', value: count('status', 'In Progress'), color: CHART_COLORS.inProgress },
@@ -112,7 +109,7 @@ export default function StudentGroupQueriesPage() {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Panel tab="By category" tabIcon="bar_chart" className="lg:col-span-2">
-          <CategoryBarChart data={charts.category} height={230} />
+          <CategoryBarChart data={charts.category} height={230} allLabels />
         </Panel>
         <Panel tab="By status" tabIcon="donut_small">
           <DonutChart data={charts.status} centerLabel="queries" height={230} />

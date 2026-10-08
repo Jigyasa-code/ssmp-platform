@@ -123,21 +123,28 @@ export function drawBarChart(page, fonts, { x, y, width, height, data, title, co
   const plotX = x + axisWidth;
   const plotWidth = width - axisWidth;
   const labelBand = 16;
-  const plotHeight = height - labelBand;
+  // Room above the top gridline for the tallest bar's value, so it does
+  // not run into the title.
+  const valueBand = 10;
+  const plotHeight = height - labelBand - valueBand;
 
   if (title) {
     page.drawText(title, { x, y: y + 6, size: 9, font: fonts.bold, color: PALETTE.ink });
   }
 
-  const maxValue = niceAxisMax(Math.max(...data.map((d) => Number(d.value) || 0), 0));
+  // Counts: four whole-number steps (0-4, 0-8, 0-20 ...), never 0, 1, 1, 2, 2.
+  const rawMax = Math.max(...data.map((d) => Number(d.value) || 0), 0);
+  const maxValue = (rawMax <= 4 ? 1 : niceAxisMax(rawMax / 4)) * 4;
 
   // gridlines + axis labels
   for (let step = 0; step <= 4; step += 1) {
     const value = (maxValue / 4) * step;
     const lineY = plotBottom + labelBand + (plotHeight * step) / 4;
+    // Dashed like the portal's charts; the baseline is solid.
     page.drawLine({
       start: { x: plotX, y: lineY }, end: { x: x + width, y: lineY },
-      thickness: 0.4, color: step === 0 ? PALETTE.slateLight : PALETTE.surfaceAlt
+      thickness: step === 0 ? 0.4 : 0.6, color: step === 0 ? PALETTE.slateLight : PALETTE.outline,
+      ...(step === 0 ? {} : { dashArray: [2.5, 2.5] })
     });
     page.drawText(String(Math.round(value)), {
       x: x + axisWidth - 6 - fonts.regular.widthOfTextAtSize(String(Math.round(value)), 6.5),
@@ -162,10 +169,15 @@ export function drawBarChart(page, fonts, { x, y, width, height, data, title, co
     const barX = plotX + slot * index + (slot - barWidth) / 2;
     const barY = plotBottom + labelBand;
 
-    page.drawRectangle({
-      x: barX, y: barY, width: barWidth, height: Math.max(barHeight, value > 0 ? 1.5 : 0),
-      color: point.color ?? color
-    });
+    // Rounded top corners, like the portal's bars.
+    const drawnHeight = Math.max(barHeight, value > 0 ? 1.5 : 0);
+    if (drawnHeight > 0) {
+      const r = Math.min(3, barWidth / 2, drawnHeight);
+      page.drawSvgPath(
+        `M0,${drawnHeight} L0,${r} Q0,0 ${r},0 L${barWidth - r},0 Q${barWidth},0 ${barWidth},${r} L${barWidth},${drawnHeight} Z`,
+        { x: barX, y: barY + drawnHeight, color: point.color ?? color, borderWidth: 0 }
+      );
+    }
     if (value > 0) {
       const valueText = String(value);
       page.drawText(valueText, {

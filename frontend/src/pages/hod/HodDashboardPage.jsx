@@ -12,6 +12,7 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { useDashboardMetrics } from '../../hooks/useDashboardMetrics.js';
 import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 import { CHART_COLORS } from '../../lib/constants.js';
+import { queryCategoryChartData } from '../../lib/queryCategoryChart.js';
 import { formatHours, percentage } from '../../lib/formatters.js';
 
 /**
@@ -67,14 +68,9 @@ export default function HodDashboardPage() {
     [metrics]
   );
 
-  const categoryData = useMemo(
-    () => [
-      { name: 'Academic', value: metrics?.academic_queries ?? 0, color: CHART_COLORS.academic },
-      { name: 'ERP/Tech', value: metrics?.erp_tech_queries ?? 0, color: CHART_COLORS.erpTech },
-      { name: 'Infrastructure', value: metrics?.infrastructure_queries ?? 0, color: CHART_COLORS.infrastructure }
-    ],
-    [metrics]
-  );
+  // The HOD's faculty's queries, or the department's for the administrator,
+  // by category (0041).
+  const categoryData = useMemo(() => queryCategoryChartData(metrics?.queries_by_category), [metrics]);
 
   return (
     <PortalShell>
@@ -130,7 +126,7 @@ export default function HodDashboardPage() {
               <DonutChart data={statusData} centerLabel="queries" height={230} />
             </Panel>
             <Panel tab="Category load" tabIcon="bar_chart">
-              <CategoryBarChart data={categoryData} height={230} />
+              <CategoryBarChart data={categoryData} height={230} allLabels />
             </Panel>
             <Panel tab="Resolution rate" tabIcon="speed">
               <GaugeChart

@@ -23,6 +23,7 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { apiClient } from '../../lib/apiClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { CHART_COLORS } from '../../lib/constants.js';
+import { countQueriesByCategory, queryCategoryChartData } from '../../lib/queryCategoryChart.js';
 import { describeError, formatDate, formatHours } from '../../lib/formatters.js';
 
 /** Sentinel for the consolidated department-wide report. */
@@ -134,11 +135,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
     if (!report || report.scope === 'department') return null;
     const confirmation = report.resolution_confirmation ?? {};
     return {
-      category: (report.by_category ?? []).map((c, index) => ({
-        name: c.category,
-        value: c.total,
-        color: CHART_COLORS.series[index % CHART_COLORS.series.length]
-      })),
+      category: queryCategoryChartData(countQueriesByCategory(report.by_category, (row) => row.total)),
       confirmation: [
         { name: 'Confirmed fixed', value: confirmation.confirmed_yes ?? 0, color: CHART_COLORS.resolved },
         { name: 'Reopened', value: confirmation.reopened_no ?? 0, color: CHART_COLORS.open },
@@ -240,7 +237,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-4">
         <Panel tab="Queries by category" tabIcon="bar_chart" className="lg:col-span-2">
-          <CategoryBarChart data={charts.category} height={250} />
+          <CategoryBarChart data={charts.category} height={250} allLabels />
         </Panel>
         <Panel tab="Student confirmation" tabIcon="how_to_reg" className="lg:col-span-2">
           <DonutChart
@@ -339,11 +336,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
 function DepartmentReportBody({ report }) {
   const { summary } = report;
 
-  const categoryData = (report.by_category ?? []).map((c, index) => ({
-    name: c.category,
-    value: c.total,
-    color: CHART_COLORS.series[index % CHART_COLORS.series.length]
-  }));
+  const categoryData = queryCategoryChartData(countQueriesByCategory(report.by_category, (row) => row.total));
 
   const statusData = [
     { name: 'Resolved', value: report.by_status?.resolved ?? 0, color: CHART_COLORS.resolved },
@@ -385,7 +378,7 @@ function DepartmentReportBody({ report }) {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Panel tab="Queries by category" tabIcon="bar_chart">
-          <CategoryBarChart data={categoryData} height={250} />
+          <CategoryBarChart data={categoryData} height={250} allLabels />
         </Panel>
         <Panel tab="Status mix" tabIcon="donut_small">
           <DonutChart data={statusData} height={250} centerLabel="queries" />

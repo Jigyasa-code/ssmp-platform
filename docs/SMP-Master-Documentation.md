@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). On 2026-09-28: academic cycles, black dots in the at-risk rule, and the end of student GPA entry (migrations `0036`–`0037`, §4.24, §4.14, §4.9). On 2026-10-07: the **administrator** portal, the mentor–HOD mapping upload, each HOD seeing only the faculty mapped to them, and the cluster head's upload screens inside the HOD portal (migrations `0038`–`0039`, §4.25). On 2026-10-08: the student chooses a **type of counselling** before describing the issue (migration `0040`, §4.8). That is SQL migrations `0001`–`0040`. |
+| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). On 2026-09-28: academic cycles, black dots in the at-risk rule, and the end of student GPA entry (migrations `0036`–`0037`, §4.24, §4.14, §4.9). On 2026-10-07: the **administrator** portal, the mentor–HOD mapping upload, each HOD seeing only the faculty mapped to them, and the cluster head's upload screens inside the HOD portal (migrations `0038`–`0039`, §4.25). On 2026-10-08: the student chooses a **type of counselling** before describing the issue (migration `0040`, §4.8), and the "by category" charts count the current query categories (migration `0041`, §4.17, known issue B1). That is SQL migrations `0001`–`0041`. |
 | **Supersedes** | `docs/SSMP-Platform-Context.docx` (August 2026, which covered migrations 0001–0019). Where `README.md`, `SETUP_GUIDE.md`, `docs/SECURITY.md` or `docs/CLUSTER-HEAD-AND-CYCLE-JOBS.md` disagree with this document, this document is correct. Those files contain stale statements; see §15.5. |
-| **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 40 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
+| **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 41 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
 | **Secrets** | None appear here. Environment variables, the temporary password, the seed password and keys are documented by **name and purpose only**. |
 
 ### How to use this document
@@ -379,6 +379,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `lib/apiClient.js` | `apiClient.get`, `.post`, `.downloadFile` for `/api/*` |
 | `lib/fileUpload.js` | Client-side file validation, private uploads, signed URLs, `BUCKETS` |
 | `lib/constants.js` | Enum mirrors, option lists, navigation per role, `HOME_PATH` (§9.10) |
+| `lib/queryCategoryChart.js` | The bars of every "queries by category" chart: the five current categories, then any legacy one that still has queries, each in its own colour (`queryCategoryChartData`, `countQueriesByCategory`, `QUERY_CATEGORY_COLORS`, §4.17) |
 | `lib/formatters.js` | Date, number and duration formatting, `describeError` |
 | `lib/portalPaths.js` | `departmentBase(role)` (`/hod` or `/admin`) and `uploadsBase(role)` (`/cluster-head` or `/hod/uploads`) (§4.25) |
 | `lib/uploadedSubjects.js` | `fetchUploadedSubjects(uploaderId, cycleId)`: a HOD's subjects, i.e. the subjects their attendance uploads in the cycle were filed under (§4.25) |
@@ -387,7 +388,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `lib/academicCycles.js` | Naming and date arithmetic for academic cycles: `cycleLabel` ("2026–27"), `semesterTitle` ("Odd semester 2026"), `semesterRange`, `semesterOn`, `todayInIndia`, `defaultCycleDates`, `nextCycleYear`, `validateCycleDates` (the same checks as the database), `uploadScope` (§4.24) |
 | `components/layout/` | `PortalShell`, `SidebarNavigation`, `TopBar`, `NotificationBell` |
 | `components/ui/` | `Avatar`, `DataTable`, `EmptyState`, `ErrorBoundary`, `FormControls`, `Modal`, `PageHeader`, `Panel`, `ProfilePhotoUploader`, `Skeleton`, `StatCard`, `StatusBadge` |
-| `components/charts/Charts.jsx` | Recharts wrappers: `CategoryBarChart`, `GroupedBarChart`, `TrendLineChart`, `AreaTrendChart`, `DonutChart`, `GaugeChart`, `Sparkline` |
+| `components/charts/Charts.jsx` | Recharts wrappers: `CategoryBarChart` (with `allLabels`, every bar keeps its name, tilted when the panel is narrow; layout in `charts/categoryAxis.js`), `GroupedBarChart`, `TrendLineChart`, `AreaTrendChart`, `DonutChart`, `GaugeChart`, `Sparkline` |
 | `components/academics/AcademicOverview.jsx` | The Academic Performance Overview (tiles, subject-wise attendance, GPA trend, backlogs, black dots), shared by the student's Academics page and the mentor's / HOD's student page (§4.9) |
 | `components/queries/` | `CreateQueryModal`, `QueryConversation`, `ResolutionConfirmation`, `SatisfactionRating` (shared by all portals) |
 | `components/student/FormAFields.jsx` | The Form A field set, its state and its validation (`EMPTY_FORM_A`, `validateFormA`, `useFormAState`, `FormAFields`) |
@@ -415,7 +416,7 @@ Other files in `frontend/`:
 | Path | Contents |
 |---|---|
 | `config.toml` | Local stack settings: API 54321, DB 54322 (Postgres 15), Studio 54323; auth settings (§12.3) |
-| `migrations/` | 40 ordered files (list below) |
+| `migrations/` | 41 ordered files (list below) |
 | `seed.sql` | **Local only.** Creates demo users directly in `auth.users`/`auth.identities` (including the administrator and two HODs), sets mentors, maps the mentors to their HODs through `map_faculty_to_hods`, inserts sample queries and messages, and inserts the 4 global canned replies ("Acknowledged", "Need more detail", "Escalated to IT", "Meet in person"). The seed script inserts the same four; no migration does. |
 | `scripts/seed-demo-accounts.mjs` | Hosted-safe seed through the Auth Admin API. It creates the demo accounts (administrator, two HODs, faculty, students, cluster heads), mentors, the mentor–HOD mapping (`map_faculty_to_hods`), sample queries, the cluster heads' subjects (in the active academic cycle), uploads sample attendance, GPA, backlogs and black dots through the `record_*_batch` RPCs, and runs cycle jobs. See Appendix D. |
 | `scripts/create-admin-account.mjs` | `npm run db:admin`. Creates the administrator account and nothing else, on the shared temporary password with a forced change at first sign-in; safe on a real project and safe to re-run (it finishes an account an earlier run left as a student). `SSMP_ADMIN_EMAIL` overrides the default address (§4.25, §13.5). |
@@ -467,6 +468,7 @@ Other files in `frontend/`:
 | 0038 | `admin_role` | Enum value `user_role.admin`, alone in its own file |
 | 0039 | `admin_portal_and_hod_scoping` | `user_profiles.hod_id`, `mentor_section`, `mentor_designation` (backfilled from `hod_email`); `is_admin`; `is_hod` now true for the administrator too; `my_overseen_faculty`, `oversees_faculty`, `oversees_student`; HOD-scoped `can_access_student`, `can_access_query`, `can_view_student_gpa` and policies on `user_profiles`, `support_queries`, `at_risk_meetings`, `mom_records`, `mentor_reassignment_log`, `student_form_a_profiles`; `audit_log` readable by the administrator only; `map_faculty_to_hods`; current bodies of `guard_protected_profile_columns`, `handle_new_auth_user`, `get_dashboard_metrics`, `get_department_faculty_report`, `escalate_query_to_hod`, `set_mentor_department_and_hod`, `record_attendance_batch` (a HOD's subject is created from the file) and the scope checks of eleven workflow functions (§4.25) |
 | 0040 | `counselling_type` | `counselling_requests.counselling_type` (12 values; NULL on older requests), `counselling_type_label`; `request_counselling(p_concern, p_counselling_type)` replaces the one-argument version and requires the type; the mentor's notification names it |
+| 0041 | `dashboard_query_categories` | `get_dashboard_metrics` also returns `queries_by_category` (category → count, current and legacy) for every role; nothing else changes |
 
 ### 3.6 Other folders
 
@@ -733,7 +735,7 @@ A violation surfaces as the generic "Some of the values entered are not valid. P
 | Values | Status |
 |---|---|
 | `Academics`, `Examination`, `Behavioural`, `Administrative`, `Others` | Offered by the UI (`QUERY_CATEGORIES`) since 0026 |
-| `Academic`, `ERP/Tech`, `Infrastructure` | Legacy. Still valid in the database, and **still the only categories several counters and charts count** (see Known issues). |
+| `Academic`, `ERP/Tech`, `Infrastructure` | Legacy. Still valid in the database and on old queries. The "by category" charts show them after the current five, only when they have queries (0041). A few unused SQL columns still count only these (see Known issues). |
 
 **State machine:**
 
@@ -842,11 +844,13 @@ supabase.from('support_queries')
 
 **Known issues:**
 
-- **Legacy categories in counters.** Several category counters and charts count only `Academic`, `ERP/Tech` and `Infrastructure`, so queries in the current categories are invisible in them:
-  - JS: `StudentDashboardPage.jsx:34-40`, `FacultyDashboardPage.jsx:36-41`, `HodDashboardPage.jsx:63-65`, `FacultyMenteeDetailPage.jsx:148-152`, and `report-document-builder.js:279, 462-464, 638`;
-  - SQL: `get_dashboard_metrics`, `get_student_dossier`, and the views `faculty_performance_summary`, `student_query_summary` and `query_daily_trend`.
+- **Legacy categories in counters (fixed 2026-10-08, 0041).** The "by category" charts used to count only `Academic`, `ERP/Tech` and `Infrastructure`, so they stayed empty for queries in the current categories. Every chart now shows the five current categories and then any legacy one that still has queries (`lib/queryCategoryChart.js`; in the PDFs, `categoryBars` in `report-document-builder.js`):
+  - the student, faculty and HOD/administrator Home pages, from `get_dashboard_metrics().queries_by_category` (every query the page covers, not the recent few);
+  - the mentee page and the dossier PDF, from the dossier's full query list;
+  - the activity report page and PDF, and the department report PDF, from their `by_category` rows;
+  - the student representative's Group queries page, from its query list.
 
-  The student group page uses the new categories but has only 3 colours for 5 bars. The `by_category` sections of the activity and department reports are dynamic and correct.
+  Still counting only the legacy categories, and read by nothing: `get_dashboard_metrics`' `academic_queries`, `erp_tech_queries` and `infrastructure_queries` (kept for an older frontend), `get_student_dossier`'s `query_summary.academic` / `erp_tech` / `infrastructure`, and the same columns of the views `faculty_performance_summary`, `student_query_summary` and `query_daily_trend`. Do not build on them.
 - **Query ownership after a mentor change.** `mentor_id` is fixed at creation.
   - Only the HOD reassignment endpoint moves **unresolved** queries (§4.19).
   - A mentor change made by a **mentor-map upload** moves no queries, so the old mentor keeps them.
@@ -1537,21 +1541,22 @@ Attendance and black dots are per cycle; GPA and backlogs are not. A black dot c
 
 ### 4.17 Dashboards and analytics
 
-**Status:** Implemented. The category charts are affected by the legacy-category issue (§4.4).
+**Status:** Implemented. The category charts count the current categories since 0041 (§4.4).
 
 **Where:**
 
 - Pages: `StudentDashboardPage`, `FacultyDashboardPage`, `HodDashboardPage`, `HodFacultyPerformancePage`, `ClusterHeadDashboardPage`.
 - Hook: `hooks/useDashboardMetrics.js`.
 - SQL: `get_dashboard_metrics`, and the views `faculty_performance_summary`, `query_daily_trend` and `student_query_summary`.
+- Charts: every "by category" chart is a `CategoryBarChart` with `allLabels`, fed by `lib/queryCategoryChart.js`: upright bars with rounded tops over dashed gridlines; the five current categories (zero bars included) and then any legacy one with queries; each category in its own colour on every page (`QUERY_CATEGORY_COLORS`: `CHART_COLORS.series` in category order, then #b45309 and #78716c for ERP/Tech and Infrastructure). Every bar keeps its name: in a panel too narrow for level names they are tilted 40° (`components/charts/categoryAxis.js`). All zero shows "No data to display yet".
 
 **`get_dashboard_metrics()`** (SECURITY DEFINER; the only check is "Not authenticated") branches on the caller's role. All counts cover **all time**.
 
 | Branch | Scope | Keys |
 |---|---|---|
-| `student` | the caller's own queries | `role`, `total_queries`, `open_queries`, `in_progress_queries`, `resolved_queries`, `awaiting_confirmation`, `unrated_resolved`, `avg_resolution_hours`, `form_a_completed`, `is_star_mentee`, `achievements_count`, `unread_notifications` |
+| `student` | the caller's own queries | `role`, `total_queries`, `open_queries`, `in_progress_queries`, `resolved_queries`, `awaiting_confirmation`, `unrated_resolved`, `avg_resolution_hours`, `form_a_completed`, `is_star_mentee`, `achievements_count`, `unread_notifications`; `queries_by_category` (0041, every branch: category → count over the branch's queries, current and legacy) |
 | `faculty` | queries with `mentor_id = me` | the student keys that apply, plus `reopened_queries`, `avg_first_response_hours`, `avg_satisfaction`, `resolved_this_week`, `resolved_last_week` (both use `date_trunc('week', now())`), `mentee_count`, `onboarding_pending`, `star_mentee {id, name}`, `unread_notifications` |
-| everything else (`else` = HOD, administrator, cluster head) | a HOD: the queries, faculty and students of the faculty mapped to them; the administrator and a cluster head: everything | `role` (`'admin'` for the administrator, otherwise `'hod'`, even for a cluster head); `coverage` (`'hod'` or `'department'`, since 0039); the faculty query keys **except** `resolved_this_week` / `resolved_last_week`; plus `academic_queries`, `erp_tech_queries`, `infrastructure_queries` (**legacy categories only**), `total_students`, `total_faculty`, `active_faculty`, `departed_faculty`, `unassigned_students` (always 0 for a HOD: every student in their scope has a mentor), `onboarding_pending`, `unread_notifications` |
+| everything else (`else` = HOD, administrator, cluster head) | a HOD: the queries, faculty and students of the faculty mapped to them; the administrator and a cluster head: everything | `role` (`'admin'` for the administrator, otherwise `'hod'`, even for a cluster head); `coverage` (`'hod'` or `'department'`, since 0039); the faculty query keys **except** `resolved_this_week` / `resolved_last_week`; plus `academic_queries`, `erp_tech_queries`, `infrastructure_queries` (**legacy categories only**; no page reads them since 0041), `total_students`, `total_faculty`, `active_faculty`, `departed_faculty`, `unassigned_students` (always 0 for a HOD: every student in their scope has a mentor), `onboarding_pending`, `unread_notifications` |
 
 Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head` caller falls into the department branch** and receives department-wide numbers. No cluster-head page calls it, but the RPC is callable (§8.9).
 
@@ -1562,7 +1567,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - A banner for queries awaiting confirmation. It counts only the **5 most recent** queries.
 - KPIs: Total, Open, In progress, Avg resolution time.
 - A status donut.
-- "Recent activity by category": a bar chart built from the 5 most recent queries, **legacy categories only**.
+- "Queries by category" (was "Recent activity by category"): every one of the student's queries by category, from `queries_by_category`, so it adds up to the donut's total.
 - "My recent queries": 5 rows, live.
 
 **Faculty dashboard (`/faculty`):**
@@ -1574,7 +1579,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
   - Resolved, captioned with resolved this week, plus a trend of this week minus last week.
 - "My impact": average first response, average resolution, satisfaction, awaiting confirmation, reopened, star mentee.
 - A resolution gauge and a status donut.
-- "Recent load by category": the 8 most recent queries, **legacy categories only**.
+- "Load by category" (was "Recent load by category"): every query assigned to the mentor, from `queries_by_category`.
 - "Needs your attention": open or reopened queries among those 8, at most 6 shown.
 
 **HOD and administrator dashboard (`/hod`, `/admin`):**
@@ -1583,7 +1588,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - KPIs: Students (captioned with unassigned for the administrator, "Mentees of your faculty" for a HOD), Faculty mentors (active · departed), Total queries, Onboarding pending.
 - An attention banner when students are unassigned or faculty have departed.
 - A status donut.
-- A category bar chart (**legacy keys**).
+- "Category load": the scope's queries by category, from `queries_by_category`.
 - A resolution gauge and a service-quality list.
 - A 30-day "raised" area chart from `query_daily_trend`. The chart computes "resolved" but does not draw it.
 - A top-10 leaderboard from `faculty_performance_summary`, ordered by resolved. Columns: Faculty, Mentees, Queries, Resolved, Avg first response, Resolution rate, Rating.
@@ -1631,7 +1636,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - **PDF (`buildFacultyActivityPdf`):**
   1. Title block.
   2. 8 KPI cards.
-  3. "Query mix and resolution quality": a category bar (**legacy 3 categories**) and a confirmation donut.
+  3. "Query mix and resolution quality": a category bar (from `by_category`: the five current categories, then legacy ones with queries) and a confirmation donut.
   4. Weekly raised vs resolved (last 12 weeks).
   5. Satisfaction ratings.
   6. Category breakdown table.
@@ -1654,7 +1659,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - **PDF (`buildDepartmentReportPdf`):**
   1. Title block.
   2. 8 KPIs.
-  3. Department query mix: a category bar (**legacy 3**) and a status donut.
+  3. Department query mix: a category bar (from `by_category`, as above) and a status donut.
   4. Monthly volume, last 12 months.
   5. Load by faculty.
   6. Fastest first response.
@@ -1672,19 +1677,19 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
     - `gpa_shared`, `semester_gpas` (with `earned_credits`, `required_credits`, `source`), `cgpa_record` (the official CGPA and totals, or null), `gpa_stats`. `gpa_stats.cgpa` is the official CGPA when one has been uploaded (`cgpa_official` true), otherwise the mean of the semester GPAs; `trend` compares the last two semesters.
     - `backlogs` (open first: subject, semester, grade, credits, exam, cleared and when) and `black_dots` (case, details, dates, block, room, course/branch, previous record), since 0035;
     - `achievements`, `achievements_by_category`;
-    - `query_summary`, which counts the **legacy academic, erp_tech and infrastructure categories**;
+    - `query_summary`, whose `academic`, `erp_tech` and `infrastructure` count only the legacy categories (nothing reads them; the charts count the `queries` list);
     - `queries`, `monthly_query_trend` (YYYY-MM).
 - **Page** (`/faculty/mentees/:studentId`, `/hod/students/:studentId`, `/admin/students/:studentId`):
   - Header: the name; registration number, branch, section and semester label.
   - The **Academic Performance Overview** (§4.9), fed from the dossier plus a direct read of `student_attendance_overview` for the student (RLS: the mentor, their HOD or the administrator). With no GPA on record the CGPA is "—", not the dossier's `gpa_stats.cgpa` of 0. When sharing is off the GPA tile reads "Not shared" and the GPA card "GPA not shared".
-  - "Mentoring record": Queries raised, Achievements, Avg resolution; the "Query mix" donut (**legacy categories only**) beside the Query history; Form A; Achievements (with Verify and Proof).
+  - "Mentoring record": Queries raised, Achievements, Avg resolution; "Queries by category" (bars from the dossier's query list; a donut before 0041) beside the Query history; Form A; Achievements (with Verify and Proof).
   - A star toggle for the mentor, with no confirmation dialog on this page. Verifying or starring reloads the page quietly, keeping the semester picked.
   - PDF download.
 - **PDF (`buildStudentDossierPdf`):**
   1. Title block.
   2. 8 KPIs (CGPA captioned "official" when it is).
   3. Semester GPA line chart. Backlogs and black dots are **not** in the PDF.
-  4. Support activity: a category bar (**legacy 3**), a status donut and a monthly line.
+  4. Support activity: a category bar (from the query list), a status donut and a monthly line.
   5. Query history, at most 30.
   6. Achievements, at most 25.
   7. Form A summary.
@@ -2205,7 +2210,7 @@ CORS rules in `applyBaseHeaders`:
 **`pdf-chart-primitives.js`.**
 
 - `PALETTE` (brand colours), `SERIES_COLORS`, `truncate`.
-- Drawing helpers: `drawSectionHeading`, `drawStatCards` (4 per row), `drawBarChart`, `drawGroupedBarChart`, `drawLineChart`, `drawDonutChart`, `drawLegend`, `drawHorizontalBars`, `drawTable` (`maxRows`, `emptyMessage`).
+- Drawing helpers: `drawSectionHeading`, `drawStatCards` (4 per row), `drawBarChart` (counts: four whole-number steps, 0–4 at least, room above the bars for their values, rounded bar tops and dashed gridlines like the portal's charts; each bar in its own colour, the category charts using the portal's category colours), `drawGroupedBarChart`, `drawLineChart`, `drawDonutChart`, `drawLegend`, `drawHorizontalBars`, `drawTable` (`maxRows`, `emptyMessage`).
 
 Everything is drawn with vector primitives: no images except the logo, and no HTML rendering.
 
@@ -2316,7 +2321,7 @@ All functions live in schema `public`. Read the table this way:
 | `get_active_survey_for_student()` | `jsonb` | definer, stable | authenticated | 0023 | `StudentSurveyPage.jsx` | Student only. Returns the active cycle, whether the caller has submitted, and the active questions. |
 | `get_cycle_job_status()` | `jsonb` | definer, stable | authenticated | 0024 | `run-cycle-job.js` | HOD only. Job schedule rows, the last 25 runs, active survey cycle, at-risk count, open meeting count. |
 | `get_cycle_overview(p_cycle_id uuid default null, p_semester semester_term default null)` | `jsonb` | definer, stable | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx`, `academic-cycle-report.js` | Cluster head/HOD/no JWT. One cycle (default the active one), whole or one semester: students, mentors, uploads, roster imports, attendance, GPA upload counts, backlogs, black dots, stale risk flags. Counts and averages only, no student named (§4.24). |
-| `get_dashboard_metrics()` | `jsonb` | definer, stable | authenticated | 0013, 0031, 0039 | `useDashboardMetrics.js` | Role-aware dashboard numbers: student / faculty / everyone else (a HOD: their mapped faculty and mentees; the administrator and cluster heads: the department; `coverage` says which). Category counts are legacy-only. |
+| `get_dashboard_metrics()` | `jsonb` | definer, stable | authenticated | 0013, 0031, 0039, 0041 | `useDashboardMetrics.js` | Role-aware dashboard numbers: student / faculty / everyone else (a HOD: their mapped faculty and mentees; the administrator and cluster heads: the department; `coverage` says which). `queries_by_category` counts every category (0041); the older `academic_queries` etc. are legacy-only and unread. |
 | `get_department_faculty_report(p_from date, p_to date)` | `jsonb` | definer, stable | authenticated | 0019, 0031, 0039 | `FacultyActivityReportPage.jsx`, `faculty-activity-report.js` | HOD or administrator. All-faculty report JSON for a period (summary, by category/status, monthly trend, per-faculty rows): a HOD's covers their mapped faculty (`coverage: 'hod'`, `hod_name`), the administrator's the department. `scope` stays `'department'`. |
 | `get_faculty_activity_report(p_faculty_id uuid, p_from date, p_to date)` | `jsonb` | definer, stable | authenticated | 0013, 0030, 0031, 0039 | `FacultyActivityReportPage.jsx`, `faculty-activity-report.js` | Faculty (self only), their HOD or the administrator. Activity report JSON for a period; defaults to the last 90 days. |
 | `get_mentor_group_queries()` | `jsonb` | definer, stable | authenticated | 0017, 0031 | `StudentGroupQueriesPage.jsx` | Star mentee only. Every query of the mentor group, narrow projection (no ids, bodies, e-mails or registration numbers). |
@@ -4551,7 +4556,7 @@ Each page's behaviour is described in the feature section named in the last colu
 - **Component classes** (`index.css`, `@layer components`): `.panel`, `.panel-header`, `.panel-header-title`, `.field-label`, `.field-input`, `.field-error`, `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-ghost`, `.btn-danger`, `.btn-sm`, `.sidebar-link`, `.sidebar-link-active`, `.data-table` (with its thead, tbody and hover rules), `.chip`, `.break-anywhere`, `.skeleton`.
 - **Other styles:** `.material-symbols-outlined` settings, `.custom-scrollbar`, and a print rule (`.no-print`).
 - **Theme:** there is no dark mode. `theme-color` is #a43700.
-- **`CHART_COLORS`** (JS): `academic` #c2410c, `erpTech` #f97316 and `infrastructure` #a8a29e (legacy category keys); `open`, `inProgress`, `resolved`; and `series` [#c2410c, #f97316, #a8a29e, #ea580c, #d97706, #16a34a]. The PDF palette is `PALETTE` in `pdf-chart-primitives.js`.
+- **`CHART_COLORS`** (JS): `open`, `inProgress`, `resolved`; `primary`, `secondary`, `slate`; and `series` [#c2410c, #f97316, #a8a29e, #ea580c, #d97706, #16a34a], which also colours the query categories in order (Academics, Examination, Behavioural, Administrative, Others, then the legacy Academic; `QUERY_CATEGORY_COLORS`). The PDF palette is `PALETTE` in `pdf-chart-primitives.js`.
 - **Academic Performance Overview** (`AcademicOverview.jsx`, its own constants): attendance bars #2a78d6 (75% or more) and #e34948 (below), a pair checked for colour-blind separation and contrast on white, always with a legend and the value on the bar; the GPA line is the brand #c2410c with a 10% area; target lines are dashed #57534e.
 
 ### 9.10 Constants (`lib/constants.js`)
@@ -5001,6 +5006,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
      - 0033 is needed for large uploads;
      - 0034 and 0035 must be applied before the API that sends `black-dot` uploads, the new GPA/backlog row shapes and `p_subject_codes`;
      - **0038 then 0039, as two transactions** (`db push` applies each file on its own; pasting both into one SQL editor run fails, because a transaction cannot use the enum value it added). Both must be in before the frontend that routes `/admin` and `/hod/uploads`, and before the API that sends `hod-map`.
+     - 0041 can go in before or after its frontend: the old pages ignore `queries_by_category`, and the new ones show "No data to display yet" until it exists.
      - **0040 before the frontend** that sends `p_counselling_type`: the new page calls `request_counselling` with two arguments, which do not exist before 0040. The other way round, the old page is refused with "Choose the type of counselling" until the new frontend is live, so deploy both together.
    - Never edit an applied migration.
 2. **Supabase settings:** follow §12.3.
@@ -5142,7 +5148,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | Account provisioning (roster, single account, mentor-map mentors) | **Implemented** | Shared temporary password; no invite e-mails (§4.1) |
 | Sign-in, forced password change, password reset | **Implemented** | Complexity rules are client-side only |
 | Student onboarding (Form A and photo) | **Implemented** | Form A editable any time; staff have no photo upload |
-| Queries: raise, converse, resolve, confirm or reopen (cap 3), rate, priority | **Implemented** | Legacy-category counters (B1) |
+| Queries: raise, converse, resolve, confirm or reopen (cap 3), rate, priority | **Implemented** | Category charts fixed in 0041 (B1) |
 | Canned replies | **Partial** | Read-only chips; no management UI; the four global replies come only from the seeds |
 | Raise to HOD (routed to the mentor's mapped HOD, else the administrator) | **Implemented** | No escalated filter for the HOD; the note is visible to the student |
 | Mentor department and HOD e-mail | **Implemented** | Read-only once the mentor is mapped (0039) |
@@ -5181,7 +5187,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 
 | ID | Bug | Where |
 |---|---|---|
-| B1 | Category counters and charts count only the legacy categories (Academic, ERP/Tech, Infrastructure), so current-category queries are missing from them. This affects the student, faculty and HOD dashboards, the mentee "Query mix", the three PDFs, `get_dashboard_metrics`, `get_student_dossier`, and the views `faculty_performance_summary`, `student_query_summary` and `query_daily_trend`. | §4.4 |
+| B1 | **Fixed 2026-10-08 (0041).** Category charts counted only the legacy categories (Academic, ERP/Tech, Infrastructure), so they stayed empty: the student, faculty and HOD dashboards, the mentee "Query mix" and the three PDFs. They now count every category. Legacy-only columns remain, unread, in `get_dashboard_metrics`, `get_student_dossier` and three views. | §4.4 |
 | B2 | **Fixed in 0036.** A student's first-ever risk evaluation that was **not** at risk sent the mentor "… is no longer at-risk" | `notify_on_risk_flag_change` |
 | B3 | The HOD 30-day trend reads the **oldest** 400 (mentor, day) rows once more exist; "resolved" is computed but not drawn | `HodDashboardPage` |
 | B4 | The activity report's "Active" / "Still open" column always shows "—" (it reads `open_count`; the RPC returns `open`). The department `monthly_trend` is sorted alphabetically. | `FacultyActivityReportPage`, PDF builder, `get_department_faculty_report` |
@@ -5222,7 +5228,7 @@ Security gaps S1–S20 are in §8.9.
 | `student_form_a_profiles.is_locked`, `unlock_requested`, `unlock_requested_at`, `unlocked_by` | Vestigial columns |
 | `academic_upload_batches.skipped_rows` | Written only by the GPA upload |
 | Notification types `onboarding_reminder`, `account_provisioned`, `academic_data_uploaded` | Never sent |
-| Enum values `Academic`, `ERP/Tech`, `Infrastructure` (`query_category`) | Legacy; not offered by the UI, still counted by B1 code |
+| Enum values `Academic`, `ERP/Tech`, `Infrastructure` (`query_category`) | Legacy; not offered by the UI; shown in the charts only when they have queries. Unread legacy-only columns remain (B1) |
 | `clusterHeadSetupSchema` (zod), dotted header aliases in the roster list | Unused code paths |
 | `send_invite_email` (provisioning), `semester_cycle_id` / `default_mentor_id` / `combined` (roster import) | Accepted inputs the UI never sends (or that are ignored) |
 | `GET /api/admin/manage-faculty-roster?action=reserve-pool` | Endpoint action never called |
@@ -5351,6 +5357,7 @@ These parts of the old document still describe the code correctly. The names hav
 | Jobs | `cycle_job_schedule` (4 jobs), `cycle_job_runs`, `run_cycle_job`, `run_all_cycle_jobs_now`, `get_cycle_job_status`, the HOD Scheduled Jobs page, `/api/admin/run-cycle-job` | 0024 |
 | CR reports | `mom_records`, `submit_mom_report`, `set_query_in_progress`, the student and faculty/HOD CR pages | 0027 |
 | Counselling | `counselling_requests`, `request_counselling`, `respond_to_counselling`, the student and faculty pages; the counselling type dropdown (`counselling_type`, `COUNSELLING_TYPES`) | 0028, 0029, 0040 |
+| Category charts | `queries_by_category`, `lib/queryCategoryChart.js`, `CategoryBarChart` `allLabels`; every "by category" chart counts the current categories, one colour per category (B1 fixed) | 0041 |
 | HOD routing | `set_mentor_department_and_hod`, `hod_email`, the "Department & HOD" modal, the Raise-to-HOD column | 0030 |
 | Uploads API | `POST /api/cluster-head/upload-academic-data` (attendance, GPA, backlog, mentor map with mentor creation) | API |
 | Performance | `resolve_student_ids` (batch lookup), chunked roster import, `runPool` | 0033, API |
@@ -5457,7 +5464,7 @@ Each recipe ends with the verification loop in B.10.
 
 1. Prefer extending the existing RPC or view, in a new migration with `create or replace`. The current bodies are mostly in 0031.
 2. Render it with the `Charts.jsx` wrappers and `StatCard`.
-3. **Use the current query categories.** Do not copy the legacy-category counters.
+3. **Use the current query categories.** Chart them with `queryCategoryChartData` (`lib/queryCategoryChart.js`); do not copy the legacy-only columns.
 
 **B.8 Add a report or PDF**
 

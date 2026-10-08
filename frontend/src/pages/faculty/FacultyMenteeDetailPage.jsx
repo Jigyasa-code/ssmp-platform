@@ -19,14 +19,15 @@ import EmptyState from '../../components/ui/EmptyState.jsx';
 import DataTable from '../../components/ui/DataTable.jsx';
 import { PageLoader } from '../../components/ui/Skeleton.jsx';
 import { QueryStatusBadge, CategoryBadge } from '../../components/ui/StatusBadge.jsx';
-import { DonutChart } from '../../components/charts/Charts.jsx';
+import { CategoryBarChart } from '../../components/charts/Charts.jsx';
+import { countQueriesByCategory, queryCategoryChartData } from '../../lib/queryCategoryChart.js';
 import AcademicOverview from '../../components/academics/AcademicOverview.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { apiClient } from '../../lib/apiClient.js';
 import { createSignedUrl, BUCKETS } from '../../lib/fileUpload.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
-import { ACHIEVEMENT_CATEGORIES, CHART_COLORS } from '../../lib/constants.js';
+import { ACHIEVEMENT_CATEGORIES } from '../../lib/constants.js';
 import { describeError, formatDate, formatHours } from '../../lib/formatters.js';
 import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
@@ -150,11 +151,9 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
     ? { value: gpaStats.cgpa, official: Boolean(gpaStats.cgpa_official), earnedCredits: gpaStats.total_earned_credits ?? null }
     : null;
 
-  const categoryChart = [
-    { name: 'Academic', value: queries.academic, color: CHART_COLORS.academic },
-    { name: 'ERP/Tech', value: queries.erp_tech, color: CHART_COLORS.erpTech },
-    { name: 'Infrastructure', value: queries.infrastructure, color: CHART_COLORS.infrastructure }
-  ];
+  // Counted from the dossier's full query list: its query_summary counts
+  // only the categories retired in 0026.
+  const categoryChart = queryCategoryChartData(countQueriesByCategory(dossier.queries));
 
   return (
     <PortalShell>
@@ -221,8 +220,8 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Panel tab="Query mix" tabIcon="donut_small">
-          <DonutChart data={categoryChart} centerLabel="queries" height={260} />
+        <Panel tab="Queries by category" tabIcon="bar_chart">
+          <CategoryBarChart data={categoryChart} height={260} allLabels />
         </Panel>
 
         <Panel tab="Query history" tabIcon="history" className="lg:col-span-2" bodyClassName="">

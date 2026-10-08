@@ -14,6 +14,7 @@ import { useDashboardMetrics } from '../../hooks/useDashboardMetrics.js';
 import { useRealtimeQueries } from '../../hooks/useRealtimeQueries.js';
 import { formatRelativeTime, formatHours } from '../../lib/formatters.js';
 import { CHART_COLORS } from '../../lib/constants.js';
+import { queryCategoryChartData } from '../../lib/queryCategoryChart.js';
 
 export default function StudentDashboardPage() {
   const { profile } = useAuth();
@@ -30,15 +31,9 @@ export default function StudentDashboardPage() {
     [metrics]
   );
 
-  const categoryData = useMemo(() => {
-    const counts = { Academic: 0, 'ERP/Tech': 0, Infrastructure: 0 };
-    for (const query of queries) counts[query.category] = (counts[query.category] ?? 0) + 1;
-    return [
-      { name: 'Academic', value: counts.Academic, color: CHART_COLORS.academic },
-      { name: 'ERP/Tech', value: counts['ERP/Tech'], color: CHART_COLORS.erpTech },
-      { name: 'Infrastructure', value: counts.Infrastructure, color: CHART_COLORS.infrastructure }
-    ];
-  }, [queries]);
+  // Every query the student has raised, counted in SQL (0041) — the same
+  // total as the status donut, not just the recent list below.
+  const categoryData = useMemo(() => queryCategoryChartData(metrics?.queries_by_category), [metrics]);
 
   const awaiting = queries.filter((t) => t.resolution_status === 'pending_confirmation');
 
@@ -113,8 +108,8 @@ export default function StudentDashboardPage() {
         <Panel tab="Status mix" tabIcon="donut_small" className="lg:col-span-1">
           <DonutChart data={statusData} centerLabel="queries" height={240} />
         </Panel>
-        <Panel tab="Recent activity by category" tabIcon="bar_chart" className="lg:col-span-2">
-          <CategoryBarChart data={categoryData} height={240} />
+        <Panel tab="Queries by category" tabIcon="bar_chart" className="lg:col-span-2">
+          <CategoryBarChart data={categoryData} height={240} allLabels />
         </Panel>
       </div>
 

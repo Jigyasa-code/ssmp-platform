@@ -14,6 +14,8 @@
  *      Upload page, and the HOD's Uploads group without My Subjects.
  *   7. The student's counselling types (migration 0040): the list, its
  *      order and labels, and the dropdown it fills.
+ *   8. "Queries by category" charts: the Home pages' bar charts counted
+ *      only the categories retired in 0026, so they stayed empty.
  */
 import { JSDOM } from 'jsdom';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -363,6 +365,57 @@ const { COUNSELLING_TYPES, counsellingTypeLabel } = await import('../src/lib/con
     select.required && options[0].value === '' && options[0].textContent === 'Choose the type of counselling');
   check('... followed by the twelve types', options.length === 13
     && options.slice(1).every((option, i) => option.value === COUNSELLING_TYPES[i].value && option.textContent === expected[i]));
+}
+
+// ── 8. Queries by category ───────────────────────────────────────────
+console.log('\nQueries by category');
+
+const { queryCategoryChartData, countQueriesByCategory, QUERY_CATEGORY_COLORS } = await import('../src/lib/queryCategoryChart.js');
+const { categoryAxisLayout, fitLabel, labelWidth } = await import('../src/components/charts/categoryAxis.js');
+const { QUERY_CATEGORIES, CHART_COLORS } = await import('../src/lib/constants.js');
+{
+  const names = (bars) => bars.map((bar) => bar.name);
+  // What get_dashboard_metrics() returns for the student in the screenshot:
+  // 13 queries, all in the current categories.
+  const bars = queryCategoryChartData({ Academics: 6, Examination: 4, Administrative: 2, Others: 1 });
+  check('the five current categories are charted, in their usual order',
+    JSON.stringify(names(bars)) === JSON.stringify(QUERY_CATEGORIES), JSON.stringify(names(bars)));
+  check('queries in the current categories are counted (the chart is not empty)',
+    bars.find((bar) => bar.name === 'Academics').value === 6 && bars.some((bar) => bar.value > 0));
+  check('the bars add up to every query, not the recent few', bars.reduce((sum, bar) => sum + bar.value, 0) === 13);
+  check('a category with no queries is a zero bar', bars.find((bar) => bar.name === 'Behavioural').value === 0);
+  check('each category has its own colour, from the dashboard palette',
+    new Set(bars.map((bar) => bar.color)).size === bars.length
+    && bars.every((bar, i) => bar.color === CHART_COLORS.series[i]), JSON.stringify(bars.map((bar) => bar.color)));
+
+  const withLegacy = queryCategoryChartData({ Others: 1, Infrastructure: 2, Academic: 3, 'ERP/Tech': 0 });
+  check('a retired category with queries follows the current ones',
+    JSON.stringify(names(withLegacy).slice(5)) === JSON.stringify(['Academic', 'Infrastructure']), JSON.stringify(names(withLegacy)));
+  check('a retired category with none is left out', !names(withLegacy).includes('ERP/Tech'));
+  check('a category keeps its colour whatever else is charted',
+    withLegacy.find((bar) => bar.name === 'Others').color === bars.find((bar) => bar.name === 'Others').color
+    && withLegacy.find((bar) => bar.name === 'Infrastructure').color === QUERY_CATEGORY_COLORS.Infrastructure);
+  check('all eight categories, current and retired, have different colours',
+    new Set(Object.values(QUERY_CATEGORY_COLORS)).size === 8);
+
+  const empty = queryCategoryChartData(undefined);
+  check('no data yet: five zero bars, so the chart shows its empty state',
+    empty.length === 5 && empty.every((bar) => bar.value === 0));
+
+  const counted = countQueriesByCategory([{ category: 'Others' }, { category: 'Others' }, { category: 'Examination' }, { category: null }, null]);
+  check('a list of queries is counted by category', counted.Others === 2 && counted.Examination === 1 && Object.keys(counted).length === 2);
+  const fromReport = countQueriesByCategory([{ category: 'Academic', total: 3 }, { category: 'Others', total: '2' }], (row) => row.total);
+  check('a report\'s by_category rows are read by their totals', fromReport.Academic === 3 && fromReport.Others === 2);
+
+  const five = QUERY_CATEGORIES;
+  const eight = [...five, 'Academic', 'ERP/Tech', 'Infrastructure'];
+  check('a wide panel keeps the names level under the bars', categoryAxisLayout(five, 690).tilted === false);
+  check('a narrow panel tilts the names instead of dropping them',
+    categoryAxisLayout(eight, 250).tilted === true && categoryAxisLayout(eight, 250).axisHeight > 30);
+  check('the tilted names still fit the axis', categoryAxisLayout(eight, 250).maxLabel >= labelWidth('Administrative'));
+  check('before the panel is measured, nothing is tilted', categoryAxisLayout(eight, 0).tilted === false);
+  check('a name too long for the axis is shortened with an ellipsis',
+    fitLabel('Dr. Venkatasubramanian Raghavendran', 90).endsWith('…') && fitLabel('Others', 90) === 'Others');
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`}`);
