@@ -23,7 +23,7 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
-import { COUNSELLING_STATUS } from '../../lib/constants.js';
+import { COUNSELLING_STATUS, counsellingTypeLabel } from '../../lib/constants.js';
 import { describeError, formatDateTime, formatRelativeTime, initialsOf } from '../../lib/formatters.js';
 
 const FILTERS = [
@@ -160,6 +160,7 @@ export default function FacultyCounsellingPage() {
           {filtered.map((request) => {
             const status = COUNSELLING_STATUS[request.status] ?? COUNSELLING_STATUS.open;
             const student = request.student;
+            const typeLabel = counsellingTypeLabel(request.counselling_type);
             return (
               <Panel key={request.id} bodyClassName="p-5">
                 <div className="flex flex-wrap items-start gap-3">
@@ -182,7 +183,10 @@ export default function FacultyCounsellingPage() {
                       {formatRelativeTime(request.created_at)}
                     </p>
                   </div>
-                  <span className={`chip ${status.className}`}>{status.mentorLabel}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {typeLabel && <span className="chip bg-primary-fixed text-on-primary-fixed">{typeLabel}</span>}
+                    <span className={`chip ${status.className}`}>{status.mentorLabel}</span>
+                  </div>
                 </div>
 
                 <p className="mt-4 whitespace-pre-wrap text-body-sm text-on-surface">{request.concern}</p>
@@ -250,6 +254,11 @@ export default function FacultyCounsellingPage() {
           </>
         }
       >
+        {target?.counselling_type && (
+          <p className="mb-2 text-label-sm uppercase tracking-wide text-tertiary">
+            {counsellingTypeLabel(target.counselling_type)}
+          </p>
+        )}
         <p className="mb-3 whitespace-pre-wrap rounded bg-surface-container-low p-3 text-body-sm text-on-surface-variant">
           {target?.concern}
         </p>

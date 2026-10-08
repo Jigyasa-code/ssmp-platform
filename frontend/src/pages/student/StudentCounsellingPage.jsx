@@ -1,7 +1,8 @@
 /**
  * StudentCounsellingPage
- * Write something, it goes to your assigned mentor. Nobody else can read
- * it — not the HOD, not the star mentee (see migration 0029).
+ * Choose the kind of counselling, describe the issue, and it goes to your
+ * assigned mentor. Nobody else can read it — not the HOD, not the star
+ * mentee (see migration 0029). The kind is required (migration 0040).
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -10,12 +11,12 @@ import PageHeader from '../../components/ui/PageHeader.jsx';
 import Panel from '../../components/ui/Panel.jsx';
 import EmptyState from '../../components/ui/EmptyState.jsx';
 import { SkeletonCards } from '../../components/ui/Skeleton.jsx';
-import { TextAreaField } from '../../components/ui/FormControls.jsx';
+import { SelectField, TextAreaField } from '../../components/ui/FormControls.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useAuth } from '../../context/AuthProvider.jsx';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
-import { COUNSELLING_STATUS } from '../../lib/constants.js';
+import { COUNSELLING_STATUS, COUNSELLING_TYPES, counsellingTypeLabel } from '../../lib/constants.js';
 import { describeError, formatDateTime } from '../../lib/formatters.js';
 
 export default function StudentCounsellingPage() {
@@ -23,6 +24,7 @@ export default function StudentCounsellingPage() {
   const toast = useToast();
   const { run, pending } = useAsyncAction();
 
+  const [counsellingType, setCounsellingType] = useState('');
   const [concern, setConcern] = useState('');
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,18 +46,26 @@ export default function StudentCounsellingPage() {
 
   const submit = (event) => {
     event.preventDefault();
+    if (!counsellingType) {
+      toast.error('Choose the type of counselling.');
+      return;
+    }
     if (!concern.trim()) {
-      toast.error('Write down what you would like to talk about.');
+      toast.error('Write down the issue you are facing.');
       return;
     }
     run(
       async () => {
-        const { error } = await supabase.rpc('request_counselling', { p_concern: concern.trim() });
+        const { error } = await supabase.rpc('request_counselling', {
+          p_concern: concern.trim(),
+          p_counselling_type: counsellingType
+        });
         if (error) throw error;
       },
       {
         successMessage: `Sent to ${profile?.mentor?.full_name ?? 'your mentor'}.`,
         onSuccess: () => {
+          setCounsellingType('');
           setConcern('');
           load();
         }
@@ -82,19 +92,38 @@ export default function StudentCounsellingPage() {
       <Panel tab="What would you like to talk about?" tabIcon="volunteer_activism">
         {profile?.assigned_mentor_id ? (
           <form onSubmit={submit}>
+            <SelectField
+              label="Type of counselling"
+              name="counselling_type"
+              required
+              className="sm:max-w-md"
+              placeholder="Choose the type of counselling"
+              options={COUNSELLING_TYPES}
+              value={counsellingType}
+              onChange={(event) => setCounsellingType(event.target.value)}
+            />
             <TextAreaField
-              label="Your concern"
+              label="The issue you are facing"
               name="concern"
               required
               rows={6}
               maxLength={3000}
+              className="mt-4"
               value={concern}
               onChange={(event) => setConcern(event.target.value)}
-              hint="Academic pressure, attendance, something at home, anything else — in your own words."
+              hint={
+                counsellingType === 'other'
+                  ? 'Say what it is about, then describe it in your own words.'
+                  : 'Describe it in your own words: what is happening, and what you would like help with.'
+              }
             />
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <p className="text-label-sm text-tertiary">{concern.length}/3000</p>
-              <button type="submit" className="btn-primary ml-auto" disabled={pending || !concern.trim()}>
+              <button
+                type="submit"
+                className="btn-primary ml-auto"
+                disabled={pending || !counsellingType || !concern.trim()}
+              >
                 {pending ? 'Sending...' : 'Send to my mentor'}
               </button>
             </div>
@@ -127,10 +156,11 @@ export default function StudentCounsellingPage() {
             return (
               <Panel
                 key={request.id}
-                tab={formatDateTime(request.created_at)}
+                tab={counsellingTypeLabel(request.counselling_type) ?? 'Counselling request'}
                 tabIcon="chat_bubble"
                 actions={<span className={`chip ${status.className}`}>{status.studentLabel}</span>}
               >
+                <p className="mb-2 text-label-sm text-tertiary">Sent {formatDateTime(request.created_at)}</p>
                 <p className="whitespace-pre-wrap text-body-sm text-on-surface">{request.concern}</p>
 
                 {request.mentor_note && (

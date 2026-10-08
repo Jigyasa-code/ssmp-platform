@@ -12,6 +12,8 @@
  *   6. The administrator and HOD menus (migration 0039): the same
  *      department screens under /admin and /hod, the administrator's
  *      Upload page, and the HOD's Uploads group without My Subjects.
+ *   7. The student's counselling types (migration 0040): the list, its
+ *      order and labels, and the dropdown it fills.
  */
 import { JSDOM } from 'jsdom';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -30,7 +32,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const { default: Panel } = await import('../src/components/ui/Panel.jsx');
 const { default: Modal } = await import('../src/components/ui/Modal.jsx');
-const { TextField, TextAreaField } = await import('../src/components/ui/FormControls.jsx');
+const { TextField, TextAreaField, SelectField } = await import('../src/components/ui/FormControls.jsx');
 const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');
 
@@ -327,6 +329,40 @@ const paths = await import('../src/lib/portalPaths.js');
     paths.departmentBase('admin') === '/admin' && paths.departmentBase('hod') === '/hod');
   check('upload links follow the portal',
     paths.uploadsBase('cluster_head') === '/cluster-head' && paths.uploadsBase('hod') === '/hod/uploads');
+}
+
+// ── 7. Counselling types ─────────────────────────────────────────────
+console.log('\nCounselling types');
+
+const { COUNSELLING_TYPES, counsellingTypeLabel } = await import('../src/lib/constants.js');
+{
+  const expected = [
+    'Academic Counselling', 'Personal Counselling', 'Career Counselling', 'Placement Counselling',
+    'Financial Counselling', 'Technical Counselling', 'Health & Wellness Counselling', 'Behavioural Counselling',
+    'Professional Development Counselling', 'Higher Education Counselling', 'General Guidance & Mentorship', 'Other'
+  ];
+  check('the dropdown offers the twelve types, in the order asked for',
+    JSON.stringify(COUNSELLING_TYPES.map((type) => type.label)) === JSON.stringify(expected),
+    JSON.stringify(COUNSELLING_TYPES.map((type) => type.label)));
+  check('"Other" is last', COUNSELLING_TYPES.at(-1).value === 'other');
+  check('each type is stored under its own value',
+    new Set(COUNSELLING_TYPES.map((type) => type.value)).size === 12
+    && COUNSELLING_TYPES.every((type) => /^[a-z_]+$/.test(type.value)));
+  check('a stored value reads back as its label',
+    counsellingTypeLabel('health_wellness') === 'Health & Wellness Counselling'
+    && counsellingTypeLabel('general_guidance') === 'General Guidance & Mentorship');
+  check('a request sent before the types existed has no label', counsellingTypeLabel(null) === null);
+
+  const markup = renderToStaticMarkup(
+    <SelectField label="Type of counselling" name="counselling_type" required
+      placeholder="Choose the type of counselling" options={COUNSELLING_TYPES} value="" onChange={() => {}} />
+  );
+  const select = new JSDOM(markup).window.document.querySelector('select');
+  const options = [...select.options];
+  check('the dropdown is required and starts on "Choose the type of counselling"',
+    select.required && options[0].value === '' && options[0].textContent === 'Choose the type of counselling');
+  check('... followed by the twelve types', options.length === 13
+    && options.slice(1).every((option, i) => option.value === COUNSELLING_TYPES[i].value && option.textContent === expected[i]));
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`}`);

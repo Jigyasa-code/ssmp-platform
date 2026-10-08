@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). On 2026-09-28: academic cycles, black dots in the at-risk rule, and the end of student GPA entry (migrations `0036`–`0037`, §4.24, §4.14, §4.9). On 2026-10-07: the **administrator** portal, the mentor–HOD mapping upload, each HOD seeing only the faculty mapped to them, and the cluster head's upload screens inside the HOD portal (migrations `0038`–`0039`, §4.25). That is SQL migrations `0001`–`0039`. |
+| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). On 2026-09-28: academic cycles, black dots in the at-risk rule, and the end of student GPA entry (migrations `0036`–`0037`, §4.24, §4.14, §4.9). On 2026-10-07: the **administrator** portal, the mentor–HOD mapping upload, each HOD seeing only the faculty mapped to them, and the cluster head's upload screens inside the HOD portal (migrations `0038`–`0039`, §4.25). On 2026-10-08: the student chooses a **type of counselling** before describing the issue (migration `0040`, §4.8). That is SQL migrations `0001`–`0040`. |
 | **Supersedes** | `docs/SSMP-Platform-Context.docx` (August 2026, which covered migrations 0001–0019). Where `README.md`, `SETUP_GUIDE.md`, `docs/SECURITY.md` or `docs/CLUSTER-HEAD-AND-CYCLE-JOBS.md` disagree with this document, this document is correct. Those files contain stale statements; see §15.5. |
-| **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 39 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
+| **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 40 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
 | **Secrets** | None appear here. Environment variables, the temporary password, the seed password and keys are documented by **name and purpose only**. |
 
 ### How to use this document
@@ -415,7 +415,7 @@ Other files in `frontend/`:
 | Path | Contents |
 |---|---|
 | `config.toml` | Local stack settings: API 54321, DB 54322 (Postgres 15), Studio 54323; auth settings (§12.3) |
-| `migrations/` | 39 ordered files (list below) |
+| `migrations/` | 40 ordered files (list below) |
 | `seed.sql` | **Local only.** Creates demo users directly in `auth.users`/`auth.identities` (including the administrator and two HODs), sets mentors, maps the mentors to their HODs through `map_faculty_to_hods`, inserts sample queries and messages, and inserts the 4 global canned replies ("Acknowledged", "Need more detail", "Escalated to IT", "Meet in person"). The seed script inserts the same four; no migration does. |
 | `scripts/seed-demo-accounts.mjs` | Hosted-safe seed through the Auth Admin API. It creates the demo accounts (administrator, two HODs, faculty, students, cluster heads), mentors, the mentor–HOD mapping (`map_faculty_to_hods`), sample queries, the cluster heads' subjects (in the active academic cycle), uploads sample attendance, GPA, backlogs and black dots through the `record_*_batch` RPCs, and runs cycle jobs. See Appendix D. |
 | `scripts/create-admin-account.mjs` | `npm run db:admin`. Creates the administrator account and nothing else, on the shared temporary password with a forced change at first sign-in; safe on a real project and safe to re-run (it finishes an account an earlier run left as a student). `SSMP_ADMIN_EMAIL` overrides the default address (§4.25, §13.5). |
@@ -466,6 +466,7 @@ Other files in `frontend/`:
 | 0037 | `retire_student_gpa_entry` | Students no longer record GPA: `upsert_semester_gpa` is no longer executable by signed-in users, and the direct-write policies on `student_semester_gpas` are dropped (closes S1) (§4.9) |
 | 0038 | `admin_role` | Enum value `user_role.admin`, alone in its own file |
 | 0039 | `admin_portal_and_hod_scoping` | `user_profiles.hod_id`, `mentor_section`, `mentor_designation` (backfilled from `hod_email`); `is_admin`; `is_hod` now true for the administrator too; `my_overseen_faculty`, `oversees_faculty`, `oversees_student`; HOD-scoped `can_access_student`, `can_access_query`, `can_view_student_gpa` and policies on `user_profiles`, `support_queries`, `at_risk_meetings`, `mom_records`, `mentor_reassignment_log`, `student_form_a_profiles`; `audit_log` readable by the administrator only; `map_faculty_to_hods`; current bodies of `guard_protected_profile_columns`, `handle_new_auth_user`, `get_dashboard_metrics`, `get_department_faculty_report`, `escalate_query_to_hod`, `set_mentor_department_and_hod`, `record_attendance_batch` (a HOD's subject is created from the file) and the scope checks of eleven workflow functions (§4.25) |
+| 0040 | `counselling_type` | `counselling_requests.counselling_type` (12 values; NULL on older requests), `counselling_type_label`; `request_counselling(p_concern, p_counselling_type)` replaces the one-argument version and requires the type; the mentor's notification names it |
 
 ### 3.6 Other folders
 
@@ -979,20 +980,41 @@ supabase.from('support_queries')
 **Where:**
 
 - UI: `pages/student/StudentCounsellingPage.jsx`, `pages/faculty/FacultyCounsellingPage.jsx`.
-- SQL: `request_counselling`, `respond_to_counselling`, `notify_on_counselling_request`; table `counselling_requests` (0029).
+- SQL: `request_counselling`, `respond_to_counselling`, `notify_on_counselling_request`, `counselling_type_label`; table `counselling_requests` (0029; the type since 0040).
+- Constants: `COUNSELLING_TYPES`, `counsellingTypeLabel`, `COUNSELLING_STATUS` (`lib/constants.js`).
 
 **Privacy.** Only the student and **their assigned mentor** can read a request. RLS has **no HOD or administrator policy**, and there is no HOD route (`/faculty/counselling` is faculty-only). The page's promise "This goes only to them." is accurate.
 
 **Student flow:**
 
 - The form is shown only when a mentor is assigned; otherwise "No mentor assigned yet".
-- A concern of at most 3,000 characters ("Write down what you would like to talk about." if blank) is sent with `request_counselling(p_concern)`.
-- The server checks: an active student with a mentor, non-blank text, and at most 3,000 characters. It enforces a **cap of 5 requests with status ≠ closed** ("You already have 5 open counselling requests. Your mentor has been notified — please wait for them to reach out.").
-- The mentor gets `counselling_request` ("<name> has asked to talk", link `/faculty/counselling`). Toast: "Sent to <mentor>."
+- **Type of counselling** (required dropdown, 0040), starting on "Choose the type of counselling":
+
+  | Shown | Stored (`counselling_type`) |
+  |---|---|
+  | Academic Counselling | `academic` |
+  | Personal Counselling | `personal` |
+  | Career Counselling | `career` |
+  | Placement Counselling | `placement` |
+  | Financial Counselling | `financial` |
+  | Technical Counselling | `technical` |
+  | Health & Wellness Counselling | `health_wellness` |
+  | Behavioural Counselling | `behavioural` |
+  | Professional Development Counselling | `professional_development` |
+  | Higher Education Counselling | `higher_education` |
+  | General Guidance & Mentorship | `general_guidance` |
+  | Other | `other` |
+
+  The list is `COUNSELLING_TYPES`; the database holds the same twelve in the CHECK `counselling_type_valid` and `counselling_type_label()`. Adding a type means changing all three (a new migration and the constant).
+- **The issue you are facing:** at most 3,000 characters. The hint asks for it in the student's own words; with "Other" it asks them to say what it is about first.
+- "Send to my mentor" stays disabled until both are filled ("Choose the type of counselling." / "Write down the issue you are facing." if submitted anyway). It calls `request_counselling(p_concern, p_counselling_type)`, and both fields are cleared after sending.
+- The server checks: an active student with a mentor; a type ("Choose the type of counselling"), one of the twelve ("Choose one of the listed types of counselling"; read case- and space-insensitively); non-blank text; at most 3,000 characters. It enforces a **cap of 5 requests with status ≠ closed** ("You already have 5 open counselling requests. Your mentor has been notified — please wait for them to reach out.").
+- The mentor gets `counselling_request`, link `/faculty/counselling`: "<name> has asked for <type>" (for example "has asked for Career Counselling"), or "<name> has asked to talk" for Other. Toast: "Sent to <mentor>."
+- **What you have sent:** each request is headed by its type ("Counselling request" for one sent before 0040), then "Sent <date>", the issue and the mentor's reply.
 
 **Mentor flow:**
 
-- **List:** `counselling_requests` with the student embedded, newest first.
+- **List:** `counselling_requests` with the student embedded, newest first. Each request shows its type as a chip beside the status (none for requests sent before 0040), and the reply modal shows it above the student's text.
 - **Filters:** "Needs a reply" (status ≠ closed), Everyone, Closed.
 - **KPIs:** Waiting on you (open), In conversation (acknowledged), Closed, Students.
 - **Reply modal** (at most 3,000 characters) calls `respond_to_counselling(p_request_id, p_note, p_close)`:
@@ -1015,7 +1037,9 @@ supabase.from('support_queries')
 - The student sees the latest note labelled with their *current* mentor's name.
 - No realtime (the table is not in the publication).
 - Requests stay with the mentor who received them. A reassignment does not move them.
-- The policy `counselling_update_mentor` lets the mentor update **any column** of their requests directly, including the student's `concern` text.
+- The policy `counselling_update_mentor` lets the mentor update **any column** of their requests directly, including the student's `concern` text and `counselling_type` (S18).
+- Requests sent before 0040 keep `counselling_type` NULL; nothing guesses a type for them.
+- Before the new frontend is deployed, the old page (which sends the concern alone) is refused with "Choose the type of counselling" (§13.5).
 - `respond_to_counselling` without "close" sets `acknowledged` from any state, so replying to a closed request reopens it.
 
 ### 4.9 Academics (student side): the academic performance overview
@@ -1795,7 +1819,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 | `at_risk_meeting_required` | trigger on `at_risk_meetings` INSERT | mentor | "Schedule a meeting with <name>" | `/faculty/at-risk` |
 | `survey_published` | `open_survey_cycle` | every active student | "Mentor feedback survey #n is open" | `/student/survey` |
 | `survey_reminder` | `send_survey_reminders` | active students who have not responded | "Reminder: survey #n is still open" | `/student/survey` |
-| `counselling_request` | trigger on `counselling_requests` INSERT | mentor | "<name> has asked to talk" | `/faculty/counselling` |
+| `counselling_request` | trigger on `counselling_requests` INSERT | mentor | "<name> has asked for <type>" ("<name> has asked to talk" for Other or no type, 0040) | `/faculty/counselling` |
 | `counselling_request` | same trigger when `mentor_note` changes | student | "Your mentor has replied" | `/student/counselling` |
 
 `onboarding_reminder`, `account_provisioned` and `academic_data_uploaded` exist in the enum and have bell icons, but **nothing sends them** (Dead).
@@ -2275,6 +2299,7 @@ All functions live in schema `public`. Read the table this way:
 | `carry_over_cycle_students(p_from_cycle_id uuid)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Enrols every active student of an earlier cycle in the active one (`carried_over`) with their current profile values; changes no profile. Returns `{carried_over}`. |
 | `confirm_query_resolution(p_query_id uuid, p_response confirmation_response, p_comment text)` | `support_queries` | definer, volatile | authenticated | 0009, 0018, 0031 | `ResolutionConfirmation.jsx` | Student answers "was it fixed?". `yes` → confirmed (closed). `no` → reopened, In Progress, `reopen_count+1`; refused at the cap of 3. Comment ≤ 1000. Writes a system message. |
 | `consume_rate_limit(p_bucket_key text, p_max_requests integer, p_window_seconds integer)` | `boolean` | definer, volatile | service_role | 0015 | `request-guards.js` | Fixed-window counter for the API: upserts `(bucket_key, window_start)`, 1% chance to purge rows > 1 day old, returns `count <= max`. Service role only. |
+| `counselling_type_label(p_type text)` | `text` | invoker, immutable | authenticated | 0040 | SQL: `request_counselling`, `notify_on_counselling_request` | Display name of a counselling type ("Career Counselling"); NULL for anything else. Same twelve as `COUNSELLING_TYPES`. |
 | `create_academic_cycle(p_start_year integer, p_starts_on date default null, p_even_starts_on date default null, p_ends_on date default null)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Starts the next cycle: after the latest one, dates checked (defaults 1 Jul / 1 Jan / 30 Jun); closes the active cycle, activates the new one, copies every cluster head's subjects, audits `academic_cycle.create`. Returns `{cycle, previous, subjects_copied}`. |
 | `create_at_risk_meeting_link(p_meeting_id uuid)` | `at_risk_meetings` | definer, volatile | authenticated, service_role | 0022, 0039 | SQL: `dispatch_at_risk_meetings` | **Placeholder.** Checks the mentor, `oversees_faculty(mentor_id)` or no JWT, then returns the meeting unchanged (`TODO(provider)`: Teams/Meet link creation is not implemented). |
 | `create_support_query(p_subject text, p_category query_category, p_description text, p_priority query_priority)` | `support_queries` | definer, volatile | authenticated | 0009, 0031 | `CreateQueryModal.jsx` | Student raises a query: active student with a mentor, subject ≤ 200, description ≤ 5000, fewer than 20 unresolved. Inserts the query and its first message. |
@@ -2317,7 +2342,7 @@ All functions live in schema `public`. Read the table this way:
 | `my_mentor_id()` | `uuid` | definer, stable | authenticated, service_role | 0007, 0016 | 2 RLS/storage policies | The caller's `assigned_mentor_id`. SECURITY DEFINER so policies can use it without recursion (0016). |
 | `notify_on_achievement_verified()` | `trigger` | definer, volatile | PUBLIC (default) | 0011 | trigger `trg_notify_achievement_verified` on `student_achievements` | Trigger: verification false → true notifies the student. |
 | `notify_on_at_risk_meeting()` | `trigger` | definer, volatile | PUBLIC (default) | 0022 | trigger `trg_notify_at_risk_meeting` on `at_risk_meetings` | Trigger: a new at-risk meeting notifies the mentor and stamps `mentor_notified_at`. |
-| `notify_on_counselling_request()` | `trigger` | definer, volatile | PUBLIC (default) | 0029 | trigger `trg_notify_counselling` on `counselling_requests` | Trigger: a new request notifies the mentor; a changed `mentor_note` notifies the student. |
+| `notify_on_counselling_request()` | `trigger` | definer, volatile | PUBLIC (default) | 0029, 0040 | trigger `trg_notify_counselling` on `counselling_requests` | Trigger: a new request notifies the mentor ("<name> has asked for <type>", or "has asked to talk" for Other or no type); a changed `mentor_note` notifies the student. |
 | `notify_on_mentor_reassignment()` | `trigger` | definer, volatile | PUBLIC (default) | 0011 | trigger `trg_notify_mentor_reassignment` on `user_profiles` | Trigger: a changed `assigned_mentor_id` writes `mentor_reassignment_log` and notifies the student, the new mentor and the old mentor. |
 | `notify_on_query_created()` | `trigger` | definer, volatile | PUBLIC (default) | 0011, 0027, 0031 | trigger `trg_notify_query_created` on `support_queries` | Trigger: a new query notifies its mentor (skipped for CR-report items with `mom_id`). |
 | `notify_on_query_message()` | `trigger` | definer, volatile | PUBLIC (default) | 0011, 0031 | trigger `trg_notify_query_message` on `query_messages` | Trigger: a non-system message notifies the other party (student → mentor; anyone else → student). |
@@ -2335,7 +2360,7 @@ All functions live in schema `public`. Read the table this way:
 | `record_black_dot_batch(p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0035, 0036 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One PB notice: a black dot per student per case, upsert on `(student, lower(case_number))`, with the notice's name checked against the account. Re-evaluates every student it names (`students_reevaluated`). |
 | `record_gpa_batch(p_semester_number smallint, p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0025, 0033, 0035 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One GPA upload: every graded semester per student with credits, plus the official CGPA into `student_cgpas`; a row is all or nothing; values validated with `try_numeric`; rows of dashes skipped. The flat one-semester shape still works. Re-evaluates risk. |
 | `reevaluate_students_batch(p_after uuid default null, p_limit integer default 300)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Runs `evaluate_student_risk` for the next `p_limit` (1–1,000) active students after `p_after`, by id, with "no longer at-risk" notices quiet. Returns `{evaluated, done, total, next_after}`. |
-| `request_counselling(p_concern text)` | `counselling_requests` | definer, volatile | authenticated | 0029, 0031 | `StudentCounsellingPage.jsx` | Student with a mentor sends a concern (≤ 3000); at most 5 not-closed requests. |
+| `request_counselling(p_concern text, p_counselling_type text default null)` | `counselling_requests` | definer, volatile | authenticated | 0029, 0031, 0040 | `StudentCounsellingPage.jsx` | Student with a mentor sends a concern (≤ 3000) with one of the twelve counselling types (required; the default only turns a missing type into "Choose the type of counselling"); at most 5 not-closed requests. The one-argument version was dropped in 0040. |
 | `request_form_a_unlock()` | `void` | definer, volatile | authenticated | 0010 | — (unused) | **Dead** (no caller; Form A has been editable since 0017). Sets `unlock_requested` on a locked form. |
 | `resolve_student_ids(p_identifiers text[])` | `jsonb` | definer, stable | authenticated, service_role | 0033, 0035 | SQL: `map_students_to_mentors`, `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch` | Batch registration number → student id map for uploads (active students; **registration number only**). Cluster head, HOD or no JWT only (S3 closed in 0035). |
 | `resolve_students_for_upload(p_identifiers text[])` | `TABLE(student_id uuid, registration_no text, full_name text, section text, matched_on text)` | definer, stable | authenticated, service_role | 0021 | — (unused) | **Dead** (no caller since 0033). Cluster head/HOD identifier lookup returning matched students. |
@@ -2984,6 +3009,7 @@ Personal counselling requests. Readable by the student who wrote it and the ment
 | `mentor_id` | uuid | not null |  | FK → `user_profiles(id) on delete cascade` |
 | `concern` | text | not null |  |  |
 | `status` | text | not null | `'open'::text` |  |
+| `counselling_type` | text |  |  | 0040. One of the twelve types (§4.8); NULL only on requests sent before 0040 |
 | `mentor_note` | text |  |  |  |
 | `responded_by` | uuid |  |  | FK → `user_profiles(id) on delete set null` |
 | `responded_at` | timestamp with time zone |  |  |  |
@@ -2998,6 +3024,7 @@ Constraints and indexes:
 - `counselling_mentor_is_not_student` — `CHECK ((mentor_id <> student_id))`
 - `counselling_note_max_length` — `CHECK (((mentor_note IS NULL) OR (char_length(mentor_note) <= 3000)))`
 - `counselling_status_valid` — `CHECK ((status = ANY (ARRAY['open'::text, 'acknowledged'::text, 'closed'::text])))`
+- `counselling_type_valid` — `CHECK (((counselling_type IS NULL) OR (counselling_type = ANY (ARRAY['academic', 'personal', 'career', 'placement', 'financial', 'technical', 'health_wellness', 'behavioural', 'professional_development', 'higher_education', 'general_guidance', 'other']))))` (0040)
 - index `counselling_mentor_open_idx` — `btree (mentor_id, created_at DESC) WHERE (status <> 'closed'::text)`
 - index `counselling_student_idx` — `btree (student_id, created_at DESC)`
 
@@ -4282,7 +4309,7 @@ These were found while writing this document and verified in the code; several w
 | S15 | Students can INSERT `support_queries` directly (`queries_insert_own`: own id and current mentor) | Bypasses `create_support_query`'s 20-unresolved cap and description rules. Only the subject's CHECK constraints (non-blank, ≤ 200) still apply. The row can carry any `status`, `resolution_status`, `priority`, rating, `resolved_by` or `escalated_*` value allowed by the column constraints (for example, a fake "Resolved, confirmed, rated 1/5" query credited to the mentor, *tested*). No first message is created. The creation notification still fires. | policy `queries_insert_own` |
 | S16 | Survey answers are readable by the mentor they are about | Individual ratings are not anonymous: `survey_responses` and `survey_response_answers` are visible to the mentor and the HOD through `can_access_student` *(tested)* | policies `survey_responses_select_scope`, `survey_answers_select_scope` |
 | S17 | The privileged RPCs behind the API are executable by `authenticated` and check only the caller's role: `record_*_batch`, `map_students_to_mentors`, `activate_roster_students` (0036), `run_cycle_job`, `run_all_cycle_jobs_now`, `reassign_mentees`, `set_faculty_employment_status` | A cluster head or HOD calling them through PostgREST skips the API's setup gate (no SQL function checks `cluster_head_setup_completed`), rate limit and audit entry. A direct `reassign_mentees` also skips the query handover. | function grants |
-| S18 | Mentors can UPDATE their counselling requests directly (`counselling_update_mentor`, all columns) | A mentor can rewrite the student's `concern` or change `status` outside `respond_to_counselling` | policy `counselling_update_mentor` |
+| S18 | Mentors can UPDATE their counselling requests directly (`counselling_update_mentor`, all columns) | A mentor can rewrite the student's `concern` or `counselling_type`, or change `status`, outside `respond_to_counselling` | policy `counselling_update_mentor` |
 | S19 | **Narrowed in 0039.** The administrator bypasses the protected-column guard and has `profiles_update_hod` over everyone; a HOD has it over their own faculty and mentees | The administrator can directly change any profile's role, activation, mentor, star flag or HOD mapping (by design, with no audit trail). A HOD can change those of their own people, except the mapping columns and the `hod` / `admin` role (their own included), and can no longer reach anyone else's profile | `guard_protected_profile_columns`, policy `profiles_update_hod` |
 | S20 | `set_gpa_sharing` is still executable although the UI toggle was removed, and Form A rows are directly updatable | A student can turn GPA sharing off without the UI, hiding GPAs from the mentor | function `set_gpa_sharing`; policy `form_a_update_own` |
 
@@ -4545,6 +4572,7 @@ These must be kept in sync with the Postgres enums wherever the UI offers a valu
 | `CYCLE_JOBS` | The four jobs, with labels and descriptions for the Operations page |
 | `AT_RISK_MEETING_STATUS_LABELS` | awaiting_link "Awaiting meeting link", scheduled, completed, cancelled |
 | `COUNSELLING_STATUS` | open, acknowledged and closed, each with `studentLabel`, `mentorLabel` and `className` (§4.8) |
+| `COUNSELLING_TYPES`, `counsellingTypeLabel` | The twelve counselling types as `{value, label}`, in dropdown order, and the label of a stored value (null for none). Must match 0040's CHECK and `counselling_type_label()` (§4.8) |
 | `EMPLOYMENT_STATUS_LABELS` | Active, On leave, Departed |
 | `CHART_COLORS` | §9.9 |
 | `NAVIGATION` | §9.5 |
@@ -4973,6 +5001,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
      - 0033 is needed for large uploads;
      - 0034 and 0035 must be applied before the API that sends `black-dot` uploads, the new GPA/backlog row shapes and `p_subject_codes`;
      - **0038 then 0039, as two transactions** (`db push` applies each file on its own; pasting both into one SQL editor run fails, because a transaction cannot use the enum value it added). Both must be in before the frontend that routes `/admin` and `/hod/uploads`, and before the API that sends `hod-map`.
+     - **0040 before the frontend** that sends `p_counselling_type`: the new page calls `request_counselling` with two arguments, which do not exist before 0040. The other way round, the old page is refused with "Choose the type of counselling" until the new frontend is live, so deploy both together.
    - Never edit an applied migration.
 2. **Supabase settings:** follow §12.3.
 3. **Vercel project:**
@@ -5119,7 +5148,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | Mentor department and HOD e-mail | **Implemented** | Read-only once the mentor is mapped (0039) |
 | Star mentee: group queries, survey tracking | **Implemented** | |
 | CR reports (minutes and action items) | **Implemented** | |
-| Counselling | **Implemented** | Single overwriting reply, no thread; no realtime |
+| Counselling | **Implemented** | The student chooses one of twelve types first (0040). Single overwriting reply, no thread; no realtime |
 | Student GPA self-entry | **Removed** | 2026-09-28: the panel is gone and 0037 closes the database paths (S1 fixed). GPAs entered earlier are kept (§4.9) |
 | GPA sharing preference | **Partial** | Enforced in the database, but the UI toggle was removed. It can still be switched off through `set_gpa_sharing` or a direct Form A update (S20). |
 | Achievements and verification | **Implemented** | |
@@ -5321,7 +5350,7 @@ These parts of the old document still describe the code correctly. The names hav
 | Survey | `survey_questions` (10), `survey_cycles`, `survey_responses`, `survey_response_answers`, the survey RPCs and views, the student Survey and Survey Tracking pages | 0023 |
 | Jobs | `cycle_job_schedule` (4 jobs), `cycle_job_runs`, `run_cycle_job`, `run_all_cycle_jobs_now`, `get_cycle_job_status`, the HOD Scheduled Jobs page, `/api/admin/run-cycle-job` | 0024 |
 | CR reports | `mom_records`, `submit_mom_report`, `set_query_in_progress`, the student and faculty/HOD CR pages | 0027 |
-| Counselling | `counselling_requests`, `request_counselling`, `respond_to_counselling`, the student and faculty pages | 0028, 0029 |
+| Counselling | `counselling_requests`, `request_counselling`, `respond_to_counselling`, the student and faculty pages; the counselling type dropdown (`counselling_type`, `COUNSELLING_TYPES`) | 0028, 0029, 0040 |
 | HOD routing | `set_mentor_department_and_hod`, `hod_email`, the "Department & HOD" modal, the Raise-to-HOD column | 0030 |
 | Uploads API | `POST /api/cluster-head/upload-academic-data` (attendance, GPA, backlog, mentor map with mentor creation) | API |
 | Performance | `resolve_student_ids` (batch lookup), chunked roster import, `runPool` | 0033, API |

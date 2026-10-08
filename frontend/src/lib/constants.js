@@ -193,6 +193,33 @@ export const COUNSELLING_STATUS = {
   }
 };
 
+/**
+ * The kinds of counselling a student chooses from before describing the
+ * issue, in the order the dropdown shows them. `value` is what is stored
+ * (counselling_requests.counselling_type, migration 0040, whose CHECK and
+ * counselling_type_label() hold the same twelve); `label` is what people
+ * read. Requests sent before 0040 have no type.
+ */
+export const COUNSELLING_TYPES = [
+  { value: 'academic', label: 'Academic Counselling' },
+  { value: 'personal', label: 'Personal Counselling' },
+  { value: 'career', label: 'Career Counselling' },
+  { value: 'placement', label: 'Placement Counselling' },
+  { value: 'financial', label: 'Financial Counselling' },
+  { value: 'technical', label: 'Technical Counselling' },
+  { value: 'health_wellness', label: 'Health & Wellness Counselling' },
+  { value: 'behavioural', label: 'Behavioural Counselling' },
+  { value: 'professional_development', label: 'Professional Development Counselling' },
+  { value: 'higher_education', label: 'Higher Education Counselling' },
+  { value: 'general_guidance', label: 'General Guidance & Mentorship' },
+  { value: 'other', label: 'Other' }
+];
+
+const COUNSELLING_TYPE_LABELS = Object.fromEntries(COUNSELLING_TYPES.map((type) => [type.value, type.label]));
+
+/** The display name of a stored counselling type; null for none. */
+export const counsellingTypeLabel = (value) => (value ? COUNSELLING_TYPE_LABELS[value] ?? value : null);
+
 export const EMPLOYMENT_STATUS_LABELS = {
   active: 'Active',
   on_leave: 'On leave',
