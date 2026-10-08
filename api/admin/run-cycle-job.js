@@ -53,7 +53,7 @@ function toClientError(error, fallback) {
 
 export default withApiDefaults(['GET', 'POST'], async (req, res) => {
   const context = await requireAuthenticatedUser(req);
-  requireRole(context, 'hod');
+  requireRole(context, 'hod', 'admin');
 
   // ── Status ────────────────────────────────────────────────────────
   if (req.method === 'GET') {

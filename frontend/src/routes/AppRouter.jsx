@@ -1,8 +1,16 @@
 /**
  * AppRouter
- * One route table for all three portals. Every authenticated branch is
+ * One route table for every portal. Every authenticated branch is
  * wrapped in RequireAuth -> RequirePasswordChange -> RequireRole, and the
  * student branch adds RequireOnboarding (Feature 1's Form A gate).
+ *
+ * Since migration 0039 two sets of screens are mounted twice:
+ *   * the department screens, under /hod (a HOD: their own faculty) and
+ *     /admin (the administrator: the whole department);
+ *   * the cluster head's upload screens, under /cluster-head and, minus
+ *     the subject setup and My Subjects, under /hod/uploads.
+ * The components are the same; lib/portalPaths.js keeps their links in
+ * the portal they were opened from.
  */
 
 import { lazy, Suspense } from 'react';
@@ -55,6 +63,8 @@ const HodStudentsPage = lazy(() => import('../pages/hod/HodStudentsPage.jsx'));
 const HodProfilePage = lazy(() => import('../pages/hod/HodProfilePage.jsx'));
 const HodOperationsPage = lazy(() => import('../pages/hod/HodOperationsPage.jsx'));
 
+const AdminHodMappingPage = lazy(() => import('../pages/admin/AdminHodMappingPage.jsx'));
+
 const ClusterHeadSetupPage = lazy(() => import('../pages/clusterHead/ClusterHeadSetupPage.jsx'));
 const ClusterHeadDashboardPage = lazy(() => import('../pages/clusterHead/ClusterHeadDashboardPage.jsx'));
 const ClusterHeadAttendancePage = lazy(() => import('../pages/clusterHead/ClusterHeadAttendancePage.jsx'));
@@ -81,6 +91,25 @@ function Protected({ role, children }) {
       </RequirePasswordChange>
     </RequireAuth>
   );
+}
+
+/** The department screens at `base`, for `role` (see the header). */
+function departmentRoutes(base, role) {
+  const page = (element) => <Protected role={role}>{element}</Protected>;
+  return [
+    <Route key={base} path={base} element={page(<HodDashboardPage />)} />,
+    <Route key={`${base}/queries`} path={`${base}/queries`} element={page(<FacultyQueryQueuePage isHodView />)} />,
+    <Route key={`${base}/queries/:queryId`} path={`${base}/queries/:queryId`} element={page(<FacultyQueryDetailPage isHodView />)} />,
+    <Route key={`${base}/performance`} path={`${base}/performance`} element={page(<HodFacultyPerformancePage />)} />,
+    <Route key={`${base}/reports`} path={`${base}/reports`} element={page(<FacultyActivityReportPage isHodView />)} />,
+    <Route key={`${base}/roster`} path={`${base}/roster`} element={page(<HodFacultyRosterPage />)} />,
+    <Route key={`${base}/students`} path={`${base}/students`} element={page(<HodStudentsPage />)} />,
+    <Route key={`${base}/students/:studentId`} path={`${base}/students/:studentId`} element={page(<FacultyMenteeDetailPage isHodView />)} />,
+    <Route key={`${base}/at-risk`} path={`${base}/at-risk`} element={page(<FacultyAtRiskPage isHodView />)} />,
+    <Route key={`${base}/cr-reports`} path={`${base}/cr-reports`} element={page(<FacultyCrReportsPage isHodView />)} />,
+    <Route key={`${base}/operations`} path={`${base}/operations`} element={page(<HodOperationsPage />)} />,
+    <Route key={`${base}/profile`} path={`${base}/profile`} element={page(<HodProfilePage />)} />
+  ];
 }
 
 export default function AppRouter() {
@@ -240,18 +269,21 @@ export default function AppRouter() {
         <Route path="/faculty/profile" element={<Protected role="faculty"><FacultyProfilePage /></Protected>} />
 
         {/* ── HOD portal ─────────────────────────────────────────────── */}
-        <Route path="/hod" element={<Protected role="hod"><HodDashboardPage /></Protected>} />
-        <Route path="/hod/queries" element={<Protected role="hod"><FacultyQueryQueuePage isHodView /></Protected>} />
-        <Route path="/hod/queries/:queryId" element={<Protected role="hod"><FacultyQueryDetailPage isHodView /></Protected>} />
-        <Route path="/hod/performance" element={<Protected role="hod"><HodFacultyPerformancePage /></Protected>} />
-        <Route path="/hod/reports" element={<Protected role="hod"><FacultyActivityReportPage isHodView /></Protected>} />
-        <Route path="/hod/roster" element={<Protected role="hod"><HodFacultyRosterPage /></Protected>} />
-        <Route path="/hod/students" element={<Protected role="hod"><HodStudentsPage /></Protected>} />
-        <Route path="/hod/students/:studentId" element={<Protected role="hod"><FacultyMenteeDetailPage isHodView /></Protected>} />
-        <Route path="/hod/at-risk" element={<Protected role="hod"><FacultyAtRiskPage isHodView /></Protected>} />
-        <Route path="/hod/cr-reports" element={<Protected role="hod"><FacultyCrReportsPage isHodView /></Protected>} />
-        <Route path="/hod/operations" element={<Protected role="hod"><HodOperationsPage /></Protected>} />
-        <Route path="/hod/profile" element={<Protected role="hod"><HodProfilePage /></Protected>} />
+        {departmentRoutes('/hod', 'hod')}
+
+        {/* Uploads: the cluster head's screens, without the subject setup
+            gate or My Subjects (subjects come from the attendance files). */}
+        <Route path="/hod/uploads" element={<Protected role="hod"><ClusterHeadDashboardPage /></Protected>} />
+        <Route path="/hod/uploads/cycles" element={<Protected role="hod"><ClusterHeadCyclesPage /></Protected>} />
+        <Route path="/hod/uploads/attendance" element={<Protected role="hod"><ClusterHeadAttendancePage /></Protected>} />
+        <Route path="/hod/uploads/gpa" element={<Protected role="hod"><ClusterHeadGpaPage /></Protected>} />
+        <Route path="/hod/uploads/backlogs" element={<Protected role="hod"><ClusterHeadBacklogPage /></Protected>} />
+        <Route path="/hod/uploads/black-dots" element={<Protected role="hod"><ClusterHeadBlackDotPage /></Protected>} />
+        <Route path="/hod/uploads/rosters" element={<Protected role="hod"><ClusterHeadRosterPage /></Protected>} />
+
+        {/* ── Administrator portal ───────────────────────────────────── */}
+        {departmentRoutes('/admin', 'admin')}
+        <Route path="/admin/upload" element={<Protected role="admin"><AdminHodMappingPage /></Protected>} />
 
         {/* ── Cluster Head portal ────────────────────────────────────── */}
         {/* The setup form is the only route reachable before setup is done,

@@ -12,7 +12,9 @@
 do $$
 declare
   v_password_hash text := extensions.crypt('SsmpDemo@2026', extensions.gen_salt('bf'));
+  v_admin     uuid := '11111111-1111-1111-1111-1111111111a1';
   v_hod       uuid := '11111111-1111-1111-1111-111111111111';
+  v_hod2      uuid := '11111111-1111-1111-1111-111111111112';
   v_faculty1  uuid := '22222222-2222-2222-2222-222222222221';
   v_faculty2  uuid := '22222222-2222-2222-2222-222222222222';
   v_faculty3  uuid := '22222222-2222-2222-2222-222222222223';
@@ -24,7 +26,9 @@ declare
 begin
   for r in
     select * from (values
-      (v_hod,      'hod.iotis@jaipur.manipal.edu',      'hod',     'Dr. Sarah Jenkins',    'HOD001',     'IoT & IS', null::text, null::text, null::uuid),
+      (v_admin,    'smp.admin@jaipur.manipal.edu',      'admin',   'SMP Admin',            'ADM001',     'IoT & IS', null::text, null::text, null::uuid),
+      (v_hod,      'hod.iotis@jaipur.manipal.edu',      'hod',     'Dr. Sarah Jenkins',    'HOD001',     'IoT & IS', null, null, null),
+      (v_hod2,     'hod2.iotis@jaipur.manipal.edu',     'hod',     'Dr. Vikram Rao',       'HOD002',     'IoT & IS', null, null, null),
       (v_faculty1, 'alice.smith@jaipur.manipal.edu',    'faculty', 'Dr. Alice Smith',      'FAC1001',    'CSE',      null, null, null),
       (v_faculty2, 'bob.johnson@jaipur.manipal.edu',    'faculty', 'Dr. Bob Johnson',      'FAC1002',    'CSE',      null, null, null),
       (v_faculty3, 'carol.williams@jaipur.manipal.edu', 'faculty', 'Prof. Carol Williams', 'FAC1003',    'ECE',      null, null, null),
@@ -60,6 +64,18 @@ begin
       update public.user_profiles set assigned_mentor_id = r.mentor_id where id = r.id;
     end if;
   end loop;
+
+  -- mentor-HOD mapping (0039): Sarah Jenkins has Alice and Bob, Vikram
+  -- Rao has Carol; the administrator sees everyone. The same rows as
+  -- sample-data/generated/mentor-hod-mapping-sample.csv.
+  perform public.map_faculty_to_hods(jsonb_build_array(
+    jsonb_build_object('row', 2, 'section', 'A 3', 'designation', 'Mentor',
+                       'mentor_email', 'alice.smith@jaipur.manipal.edu', 'hod_email', 'hod.iotis@jaipur.manipal.edu'),
+    jsonb_build_object('row', 3, 'section', 'B 3', 'designation', 'Mentor',
+                       'mentor_email', 'bob.johnson@jaipur.manipal.edu', 'hod_email', 'hod.iotis@jaipur.manipal.edu'),
+    jsonb_build_object('row', 4, 'section', 'A 4', 'designation', 'Class Coordinator (fallback)',
+                       'mentor_email', 'carol.williams@jaipur.manipal.edu', 'hod_email', 'hod2.iotis@jaipur.manipal.edu')
+  ));
 
   -- sample queries ----------------------------------------------------
   insert into public.support_queries (student_id, mentor_id, subject, category, priority, status)

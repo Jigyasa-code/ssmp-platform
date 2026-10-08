@@ -326,7 +326,7 @@ export function buildCycleWorkbook(overview, { generatedBy } = {}) {
 
 export default withApiDefaults(['GET'], async (req, res) => {
   const context = await requireAuthenticatedUser(req);
-  requireRole(context, 'cluster_head', 'hod');
+  requireRole(context, 'cluster_head', 'hod', 'admin');
   await enforceRateLimit(context, { key: 'cycle-report', max: 20, windowSeconds: 60 });
 
   const query = parseOrThrow(cycleReportQuerySchema, {

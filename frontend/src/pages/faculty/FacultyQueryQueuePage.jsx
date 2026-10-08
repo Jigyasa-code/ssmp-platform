@@ -14,8 +14,10 @@ import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { supabase } from '../../lib/supabaseClient.js';
 import { formatRelativeTime } from '../../lib/formatters.js';
 import { QUERY_CATEGORIES, QUERY_STATUSES } from '../../lib/constants.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 export default function FacultyQueryQueuePage({ isHodView = false }) {
+  const { departmentBase } = usePortalPaths();
   const [status, setStatus] = useState('All');
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
@@ -24,7 +26,7 @@ export default function FacultyQueryQueuePage({ isHodView = false }) {
   const [raiseTarget, setRaiseTarget] = useState(null);
   const [raiseNote, setRaiseNote] = useState('');
 
-  const basePath = isHodView ? '/hod/queries' : '/faculty/queries';
+  const basePath = isHodView ? `${departmentBase}/queries` : '/faculty/queries';
 
   // Goes to the HOD set on My Mentees, not to every HOD in the department.
   const raiseToHod = () =>

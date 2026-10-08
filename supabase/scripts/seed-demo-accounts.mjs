@@ -2,8 +2,9 @@
 /**
  * seed-demo-accounts.mjs
  * ---------------------------------------------------------------------
- * Creates the demo accounts (1 HOD, 3 faculty, 4 students, 2 cluster
- * heads), assigns mentors, raises a few sample queries, and loads the
+ * Creates the demo accounts (the administrator, 2 HODs, 3 faculty,
+ * 4 students, 2 cluster heads), assigns mentors, maps the mentors to
+ * their HODs, raises a few sample queries, and loads the
  * Cluster Head sample data (attendance, GPA, backlogs and black dots) so
  * every dashboard — including the At-Risk Students page and the survey
  * tracking — has something in it on first login.
@@ -33,6 +34,7 @@ import {
   SAMPLE_CLUSTER_HEADS,
   SAMPLE_CLUSTER_HEAD_COURSES,
   SAMPLE_CLUSTER_HEAD_2_COURSES,
+  SAMPLE_HODS,
   SAMPLE_ATTENDANCE,
   SAMPLE_BACKLOG_RESULTS,
   SAMPLE_BLACK_DOT_NOTICE,
@@ -40,8 +42,10 @@ import {
   sampleAttendancePeriod,
   sampleBacklogRpcArgs,
   sampleBlackDotRpcRows,
-  sampleGpaRpcRows
+  sampleGpaRpcRows,
+  sampleHodMappingRows
 } from '../../sample-data/cluster-head-sample-data.mjs';
+import { makeAdministrator, wasCreatedAsAdministrator } from './make-administrator.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -73,7 +77,13 @@ const db = createClient(SUPABASE_URL, SERVICE_KEY, {
 
 // ---------------------------------------------------------------------
 const DEMO_ACCOUNTS = [
-  { email: 'hod.iotis@jaipur.manipal.edu',      role: 'hod',     full_name: 'Dr. Sarah Jenkins',    login_id: 'HOD001',     branch: 'IoT & IS' },
+  // The administrator: the whole department, and the mentor-HOD mapping
+  // upload (migration 0039). npm run db:admin creates this one alone.
+  { email: 'smp.admin@jaipur.manipal.edu',      role: 'admin',   full_name: 'SMP Admin',            login_id: 'ADM001',     branch: 'IoT & IS' },
+
+  // Two HODs, each seeing only the faculty mapped to them (SAMPLE_HOD_MAPPING).
+  { email: SAMPLE_HODS[0].email,                role: 'hod',     full_name: SAMPLE_HODS[0].full_name, login_id: 'HOD001',   branch: 'IoT & IS' },
+  { email: SAMPLE_HODS[1].email,                role: 'hod',     full_name: SAMPLE_HODS[1].full_name, login_id: 'HOD002',   branch: 'IoT & IS' },
 
   { email: 'alice.smith@jaipur.manipal.edu',    role: 'faculty', full_name: 'Dr. Alice Smith',      login_id: 'FAC1001',    branch: 'CSE' },
   { email: 'bob.johnson@jaipur.manipal.edu',    role: 'faculty', full_name: 'Dr. Bob Johnson',      login_id: 'FAC1002',    branch: 'CSE' },
@@ -131,6 +141,7 @@ async function ensureAccount(spec) {
   const existing = await findUserByEmail(spec.email);
   if (existing) {
     console.log(`  = exists   ${spec.role.padEnd(7)} ${spec.email}`);
+    if (spec.role === 'admin') await ensureAdministrator(spec, existing);
     return existing.id;
   }
 
@@ -152,7 +163,25 @@ async function ensureAccount(spec) {
   });
   if (error) throw new Error(`${spec.email}: ${error.message}`);
   console.log(`  + created  ${spec.role.padEnd(7)} ${spec.email}`);
+  if (spec.role === 'admin') await ensureAdministrator(spec, data.user);
   return data.user.id;
+}
+
+/**
+ * Supabase Auth writes app_metadata after inserting the auth user, so
+ * handle_new_auth_user files the administrator as a student; this sets
+ * the role (make-administrator.mjs). It also finishes an administrator
+ * left as a student by an earlier run.
+ */
+async function ensureAdministrator(spec, authUser) {
+  const { data: profile, error } = await db.from('user_profiles').select('role').eq('id', authUser.id).maybeSingle();
+  if (error) throw error;
+  if (profile?.role === 'admin') return;
+  if (!wasCreatedAsAdministrator(authUser)) {
+    throw new Error(`${spec.email} already belongs to a ${profile?.role ?? 'different'} account, not the administrator.`);
+  }
+  await makeAdministrator(db, authUser.id);
+  console.log(`  ~ promoted ${spec.role.padEnd(7)} ${spec.email}`);
 }
 
 async function main() {
@@ -174,6 +203,16 @@ async function main() {
       .eq('id', idByEmail[spec.email]);
     if (error) throw error;
     console.log(`  ${spec.full_name} -> ${spec.mentor}`);
+  }
+
+  // Through the RPC behind the administrator's Upload page. The service
+  // role has no auth.uid(), which map_faculty_to_hods() accepts as a
+  // trusted server call.
+  console.log('\nMapping mentors to their HOD');
+  {
+    const { data, error } = await db.rpc('map_faculty_to_hods', { p_rows: sampleHodMappingRows() });
+    if (error) throw error;
+    console.log(`  ${data.mapped} mapped, ${data.unchanged} already mapped, ${data.failed} failed, across ${data.hods} HOD(s)`);
   }
 
   console.log('\nCreating sample queries');
@@ -259,10 +298,11 @@ async function main() {
     console.log(`  ${a.role.padEnd(13)} ${a.email}`);
   }
   console.log('');
+  console.log(`HOD scope demo: ${SAMPLE_HODS[0].full_name} sees Alice and Bob (John, Jane, Mike); ${SAMPLE_HODS[1].full_name} sees Carol (Emily).`);
   console.log('At-risk demo: John Doe (attendance), Jane Smith (GPA), Mike Davis (backlog).');
   console.log('Emily Wilson cleared her backlog at the make-up, so she is deliberately NOT flagged.');
   console.log('John Doe and Jane Smith each have a black dot, which is also an at-risk reason in its academic cycle.');
-  console.log('Fire the 15-day jobs by hand from the HOD portal -> Scheduled Jobs.\n');
+  console.log('Fire the 15-day jobs by hand from the administrator or HOD portal -> Scheduled Jobs.\n');
 }
 
 /**

@@ -9,7 +9,8 @@
  *   POST { action: 'set-status', ... }      -> active | on_leave | departed
  *   POST { action: 'reassign', ... }        -> bulk move mentees
  *
- * Every action is HOD-only and every write is audit-logged.
+ * Every action is for a HOD (their own faculty, migration 0039) or the
+ * administrator (everyone), and every write is audit-logged.
  */
 import { withApiDefaults, sendSuccess, ApiError } from '../_lib/http-response.js';
 import { requireAuthenticatedUser, requireRole, enforceRateLimit, recordAuditEntry } from '../_lib/request-guards.js';
@@ -35,10 +36,11 @@ function toClientError(error, fallback) {
 
 export default withApiDefaults(['GET', 'POST'], async (req, res) => {
   const context = await requireAuthenticatedUser(req);
-  requireRole(context, 'hod');
+  requireRole(context, 'hod', 'admin');
 
-  // Reads go through the caller's own token so RLS still applies —
-  // defence in depth even though HOD would pass the policy anyway.
+  // Reads go through the caller's own token so RLS applies: since 0039
+  // that is what limits a HOD to the faculty mapped to them (and their
+  // mentees), while the administrator sees the whole department.
   const { asUser, admin } = context;
 
   if (req.method === 'GET') {
@@ -138,7 +140,14 @@ export default withApiDefaults(['GET', 'POST'], async (req, res) => {
     // Open queries keep pointing at the departing mentor unless we move
     // them too, which would silently orphan the conversation. Move only
     // the unresolved ones; resolved history stays with whoever handled it.
-    if (payload.from_faculty_id) {
+    //
+    // reassign_mentees has already checked the students and the new
+    // mentor are the caller's. The old mentor is checked here, through
+    // the caller's own token, before the service role moves anything.
+    const { data: fromFaculty } = payload.from_faculty_id
+      ? await asUser.from('user_profiles').select('id').eq('id', payload.from_faculty_id).maybeSingle()
+      : { data: null };
+    if (fromFaculty) {
       const { error: queryError } = await admin
         .from('support_queries')
         .update({ mentor_id: payload.to_faculty_id })

@@ -82,6 +82,44 @@ export const SAMPLE_CLUSTER_HEAD_2_COURSES = [
 ];
 
 // ---------------------------------------------------------------------
+// The mentor-HOD mapping (migration 0039)
+// ---------------------------------------------------------------------
+/**
+ * Two HODs, so "each HOD sees only their own faculty" is visible after
+ * seeding: Dr. Sarah Jenkins has Alice and Bob (and their mentees John,
+ * Jane and Mike); Dr. Vikram Rao has Carol (and Emily). The administrator
+ * sees all four students.
+ *
+ * The seed applies this through map_faculty_to_hods(), the RPC behind
+ * the administrator's Upload page, and `npm run sample:files` writes it
+ * out as the file that page takes.
+ */
+export const SAMPLE_HODS = [
+  { email: 'hod.iotis@jaipur.manipal.edu', full_name: 'Dr. Sarah Jenkins' },
+  { email: 'hod2.iotis@jaipur.manipal.edu', full_name: 'Dr. Vikram Rao' }
+];
+
+export const SAMPLE_HOD_MAPPING = [
+  { section: 'A 3', mentor_name: 'Dr. Alice Smith', designation: 'Mentor',
+    mentor_email: 'alice.smith@jaipur.manipal.edu', hod_email: 'hod.iotis@jaipur.manipal.edu' },
+  { section: 'B 3', mentor_name: 'Dr. Bob Johnson', designation: 'Mentor',
+    mentor_email: 'bob.johnson@jaipur.manipal.edu', hod_email: 'hod.iotis@jaipur.manipal.edu' },
+  { section: 'A 4', mentor_name: 'Prof. Carol Williams', designation: 'Class Coordinator (fallback)',
+    mentor_email: 'carol.williams@jaipur.manipal.edu', hod_email: 'hod2.iotis@jaipur.manipal.edu' }
+];
+
+const hodNameOf = (email) => SAMPLE_HODS.find((hod) => hod.email === email)?.full_name ?? '';
+
+/** The mapping as map_faculty_to_hods() takes it. */
+export function sampleHodMappingRows(mapping = SAMPLE_HOD_MAPPING) {
+  return mapping.map((entry, index) => ({
+    row: index + 2,
+    ...entry,
+    hod_name: hodNameOf(entry.hod_email)
+  }));
+}
+
+// ---------------------------------------------------------------------
 // The students the sample data refers to
 // ---------------------------------------------------------------------
 // Matched on registration number, exactly as a real upload would be.
@@ -364,6 +402,20 @@ function toCsv(headers, rows) {
 }
 
 /**
+ * The mentor-HOD mapping file, with the department sheet's own columns.
+ * The real sheet heads the HOD columns "Cluster Head"; either word works.
+ */
+export function buildHodMappingCsv(mapping = SAMPLE_HOD_MAPPING) {
+  return toCsv(
+    ['Section', 'Mentor / Class Coordinator Name', 'Role', 'Official Email', 'HOD', 'Official Email of HOD'],
+    mapping.map((entry) => [
+      entry.section, entry.mentor_name, entry.designation, entry.mentor_email,
+      hodNameOf(entry.hod_email), entry.hod_email
+    ])
+  );
+}
+
+/**
  * Mirrors the shape of the real ERP export: metadata lines naming the
  * course, section and reporting window, then the table with a % column.
  * The parser finds the header row by looking for "Registration No." and
@@ -616,6 +668,7 @@ export function buildBlackDotNoticeDocx(notice = SAMPLE_BLACK_DOT_NOTICE) {
 /** Every upload-ready file, keyed by the filename it should be written as. */
 export function buildAllSampleFiles() {
   const files = {
+    'mentor-hod-mapping-sample.csv': buildHodMappingCsv(SAMPLE_HOD_MAPPING),
     'gpa-cgpa-credits-sample.xls': buildGpaExportHtml(SAMPLE_GPA_EXPORT),
     [SAMPLE_BLACK_DOT_NOTICE.file]: buildBlackDotNoticeDocx(SAMPLE_BLACK_DOT_NOTICE)
   };
@@ -653,5 +706,6 @@ if (isDirectRun) {
     console.log(`  + ${name}`);
   }
   console.log(`\n${Object.keys(files).length} sample file(s) written to sample-data/generated/`);
-  console.log('Upload them from the Cluster Head portal to watch the whole at-risk flow run.\n');
+  console.log('Upload them from the HOD portal (Uploads) or the Cluster Head portal to watch the whole at-risk flow run;');
+  console.log('mentor-hod-mapping-sample.csv goes to the administrator portal (Upload).\n');
 }

@@ -1,7 +1,14 @@
 /**
  * POST /api/admin/provision-user-accounts
- * HOD-only. Creates Supabase Auth accounts for students / faculty / HOD
- * and returns the temporary passwords so the HOD can distribute them.
+ * HOD and administrator. Creates Supabase Auth accounts for students /
+ * faculty / cluster heads (and, for the administrator, HODs) and returns
+ * the temporary passwords so they can be handed out.
+ *
+ * Since migration 0039 a HOD works inside their own scope: a faculty
+ * account they create reports to them (hod_id), a student they create can
+ * only be given one of their own faculty as mentor, and only the
+ * administrator creates HOD accounts. Administrator accounts are never
+ * created here (supabase/scripts/create-admin-account.mjs).
  *
  * Why this needs the service role: creating an auth user and assigning a
  * non-student role are both privileged operations. Nothing else in the
@@ -19,7 +26,8 @@ export default withApiDefaults(['POST'], async (req, res) => {
   assertBodySize(req, 2 * 1024 * 1024);
 
   const context = await requireAuthenticatedUser(req);
-  requireRole(context, 'hod');
+  requireRole(context, 'hod', 'admin');
+  const isAdmin = context.profile.role === 'admin';
   await enforceRateLimit(context, { key: 'provision-accounts', max: 20, windowSeconds: 60 });
 
   const { accounts } = parseOrThrow(provisionBatchSchema, req.body ?? {});
@@ -29,8 +37,28 @@ export default withApiDefaults(['POST'], async (req, res) => {
   const skipped = [];
   const failed = [];
 
+  // A HOD's own faculty, for checking the mentor a student is given.
+  let ownFaculty = null;
+  if (!isAdmin && accounts.some((a) => a.role === 'student' && a.assigned_mentor_id)) {
+    const { data } = await admin
+      .from('user_profiles')
+      .select('id')
+      .eq('role', 'faculty')
+      .eq('hod_id', context.profile.id);
+    ownFaculty = new Set((data ?? []).map((f) => f.id));
+  }
+
   for (const account of accounts) {
     try {
+      if (account.role === 'hod' && !isAdmin) {
+        failed.push({ email: account.email, reason: 'Only the administrator can create HOD accounts' });
+        continue;
+      }
+      if (ownFaculty && account.role === 'student' && account.assigned_mentor_id && !ownFaculty.has(account.assigned_mentor_id)) {
+        failed.push({ email: account.email, reason: 'That mentor does not report to you' });
+        continue;
+      }
+
       const { data: existingProfile } = await admin
         .from('user_profiles')
         .select('id, email, role')
@@ -64,6 +92,18 @@ export default withApiDefaults(['POST'], async (req, res) => {
       if (error) {
         failed.push({ email: account.email, reason: error.message });
         continue;
+      }
+
+      // A HOD's new faculty member reports to them.
+      if (account.role === 'faculty' && !isAdmin) {
+        const { error: mapError } = await admin
+          .from('user_profiles')
+          .update({ hod_id: context.profile.id, hod_email: context.profile.email })
+          .eq('id', data.user.id);
+        if (mapError) {
+          failed.push({ email: account.email, reason: `Account created but not placed under you: ${mapError.message}` });
+          continue;
+        }
       }
 
       if (account.role === 'student' && account.assigned_mentor_id) {

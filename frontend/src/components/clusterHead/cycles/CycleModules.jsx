@@ -225,7 +225,7 @@ export function GpaModule({ overview }) {
           <p className="text-body-sm text-on-surface-variant">No GPA export has been uploaded in this cycle yet.</p>
         )}
         <p className="mt-3 text-body-sm text-tertiary">
-          GPA values are not shown in the Cluster Head portal. Students, their mentors and the HOD see them on the
+          GPA values are not shown on the upload screens. Students, their mentors and the HOD see them on the
           student&apos;s record. A GPA belongs to a programme semester (1 to 8), so it carries on from cycle to cycle.
         </p>
       </Panel>

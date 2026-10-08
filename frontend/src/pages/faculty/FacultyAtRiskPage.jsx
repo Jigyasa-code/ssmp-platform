@@ -33,6 +33,7 @@ import { describeError, formatDate, formatDateTime, initialsOf } from '../../lib
 import { AT_RISK_MEETING_STATUS_LABELS } from '../../lib/constants.js';
 import { useActiveCycle } from '../../hooks/useActiveCycle.js';
 import { cycleLabel } from '../../lib/academicCycles.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 function ReasonChips({ row }) {
   const chips = [
@@ -199,6 +200,7 @@ function RiskDetail({ studentId, cycleId, cycleName }) {
 }
 
 export default function FacultyAtRiskPage({ isHodView = false }) {
+  const { departmentBase } = usePortalPaths();
   const { profile } = useAuth();
   const toast = useToast();
   const { run, pending } = useAsyncAction();
@@ -210,7 +212,7 @@ export default function FacultyAtRiskPage({ isHodView = false }) {
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState(null);
 
-  const basePath = isHodView ? '/hod/students' : '/faculty/mentees';
+  const basePath = isHodView ? `${departmentBase}/students` : '/faculty/mentees';
 
   const load = useCallback(async () => {
     setLoading(true);

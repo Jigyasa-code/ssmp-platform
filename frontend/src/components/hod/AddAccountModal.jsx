@@ -1,6 +1,11 @@
 /**
- * Single-account creation for the HOD — for the mid-semester joiner who
- * is not in any roster spreadsheet.
+ * Single-account creation for the HOD and the administrator — for the
+ * mid-semester joiner who is not in any roster spreadsheet.
+ *
+ * Since migration 0039 a HOD creates people inside their own scope: a
+ * faculty member they add reports to them, a student can only be given
+ * one of their faculty as mentor (the list below is already theirs), and
+ * only the administrator creates HOD accounts.
  *
  * Goes through /api/admin/provision-user-accounts because creating a
  * Supabase Auth user (and assigning a non-student role) needs the
@@ -13,6 +18,7 @@ import { TextField, SelectField } from '../ui/FormControls.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { apiClient } from '../../lib/apiClient.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
+import { useAuth } from '../../context/AuthProvider.jsx';
 
 const EMPTY = {
   role: 'student', full_name: '', email: '', login_id: '',
@@ -21,6 +27,8 @@ const EMPTY = {
 
 export default function AddAccountModal({ open, onClose, onCreated }) {
   const { run, pending } = useAsyncAction();
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
   const [form, setForm] = useState(EMPTY);
   const [faculty, setFaculty] = useState([]);
   const [created, setCreated] = useState(null);
@@ -148,10 +156,16 @@ export default function AddAccountModal({ open, onClose, onCreated }) {
           options={[
             { value: 'student', label: 'Student' },
             { value: 'faculty', label: 'Faculty mentor' },
-            { value: 'hod', label: 'Head of Department' },
+            ...(isAdmin ? [{ value: 'hod', label: 'Head of Department' }] : []),
             { value: 'cluster_head', label: 'Cluster Head (data uploads only)' }
           ]}
         />
+
+        {form.role === 'faculty' && !isAdmin && (
+          <p className="rounded-lg bg-primary-fixed/50 px-4 py-3 text-body-sm text-on-surface-variant">
+            They will report to you, so they and their mentees appear in your portal straight away.
+          </p>
+        )}
 
         {form.role === 'cluster_head' && (
           <p className="rounded-lg bg-primary-fixed/50 px-4 py-3 text-body-sm text-on-surface-variant">

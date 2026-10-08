@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). On 2026-09-28: academic cycles, black dots in the at-risk rule, and the end of student GPA entry (migrations `0036`–`0037`, §4.24, §4.14, §4.9). That is SQL migrations `0001`–`0037`. |
+| **Describes** | The code in this repository at commit `2526b1f` on branch `main` (2026-09-11, "optimize bulk upload student lookups across all imports"), plus the black dot upload and the ERP GPA and backlog formats added on 2026-09-27 (migrations `0034`–`0035`, §4.12), and from the same day the Academic Performance Overview and the HOD Students paging fix (frontend only, §4.9, §4.18, §4.20). On 2026-09-28: academic cycles, black dots in the at-risk rule, and the end of student GPA entry (migrations `0036`–`0037`, §4.24, §4.14, §4.9). On 2026-10-07: the **administrator** portal, the mentor–HOD mapping upload, each HOD seeing only the faculty mapped to them, and the cluster head's upload screens inside the HOD portal (migrations `0038`–`0039`, §4.25). That is SQL migrations `0001`–`0039`. |
 | **Supersedes** | `docs/SSMP-Platform-Context.docx` (August 2026, which covered migrations 0001–0019). Where `README.md`, `SETUP_GUIDE.md`, `docs/SECURITY.md` or `docs/CLUSTER-HEAD-AND-CYCLE-JOBS.md` disagree with this document, this document is correct. Those files contain stale statements; see §15.5. |
-| **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 37 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
+| **How it was produced** | Every statement was checked against the source files. SQL behaviour was checked against the live definitions produced by replaying all 39 migrations on Postgres. Items marked *(tested)* were also exercised inside rolled-back transactions. Code comments, UI copy and the older documents were **not** treated as evidence. Where they contradict the code, this document says so. |
 | **Secrets** | None appear here. Environment variables, the temporary password, the seed password and keys are documented by **name and purpose only**. |
 
 ### How to use this document
@@ -70,40 +70,44 @@ Every student has exactly one faculty **mentor**. The portal replaces paper, e-m
 
 - **Student queries** (support requests) go to the student's own mentor. A query can only be closed when the **student confirms** it is fixed. A student can reject a resolution at most 3 times. The mentor can **refer a query to the HOD**. Every query has timestamps (first response, resolution) and a 1–5 satisfaction rating.
 - **Form A** is the department's onboarding record: student, parents, address, alumni links. It is compulsory before the portal opens, as is a profile photo.
-- **Academic monitoring.** Cluster heads upload attendance (the ERP export), semester GPAs, backlogs and the Proctorial Board's black dots. Every upload re-evaluates each affected student against the **at-risk rule**, and the mentor is notified. See §4.14.
+- **Academic monitoring.** Cluster heads and HODs upload attendance (the ERP export), semester GPAs, backlogs and the Proctorial Board's black dots. Every upload re-evaluates each affected student against the **at-risk rule**, and the mentor is notified. See §4.14.
 - **Academic cycles.** Each academic year is one **cycle** ("2026–27") with an odd and an even semester. Everything uploaded is filed under the cycle it belongs to, so the next year never overwrites the last. See §4.24.
 - **Pastoral channels:**
   - private **counselling** requests to one's mentor;
   - a class representative ("**star mentee**") who files **CR reports** (meeting minutes), whose action items become queries;
   - a recurring department-wide **feedback survey** about mentoring.
-- **Oversight.** The HOD gets:
+- **Oversight.** Each HOD gets, for the faculty mapped to them (§4.25):
   - dashboards;
   - per-faculty performance metrics;
   - activity reports and student dossiers, on screen and as PDFs;
   - a faculty roster in which a departing mentor's mentees (and their open queries) can be reassigned in one step.
 
+  The **administrator** gets the same screens for the whole department, and uploads the mentor–HOD mapping that decides which faculty each HOD sees.
+
 ### 1.2 Users and roles
 
-Roles are the Postgres enum `user_role`. A user has exactly one role, stored in `user_profiles.role`. Users cannot change their own role: it is a protected column that only the HOD (by a direct update; there is no UI for it) or SQL can change.
+Roles are the Postgres enum `user_role`. A user has exactly one role, stored in `user_profiles.role`. Users cannot change their own role: it is a protected column that only the administrator, a HOD for the people they oversee (by a direct update; there is no UI for it), trusted functions or SQL can change. Only the administrator can grant or remove the `hod` or `admin` role (§4.25).
 
 | Role | Who | Portal root | What they do |
 |---|---|---|---|
 | `student` | Enrolled student | `/student` | Fill Form A and upload a photo (both compulsory). Raise and track queries; confirm or reject resolutions; rate. See their academic record (attendance, GPA, backlogs, black dots) as the department recorded it. Maintain achievements. Answer the feedback survey. Request counselling. |
 | `faculty` | Faculty **mentor** | `/faculty` | Answer and resolve mentees' queries and refer them to the HOD. Set their department and HOD e-mail. View mentees and their dossiers; verify achievements. Choose one star mentee. Handle counselling. Act on CR-report items. Follow at-risk mentees. Produce their own activity report. |
-| `hod` | Head of Department | `/hod` | See every query and student. View faculty performance and reports (including the consolidated department report). Change faculty employment status and reassign mentees. Create single accounts. Run the periodic jobs. Can also upload rosters and academic data through the API, though there is no HOD screen for it. |
+| `admin` | Administrator (one account; `npm run db:admin` creates it) | `/admin` | Everything the HOD portal did before migration `0039`, for the **whole department**: every query, faculty member and student, the department report, employment status and reassignment, single accounts (including HOD accounts), the periodic jobs. Plus **Upload**: the mentor–HOD mapping (§4.25). Sees faculty no HOD has been given and students without a mentor. |
+| `hod` | Head of Department (several since `0039`) | `/hod` | The same department screens, limited to the **faculty mapped to them** and those faculty's mentees: queries, students, at-risk lists, reports, roster, reassignment within their faculty, single accounts (not HOD accounts). Run the periodic jobs. **Uploads**: the cluster head's upload screens (overview, academic cycles, attendance, GPA, backlogs, black dots, rosters and mentors), without the subject setup or My Subjects (§4.25). |
 | `cluster_head` | Staff member responsible for academic data | `/cluster-head` | One-time subject setup. Run the **academic cycles**: start each year's cycle, bring students into it, download the cycle report (§4.24). Upload attendance, GPA, backlogs and black dots. Upload student and faculty rosters and the mentor–mentee mapping. Through RLS and the UI, cluster heads have **no** access to queries, Form A, GPA or risk data (but see §8.9 S2). They can read back only the backlog and black dot rows they uploaded, and cycle-wide counts with no student named. |
 
 There are two further **flags** that are not roles:
 
-- **Star mentee (student representative):** `user_profiles.is_star_mentee`. At most one per mentor group, set by the mentor (or the HOD). It unlocks three student pages: Group Queries, Survey Tracking and CR Report.
+- **Star mentee (student representative):** `user_profiles.is_star_mentee`. At most one per mentor group, set by the mentor (or their HOD, or the administrator). It unlocks three student pages: Group Queries, Survey Tracking and CR Report.
 - **Faculty employment status:** `user_profiles.employment_status` is `active`, `on_leave` or `departed`. Together with `available_for_reassignment` and `mentee_capacity` it defines the **reserve pool** used for reassignment.
 
-**Nobody signs up.** Self sign-up is disabled (`supabase/config.toml`: `enable_signup = false`). Accounts are created in four ways:
+**Nobody signs up.** Self sign-up is disabled (`supabase/config.toml`: `enable_signup = false`). Accounts are created in five ways:
 
-1. by a cluster head's (or the HOD's) roster upload;
-2. by the HOD's single-account form;
+1. by a cluster head's (or a HOD's, or the administrator's) roster upload;
+2. by the single-account form (HOD or administrator);
 3. automatically, for mentors named in a mentor–mentee mapping upload who have no account yet;
-4. by the seed scripts.
+4. automatically, for HODs and mentors named in the administrator's mentor–HOD mapping upload who have no account yet (§4.25);
+5. by the seed scripts, and `npm run db:admin` for the administrator.
 
 Every account the portal creates starts on a shared temporary password (§4.1) and must choose a new password at first sign-in. Seeded demo accounts are the exception (Appendix D).
 
@@ -111,20 +115,21 @@ Every account the portal creates starts on a shared temporary password (§4.1) a
 
 The normal life of an academic year, in order. Section numbers point to the detailed description.
 
-1. **The academic cycle.** Each academic year is one cycle, such as 2026–27, with an odd semester (July to December) and an even semester (January to June). Migration `0036` creates the first one. When the next year begins, a cluster head starts the next cycle from Academic Cycles; the old one is closed and kept exactly as it was (§4.24).
-2. **Cluster head onboarding.** The cluster head signs in with the temporary password and sets a new one. They then complete the one-time **setup form**: the subjects they own, as course name and course code. Their portal opens only after that (§4.11).
+0. **The administrator and the HODs.** The administrator (`npm run db:admin`) uploads the department's **mentor–HOD mapping** sheet: one row per mentor or class coordinator, with their section and the HOD they report to. It creates any HOD or mentor account the sheet names, and decides which faculty (and so which students) each HOD sees (§4.25).
+1. **The academic cycle.** Each academic year is one cycle, such as 2026–27, with an odd semester (July to December) and an even semester (January to June). Migration `0036` creates the first one. When the next year begins, a cluster head or a HOD starts the next cycle from Academic Cycles; the old one is closed and kept exactly as it was (§4.24).
+2. **Cluster head onboarding.** The cluster head signs in with the temporary password and sets a new one. They then complete the one-time **setup form**: the subjects they own, as course name and course code. Their portal opens only after that (§4.11). A HOD uploading from Uploads has no setup form and no subject list: the subject is read from each attendance file (§4.25).
 3. **Accounts.** The cluster head uploads the **student roster**, which creates student accounts keyed by e-mail, with the registration number stored as `login_id`. Then they upload the **faculty roster** (optional) and the **mentor–mentee mapping**, which links each registration number to a mentor e-mail and creates any missing mentor accounts (§4.13).
 4. **Student onboarding.** A student signs in, changes the temporary password, then fills **Form A**, then uploads a **profile photo**. Only then does the student portal open (§4.3).
-5. **Mentor set-up.** From My Mentees the mentor records their **department and HOD e-mail**. This decides which HOD receives their referrals (§4.5). They also choose a **star mentee** (§4.6).
+5. **Mentor set-up.** From My Mentees the mentor records their **department**, and their **HOD e-mail** if the mapping has not already set it (then it is shown read-only). The HOD decides who sees their mentees and who receives their referrals (§4.5, §4.25). They also choose a **star mentee** (§4.6).
 6. **Day-to-day mentoring:**
    - The student raises a **query**. The mentor replies (the first reply moves it to *In Progress*) and resolves it. The student confirms (closed) or rejects (reopened; at most 3 times), and can rate 1–5. At any point the mentor may **raise the query to the HOD** (§4.4, §4.5).
    - Students can send **counselling** requests that only their mentor sees (§4.8).
    - The star mentee files **CR reports**. Every action item becomes a query assigned to the mentor, who works through them from CR Reports (§4.7).
-7. **Academic data.** Whenever it is available, the cluster head uploads the ERP **attendance** export, the ERP **CGPA / GPA & Credits** export, the ERP **Defaulter Grade** result (backlogs) and the Proctorial Board's **black dot** notice. There is no date window. Students are matched on registration number only.
+7. **Academic data.** Whenever it is available, the cluster head (or a HOD, from Uploads) uploads the ERP **attendance** export, the ERP **CGPA / GPA & Credits** export, the ERP **Defaulter Grade** result (backlogs) and the Proctorial Board's **black dot** notice. There is no date window. Students are matched on registration number only.
    - Every upload is filed under the active cycle and writes the data. Each one then re-evaluates the affected students' **at-risk** flags: attendance below 75% in this cycle, latest GPA below 6, an uncleared backlog, or a black dot in this cycle.
    - The mentor is notified when a student becomes (or stops being) at risk.
    - Students see their own attendance, GPA, backlogs and black dots. They no longer record GPA themselves; migration `0037` removed that (§4.9, §4.12, §4.14).
-8. **Periodic jobs.** These are nominally every 15 days (reminders every 7), but **they only run when triggered**, normally by the HOD from Scheduled Jobs (§4.16). The jobs:
+8. **Periodic jobs.** These are nominally every 15 days (reminders every 7), but **they only run when triggered**, normally by a HOD or the administrator from Scheduled Jobs (§4.16). The jobs:
    - re-sweep every student's risk;
    - raise a **mentor meeting** record for each flagged student (no video link is generated yet; that step is a placeholder);
    - open a new **feedback survey** cycle and notify every student;
@@ -132,9 +137,9 @@ The normal life of an academic year, in order. Section numbers point to the deta
 9. **Survey.** Every student answers 10 questions on a 1–5 scale. The star mentee sees who in the group has not answered, and the mentor sees per-mentee status (§4.15).
 10. **Oversight and reports.**
    - Dashboards for each role (§4.17).
-   - The HOD's faculty performance table.
-   - Faculty activity, department and student-dossier reports, on screen and as PDFs (§4.18).
-   - When a faculty member leaves, the HOD marks them *departed* and reassigns their mentees. Unresolved queries move to the new mentor, and everyone involved is notified (§4.19).
+   - The faculty performance table (each HOD: their faculty; the administrator: everyone).
+   - Faculty activity, all-faculty and student-dossier reports, on screen and as PDFs (§4.18).
+   - When a faculty member leaves, their HOD (or the administrator) marks them *departed* and reassigns their mentees. Unresolved queries move to the new mentor, and everyone involved is notified (§4.19).
 
 ---
 
@@ -190,7 +195,7 @@ There is no other server. There is no application database outside Supabase, no 
 | Operation | Path | Examples |
 |---|---|---|
 | Reading lists, dashboards and detail pages | Browser → PostgREST (tables/views under RLS) or a read RPC | `support_queries`, `student_query_summary`, `get_dashboard_metrics`, `get_student_dossier` |
-| State transitions with rules or side effects | Browser → `supabase.rpc()` (SECURITY DEFINER) | `create_support_query`, `resolve_support_query`, `confirm_query_resolution`, `escalate_query_to_hod`, `set_star_mentee`, `submit_student_form_a`, `request_counselling`, `submit_mom_report`, `submit_survey_response`, `submit_cluster_head_setup`, `create_academic_cycle`, `carry_over_cycle_students`, `reevaluate_students_batch` |
+| State transitions with rules or side effects | Browser → `supabase.rpc()` (SECURITY DEFINER) | `create_support_query`, `resolve_support_query`, `confirm_query_resolution`, `escalate_query_to_hod`, `set_star_mentee`, `submit_student_form_a`, `request_counselling`, `submit_mom_report`, `submit_survey_response`, `submit_cluster_head_setup`, `create_academic_cycle`, `carry_over_cycle_students`, `reevaluate_students_batch`, `set_mentor_department_and_hod` |
 | Simple self-edits allowed by RLS | Browser → direct `insert/update/delete` | own `phone` and `avatar_url`; own achievements; marking own notifications read; a mentor/HOD changing a query's `priority`; clearing `must_change_password` |
 | Creating accounts | API → Supabase Auth Admin (service role) | provision-user-accounts, import-roster-spreadsheet, mentor-map upload |
 | Parsing uploaded spreadsheets | API → parser → RPC as the user | upload-academic-data (attendance, GPA, backlog, black dot, mentor map) |
@@ -220,10 +225,10 @@ There are four **private** buckets. Object paths always begin with the uploader'
 
 | Bucket | Limit and types | Written by | Read by |
 |---|---|---|---|
-| `form-a-uploads` | 5 MB; png, jpeg, jpg, webp, pdf | Student (Form A business card and signature) | Anyone for whom `can_access_student(<uid>)` holds: self, mentor, HOD |
+| `form-a-uploads` | 5 MB; png, jpeg, jpg, webp, pdf | Student (Form A business card and signature) | Anyone for whom `can_access_student(<uid>)` holds: self, mentor, the mentor's HOD, the administrator |
 | `achievement-proofs` | 5 MB; same types | Student | `can_access_student(<uid>)` |
 | `profile-photos` | 3 MB; png, jpeg, jpg, webp | Owner (onboarding photo step) | **Any authenticated user** |
-| `roster-imports` | 10 MB; csv, xls, xlsx | HOD only (policy) | HOD. **No code uses this bucket.** Spreadsheets are posted to the API as base64 instead. |
+| `roster-imports` | 10 MB; csv, xls, xlsx | HOD or administrator (policy, `is_hod()`) | HOD or administrator. **No code uses this bucket.** Spreadsheets are posted to the API as base64 instead. |
 
 Files are served through signed URLs: 300 s in `createSignedUrl`, 3,600 s for avatars.
 
@@ -236,16 +241,17 @@ Files are served through signed URLs: 300 s in `createSignedUrl`, 3,600 s for av
 3. The triggers `trg_notify_query_created` and `trg_notify_query_message` insert notifications for the mentor.
 4. Realtime delivers the new query to every open list the mentor can see, and the notification to the mentor's bell.
 
-**A cluster head uploads attendance**
+**A cluster head (or a HOD) uploads attendance**
 
 1. `AcademicUploadPanel` reads the file as base64 and posts `{action: 'attendance', filename, file_base64}` to `/api/cluster-head/upload-academic-data`.
 2. The endpoint:
-   - authenticates the caller and checks the role (`cluster_head` or `hod`);
+   - authenticates the caller and checks the role (`cluster_head`, `hod` or `admin`);
    - applies the rate limit;
    - validates the body with zod;
-   - checks that the cluster head's setup is done;
+   - checks that the cluster head's setup is done (a HOD has none);
    - decodes the file and parses it with `parseAttendanceExport`, which reads the course code, name, section and dates from the header block, one row per student.
 3. It calls `record_attendance_batch` **as the user**. In one transaction the function:
+   - finds the subject by course code in the active cycle; for a HOD with no subject of that code it creates one from the file's header (§4.25), while a cluster head's unknown code is refused;
    - resolves all registration numbers at once (`resolve_student_ids`);
    - upserts `student_course_sections` and `student_attendance_records`;
    - writes an `academic_upload_batches` row;
@@ -277,7 +283,7 @@ These absences are deliberate or simply not built. Do not assume any of them exi
   - `send_invite_email` in the provisioning schema is accepted and ignored.
 - **No scheduler.** There is no `pg_cron`, no Vercel `crons` entry and no other timer. The "15-day" jobs run only when someone triggers them (§4.16).
 - **No meeting provider integration.** At-risk meetings are created with status `awaiting_link`. The link-creation function `create_at_risk_meeting_link` is a stub: after its permission check it returns the meeting row unchanged, with no link (§4.14).
-- **No ERP API.** ERP data arrives only as exported files uploaded by a cluster head.
+- **No ERP API.** ERP data arrives only as exported files uploaded by a cluster head or a HOD.
 - **No AI or ML, and no analytics beyond SQL aggregates.**
 - **No server-side sessions.** Authentication is the Supabase JWT on every request.
 
@@ -302,9 +308,9 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 │   └── test/ui-regression.test.jsx
 ├── supabase/
 │   ├── config.toml                 local Supabase stack configuration
-│   ├── migrations/0001…0037        the whole schema, in order
+│   ├── migrations/0001…0039        the whole schema, in order
 │   ├── seed.sql                    local-only seed (supabase db reset)
-│   └── scripts/{seed-demo-accounts.mjs, ci-supabase-stubs.sql}
+│   └── scripts/{seed-demo-accounts.mjs, create-admin-account.mjs, make-administrator.mjs, ci-supabase-stubs.sql}
 ├── sample-data/                    demo rosters, cluster-head sample generator, generated upload files
 ├── design-reference/               static HTML mock-ups used when designing the UI (not built or imported)
 ├── docs/                           older documentation (see §15.5)
@@ -331,14 +337,14 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | File | Responsibility |
 |---|---|
 | `api/health.js` | `GET /api/health`. Liveness plus which required variables are set (never their values). |
-| `api/admin/provision-user-accounts.js` | `POST`, HOD only. Creates 1–500 Auth accounts (any role) with the shared temporary password and optionally sets a student's mentor. Used by the HOD's "Add account" modal. |
-| `api/admin/import-roster-spreadsheet.js` | `POST`, cluster head or HOD. Parses a student, faculty or combined roster and creates accounts in time-boxed chunks. Links mentors and parent contacts, and records one `roster_import_batches` row per upload. Students who already have an account are **activated** in the current academic cycle through `activate_roster_students` rather than skipped (§4.13). |
-| `api/admin/manage-faculty-roster.js` | `GET` (roster, mentees, reserve pool) and `POST` (set status, reassign), HOD only. On reassignment it also moves unresolved queries with the service role. |
-| `api/admin/run-cycle-job.js` | `GET` job status, `POST` run one job or all. HOD only. |
-| `api/cluster-head/upload-academic-data.js` | `POST`, cluster head or HOD. `action` = `attendance`, `gpa`, `backlog`, `black-dot` or `mentor-map`. Parses the file and calls the matching RPC as the user. `mentor-map` first creates missing mentor accounts. Everything is filed under the active academic cycle by the database (§4.24). |
-| `api/reports/faculty-activity-report.js` | `GET`, faculty or HOD. The faculty activity report (JSON or PDF). `faculty_id=all` gives the HOD's department report. |
+| `api/admin/provision-user-accounts.js` | `POST`, HOD or administrator. Creates 1–500 Auth accounts with the shared temporary password and optionally sets a student's mentor. A HOD cannot create HOD accounts, a faculty account a HOD creates reports to them (`hod_id`), and a student's mentor must be one of theirs; nobody creates an administrator here (§4.25). Used by the "Add account" modal. |
+| `api/admin/import-roster-spreadsheet.js` | `POST`, cluster head, HOD or administrator. Faculty a HOD imports report to that HOD. Parses a student, faculty or combined roster and creates accounts in time-boxed chunks. Links mentors and parent contacts, and records one `roster_import_batches` row per upload. Students who already have an account are **activated** in the current academic cycle through `activate_roster_students` rather than skipped (§4.13). |
+| `api/admin/manage-faculty-roster.js` | `GET` (roster, mentees, reserve pool) and `POST` (set status, reassign), HOD or administrator; reads go through the caller's token, so a HOD gets their own faculty. On reassignment it also moves unresolved queries with the service role, once the old mentor is confirmed visible to the caller. |
+| `api/admin/run-cycle-job.js` | `GET` job status, `POST` run one job or all. HOD or administrator. |
+| `api/cluster-head/upload-academic-data.js` | `POST`, cluster head, HOD or administrator. `action` = `attendance`, `gpa`, `backlog`, `black-dot`, `mentor-map` or `hod-map` (administrator only). Parses the file and calls the matching RPC as the user. `mentor-map` first creates missing mentor accounts (a HOD's report to them); `hod-map` first creates missing HOD and mentor accounts, then calls `map_faculty_to_hods` (§4.25). Everything else is filed under the active academic cycle by the database (§4.24). |
+| `api/reports/faculty-activity-report.js` | `GET`, faculty, HOD or administrator. The faculty activity report (JSON or PDF). `faculty_id=all` gives the all-faculty report: a HOD's faculty, or the whole department for the administrator. |
 | `api/reports/student-dossier-report.js` | `GET`, any signed-in user; the database decides access. Student dossier as JSON or PDF. |
-| `api/reports/academic-cycle-report.js` | `GET`, cluster head or HOD. The Excel report of one academic cycle, or one of its semesters, built from `get_cycle_overview` (§4.24, §6.10). Exports `buildCycleWorkbook` for testing. |
+| `api/reports/academic-cycle-report.js` | `GET`, cluster head, HOD or administrator. The Excel report of one academic cycle, or one of its semesters, built from `get_cycle_overview` (§4.24, §6.10). Exports `buildCycleWorkbook` for testing. |
 | `api/_lib/http-response.js` | `withApiDefaults`, CORS, security headers, JSON envelope (`sendSuccess`, `sendError`, `sendJson`, `applyBaseHeaders`), `ApiError` |
 | `api/_lib/request-guards.js` | `requireAuthenticatedUser`, `requireRole`, `clientIp`, `enforceRateLimit`, `recordAuditEntry` |
 | `api/_lib/supabase-clients.js` | `createAdminClient()` (service role), `createUserClient(jwt)` (anon key plus the caller's JWT) |
@@ -359,7 +365,7 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `main.jsx`, `App.jsx` | Bootstrap. The provider order is `ErrorBoundary › BrowserRouter › ToastProvider › AuthProvider › NotificationProvider › AppRouter`. |
 | `index.css` | Tailwind layers plus component classes (§9.9) |
 | `assets/manipal-university-jaipur-logo.png` | Brand logo |
-| `routes/AppRouter.jsx` | The single route table (50 routes, §9.3). Most pages are `React.lazy` inside one `Suspense` with a `PageLoader` fallback. |
+| `routes/AppRouter.jsx` | The single route table (70 routes, §9.3). The department screens are mounted twice, under `/hod` and `/admin`, by `departmentRoutes(base, role)`; the cluster head's upload screens are mounted again under `/hod/uploads`. Most pages are `React.lazy` inside one `Suspense` with a `PageLoader` fallback. |
 | `routes/RouteGuards.jsx` | `RequireAuth`, `RequirePasswordChange`, `RequireRole`, `RequireOnboarding`, `RequireClusterHeadSetup` |
 | `context/AuthProvider.jsx` | Session, the signed-in `user_profiles` row with the mentor embedded, sign-in and out, password change and reset, live profile updates |
 | `context/NotificationProvider.jsx` | Bell data, realtime inserts, mark read / mark all read |
@@ -368,11 +374,14 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `hooks/useDashboardMetrics.js` | Calls `get_dashboard_metrics` |
 | `hooks/useAsyncAction.js` | `run(fn, {successMessage, onSuccess})` with toast handling |
 | `hooks/useActiveCycle.js` | `useActiveCycle()` → `{ cycle, loading, error, reload }`: the active `academic_cycles` row, cached for the whole page session. `refreshActiveCycle()` re-reads it after a cycle is started, edited or removed (§4.24). |
+| `hooks/usePortalPaths.js` | `usePortalPaths()` → `{ role, departmentBase, uploadsBase, isHodUploads, isAdmin }` for the signed-in user, so a screen mounted in two portals links within the one it was opened from (§4.25) |
 | `lib/supabaseClient.js` | The single browser Supabase client and `getAccessToken()`. Shows a configuration-error page if the `VITE_SUPABASE_*` variables are missing. |
 | `lib/apiClient.js` | `apiClient.get`, `.post`, `.downloadFile` for `/api/*` |
 | `lib/fileUpload.js` | Client-side file validation, private uploads, signed URLs, `BUCKETS` |
 | `lib/constants.js` | Enum mirrors, option lists, navigation per role, `HOME_PATH` (§9.10) |
 | `lib/formatters.js` | Date, number and duration formatting, `describeError` |
+| `lib/portalPaths.js` | `departmentBase(role)` (`/hod` or `/admin`) and `uploadsBase(role)` (`/cluster-head` or `/hod/uploads`) (§4.25) |
+| `lib/uploadedSubjects.js` | `fetchUploadedSubjects(uploaderId, cycleId)`: a HOD's subjects, i.e. the subjects their attendance uploads in the cycle were filed under (§4.25) |
 | `lib/fetchAllRows.js` | Reads a whole list in pages of 1,000 with `.range()`, because PostgREST returns at most `max_rows` rows per request (§4.20) |
 | `lib/academicRecord.js` | The arithmetic behind the Academic Performance Overview: semester labels, the semester picker, the attendance mean, GPA change and trend points, backlog order (§4.9) |
 | `lib/academicCycles.js` | Naming and date arithmetic for academic cycles: `cycleLabel` ("2026–27"), `semesterTitle` ("Odd semester 2026"), `semesterRange`, `semesterOn`, `todayInIndia`, `defaultCycleDates`, `nextCycleYear`, `validateCycleDates` (the same checks as the database), `uploadScope` (§4.24) |
@@ -382,21 +391,22 @@ ssmp-platform/                      (npm package "ssmp-platform" 2.0.0 — root 
 | `components/academics/AcademicOverview.jsx` | The Academic Performance Overview (tiles, subject-wise attendance, GPA trend, backlogs, black dots), shared by the student's Academics page and the mentor's / HOD's student page (§4.9) |
 | `components/queries/` | `CreateQueryModal`, `QueryConversation`, `ResolutionConfirmation`, `SatisfactionRating` (shared by all portals) |
 | `components/student/FormAFields.jsx` | The Form A field set, its state and its validation (`EMPTY_FORM_A`, `validateFormA`, `useFormAState`, `FormAFields`) |
-| `components/hod/AddAccountModal.jsx` | Single-account creation |
-| `components/clusterHead/AcademicUploadPanel.jsx` | The shared upload block, including the chunk loop. Says which academic cycle an upload goes into (`showCycle`, off for the faculty roster). |
+| `components/hod/AddAccountModal.jsx` | Single-account creation. Offers the HOD role only to the administrator. |
+| `components/clusterHead/AcademicUploadPanel.jsx` | The shared upload block, including the chunk loop. Says which academic cycle an upload goes into (`showCycle`, off for the faculty roster and the mentor–HOD mapping). `identifierLabel` and `idleNote` adjust its copy for the mapping. |
 | `components/clusterHead/cycles/CycleModules.jsx` | The Academic Cycles page's module tabs: students, attendance, GPA, backlogs, black dots, uploads (§4.24) |
 | `components/clusterHead/cycles/CycleDialogs.jsx` | `StartCycleModal` and `EditCycleDatesModal` |
 | `components/tickets/` | **Dead.** Pre-rename copies that nothing imports. They call RPCs dropped in 0031, and one imports a constant that no longer exists (§15.4). |
 | `pages/auth/` | `LoginPage`, `ChangePasswordPage` (also serves `/reset-password`) |
 | `pages/student/` | 13 pages (§9.6) |
-| `pages/faculty/` | 10 pages. Six are reused by the HOD with `isHodView`. |
-| `pages/hod/` | 6 pages. `HodProfilePage` re-exports `FacultyProfilePage`. |
-| `pages/clusterHead/` | 10 pages. `ClusterHeadProfilePage` re-exports `FacultyProfilePage`. |
+| `pages/faculty/` | 10 pages. Six are reused by the HOD and the administrator with `isHodView`. |
+| `pages/hod/` | 6 pages, served under `/hod` and `/admin`. `HodProfilePage` re-exports `FacultyProfilePage`. |
+| `pages/admin/` | `AdminHodMappingPage`: the administrator's Upload page (§4.25) |
+| `pages/clusterHead/` | 10 pages. Seven are also served to a HOD under `/hod/uploads` (all but setup, My Subjects and profile). `ClusterHeadProfilePage` re-exports `FacultyProfilePage`. |
 | `pages/NotFoundPage.jsx` | Catch-all 404 |
 
 Other files in `frontend/`:
 
-- `test/ui-regression.test.jsx` is a jsdom regression test for past bugs (Panel padding, Modal focus theft, the HOD Students 1,000-row cap, a CGPA of 0 with nothing uploaded), for the overview's arithmetic and its header-less student version, and for the academic-cycle helpers (§13.4).
+- `test/ui-regression.test.jsx` is a jsdom regression test for past bugs (Panel padding, Modal focus theft, the HOD Students 1,000-row cap, a CGPA of 0 with nothing uploaded), for the overview's arithmetic and its header-less student version, for the academic-cycle helpers, and for the administrator and HOD menus and link prefixes (§13.4).
 - `vite.config.js` sets dev port 5173 and manual chunks `react-vendor`, `supabase-vendor`, `charts-vendor`.
 - `package.json` depends on `"ssmp-platform": "file:.."` to share the root package.
 
@@ -405,9 +415,11 @@ Other files in `frontend/`:
 | Path | Contents |
 |---|---|
 | `config.toml` | Local stack settings: API 54321, DB 54322 (Postgres 15), Studio 54323; auth settings (§12.3) |
-| `migrations/` | 37 ordered files (list below) |
-| `seed.sql` | **Local only.** Creates demo users directly in `auth.users`/`auth.identities`, sets mentors, inserts sample queries and messages, and inserts the 4 global canned replies ("Acknowledged", "Need more detail", "Escalated to IT", "Meet in person"). The seed script inserts the same four; no migration does. |
-| `scripts/seed-demo-accounts.mjs` | Hosted-safe seed through the Auth Admin API. It creates the demo accounts, mentors, sample queries, cluster heads and their subjects (in the active academic cycle), uploads sample attendance, GPA, backlogs and black dots through the `record_*_batch` RPCs, and runs cycle jobs. See Appendix D. |
+| `migrations/` | 39 ordered files (list below) |
+| `seed.sql` | **Local only.** Creates demo users directly in `auth.users`/`auth.identities` (including the administrator and two HODs), sets mentors, maps the mentors to their HODs through `map_faculty_to_hods`, inserts sample queries and messages, and inserts the 4 global canned replies ("Acknowledged", "Need more detail", "Escalated to IT", "Meet in person"). The seed script inserts the same four; no migration does. |
+| `scripts/seed-demo-accounts.mjs` | Hosted-safe seed through the Auth Admin API. It creates the demo accounts (administrator, two HODs, faculty, students, cluster heads), mentors, the mentor–HOD mapping (`map_faculty_to_hods`), sample queries, the cluster heads' subjects (in the active academic cycle), uploads sample attendance, GPA, backlogs and black dots through the `record_*_batch` RPCs, and runs cycle jobs. See Appendix D. |
+| `scripts/create-admin-account.mjs` | `npm run db:admin`. Creates the administrator account and nothing else, on the shared temporary password with a forced change at first sign-in; safe on a real project and safe to re-run (it finishes an account an earlier run left as a student). `SSMP_ADMIN_EMAIL` overrides the default address (§4.25, §13.5). |
+| `scripts/make-administrator.mjs` | Not run on its own. `makeAdministrator(db, id)`, shared by the two scripts above: sets the profile's role to `admin` with the service role, clears the mapping columns, removes the academic-cycle enrolment and sets `app_metadata.role`. Needed because the Auth Admin API writes `app_metadata` after the insert that creates the profile (§4.1). |
 | `scripts/ci-supabase-stubs.sql` | Minimal `auth` and `storage` schema stubs (roles, `auth.uid()`, `auth.users`, storage tables) so CI can apply the migrations to plain Postgres |
 | `scripts/verify-security-policies.mjs` | **Missing.** `npm run verify:security` references it, so that script fails. |
 
@@ -452,12 +464,14 @@ Other files in `frontend/`:
 | 0035 | `black_dots_and_erp_result_exports` | `student_black_dots`, `student_cgpas`; credits on `student_semester_gpas`; grade and credits on `student_backlogs`; `academic_upload_batches.scope_label`; `try_numeric`, `is_blank_mark`; rewritten `record_gpa_batch`, `record_backlog_batch` (new `p_subject_codes`), new `record_black_dot_batch`; `resolve_student_ids` registration-number-only with a caller check (S3); `login_id` protected (S5); `get_student_dossier` returns CGPA, backlogs and black dots |
 | 0036 | `academic_cycles_and_black_dot_risk` | `academic_cycles` (one per academic year, exactly one active) and `academic_cycle_students`, reusing the enum `semester_term` (0001) for the odd and even semesters; `cycle_id` on uploads, roster imports, subjects, attendance, backlogs, black dots and at-risk meetings, set by triggers and backfilled into the first cycle; subjects per cycle (`current_cycle_courses`); `student_attendance_overview` limited to the active cycle; `academic_upload_history`; black dots join the at-risk rule (`has_black_dot`, `black_dot_count`); `reevaluate_students_batch`; `activate_roster_students`, `carry_over_cycle_students`; `create_academic_cycle`, `update_academic_cycle_dates`, `delete_academic_cycle`, `list_academic_cycles`, `get_cycle_overview`; current bodies of `submit_cluster_head_setup`, `record_attendance_batch`, `map_students_to_mentors`, `evaluate_student_risk`, `notify_on_risk_flag_change`, `dispatch_at_risk_meetings`, `record_black_dot_batch`, `at_risk_student_overview` (§4.24) |
 | 0037 | `retire_student_gpa_entry` | Students no longer record GPA: `upsert_semester_gpa` is no longer executable by signed-in users, and the direct-write policies on `student_semester_gpas` are dropped (closes S1) (§4.9) |
+| 0038 | `admin_role` | Enum value `user_role.admin`, alone in its own file |
+| 0039 | `admin_portal_and_hod_scoping` | `user_profiles.hod_id`, `mentor_section`, `mentor_designation` (backfilled from `hod_email`); `is_admin`; `is_hod` now true for the administrator too; `my_overseen_faculty`, `oversees_faculty`, `oversees_student`; HOD-scoped `can_access_student`, `can_access_query`, `can_view_student_gpa` and policies on `user_profiles`, `support_queries`, `at_risk_meetings`, `mom_records`, `mentor_reassignment_log`, `student_form_a_profiles`; `audit_log` readable by the administrator only; `map_faculty_to_hods`; current bodies of `guard_protected_profile_columns`, `handle_new_auth_user`, `get_dashboard_metrics`, `get_department_faculty_report`, `escalate_query_to_hod`, `set_mentor_department_and_hod`, `record_attendance_batch` (a HOD's subject is created from the file) and the scope checks of eleven workflow functions (§4.25) |
 
 ### 3.6 Other folders
 
 - **`sample-data/`**
   - `student-roster-sample.csv`, `faculty-roster-sample.csv` and `combined-roster-sample.csv` are demo rosters.
-  - `cluster-head-sample-data.mjs` is the single source of the demo academic data. The seed script and the parser self-check import it; run as a CLI it writes `generated/` in the real layouts: 6 attendance CSVs, the CGPA / GPA & Credits export and two Defaulter Grade results (HTML saved as `.xls`, like the ERP), and a PB notice (`.docx`, built by `buildMinimalDocx` without a dependency). Each demo student trips a different at-risk condition. The three older CSVs in `generated/` (`gpa-semester-2/3-sample.csv`, `backlogs-semester-2-sample.csv`) are no longer written and can be deleted; they still upload through the flat fallbacks.
+  - `cluster-head-sample-data.mjs` is the single source of the demo academic data, and of the demo mentor–HOD mapping (`SAMPLE_HODS`, `SAMPLE_HOD_MAPPING`, `sampleHodMappingRows`, `buildHodMappingCsv`). The seed script and the parser self-check import it; run as a CLI it writes `generated/` in the real layouts: `mentor-hod-mapping-sample.csv` (for the administrator's Upload page), 6 attendance CSVs, the CGPA / GPA & Credits export and two Defaulter Grade results (HTML saved as `.xls`, like the ERP), and a PB notice (`.docx`, built by `buildMinimalDocx` without a dependency). Each demo student trips a different at-risk condition. The three older CSVs in `generated/` (`gpa-semester-2/3-sample.csv`, `backlogs-semester-2-sample.csv`) are no longer written and can be deleted; they still upload through the flat fallbacks.
 - **`design-reference/`** holds six static HTML mock-ups (`code.html`) and a `DESIGN.md` (`academic_nexus`), in seven folders. Nothing in the build imports them.
 - **`docs/`**
   - `SSMP-Platform-Context.docx` is the old context document.
@@ -479,6 +493,8 @@ Each feature below covers:
 
 Error text quoted in "double quotes" is the exact string the code raises or shows.
 
+**"The HOD" since migration 0039.** Where a feature below says the HOD may see or act on a person (a student, a faculty member, a query, a meeting, a report), it means **the HOD that person's mentor is mapped to, or the administrator**. Where it says the HOD may do something department-wide (uploads, academic cycles, cycle jobs, roster imports), it means **any HOD or the administrator** (`is_hod()`). §4.25 has the rule and the exceptions.
+
 ### 4.1 Accounts, provisioning and the temporary password
 
 **Status:** Implemented. Known issues are listed at the end.
@@ -489,14 +505,26 @@ Error text quoted in "double quotes" is the exact string the code raises or show
 - SQL: `handle_new_auth_user` (0002/0021) and `handle_auth_user_email_change`.
 - UI: `ClusterHeadRosterPage`, `AddAccountModal`.
 
-**How accounts are created.** There are four paths. The three portal paths call `supabase.auth.admin.createUser` with the service role and `email_confirm: true`; the seeds work differently (Appendix D):
+**How accounts are created.** There are six paths. The four portal paths call `supabase.auth.admin.createUser` with the service role and `email_confirm: true`; the scripts work differently (Appendix D):
 
 | Path | Who triggers it | Roles created | Section |
 |---|---|---|---|
-| Student / faculty / combined roster upload | Cluster head (or HOD through the API) | student, faculty | §4.13 |
-| "Add account" modal | HOD (Students page) | any of the 4 roles | §4.20 |
-| Mentor–mentee mapping upload | Cluster head (or HOD) | faculty, for mentor e-mails with no account | §4.13 |
+| Student / faculty / combined roster upload | Cluster head, HOD (Uploads → Rosters & Mentors) or administrator | student, faculty (a HOD's faculty report to them) | §4.13 |
+| "Add account" modal | HOD or administrator (Students page) | student, faculty, cluster head; HOD for the administrator only | §4.20 |
+| Mentor–mentee mapping upload | Cluster head or HOD | faculty, for mentor e-mails with no account (a HOD's report to them) | §4.13 |
+| Mentor–HOD mapping upload | Administrator (Upload) | hod and faculty, for e-mails with no account | §4.25 |
+| `npm run db:admin` | Developer / operator | the administrator | §4.25, §13.5 |
 | `npm run db:seed` / `seed.sql` | Developer | demo accounts | Appendix D |
+
+Nothing in the portal creates an administrator: the API's role list has no `admin`. `handle_new_auth_user` grants `admin` only when the inserted auth row already has `raw_app_meta_data.role = 'admin'`, which only the service role can set, so a sign-up asking for `admin` in `user_metadata` alone becomes a student.
+
+**The administrator and the Auth Admin API.** Only a direct insert into `auth.users`, as `seed.sql` does, has that `app_metadata` when the trigger runs. `auth.admin.createUser` inserts the user with `app_metadata` holding only `{provider, providers}` and writes the requested `app_metadata` in a second statement of the same transaction, after `handle_new_auth_user` has run. So an administrator created through the API (`npm run db:admin`, `npm run db:seed`) starts as a **student**, enrolled in the active academic cycle. The scripts then call `makeAdministrator` (`supabase/scripts/make-administrator.mjs`), which with the service role:
+
+- sets the profile's role to `admin` and clears `hod_id`, `mentor_section` and `mentor_designation`;
+- deletes the account's `academic_cycle_students` rows (changing the role does not remove them);
+- sets `app_metadata.role` to `admin`.
+
+The other roles are unaffected, because they come from `user_metadata`, which is in the inserted row.
 
 **What each path sends:**
 
@@ -508,7 +536,7 @@ Error text quoted in "double quotes" is the exact string the code raises or show
 
 **What `handle_new_auth_user` does.** It runs AFTER INSERT on `auth.users` and inserts the `user_profiles` row from `raw_user_meta_data`:
 
-- the role, if it is one of the four, else `student`;
+- the role, if it is `student`, `faculty`, `hod` or `cluster_head`; `admin` only when the inserted row's `raw_app_meta_data.role` is also `admin` (0039; true for `seed.sql`, never for `auth.admin.createUser`, see above); else `student`;
 - `full_name`, defaulting to the e-mail's local part;
 - `department`, defaulting to `'IoT & IS'`;
 - `must_change_password`, defaulting to `true`;
@@ -537,7 +565,7 @@ Error text quoted in "double quotes" is the exact string the code raises or show
 **Deactivation.**
 
 - `user_profiles.is_active = false` blocks sign-in in the UI and every API request. RPCs that check it, such as `create_support_query` and `request_counselling`, also refuse.
-- There is **no UI or endpoint that deactivates an account**. `is_active` is a protected column: only the HOD (by a direct table update; the guard exempts the HOD) or SQL can change it.
+- There is **no UI or endpoint that deactivates an account**. `is_active` is a protected column: only the administrator, a HOD for a profile they can update (by a direct table update; the guard exempts them), or SQL can change it.
 - Deactivation does not revoke an existing session (§8.9).
 
 **Known issues:**
@@ -559,7 +587,7 @@ Error text quoted in "double quotes" is the exact string the code raises or show
 2. Load `user_profiles` (`select('*')`), then separately the mentor (`id, full_name, email, phone, login_id`).
 3. If `is_active` is false: sign out again and show "This account has been deactivated. Please contact your HOD."
 4. Fire-and-forget `update({last_login_at})`.
-5. Toast "Welcome back, <name>." and navigate to `HOME_PATH[role]`: `/student`, `/faculty`, `/hod` or `/cluster-head`.
+5. Toast "Welcome back, <name>." and navigate to `HOME_PATH[role]`: `/student`, `/faculty`, `/hod`, `/cluster-head` or `/admin`.
 
 An already signed-in visitor is redirected to `location.state.from` or their home. A bad password gives "Incorrect email or password." (via `describeError`).
 
@@ -663,7 +691,7 @@ A violation surfaces as the generic "Some of the values entered are not valid. P
 - `ProfilePhotoUploader` checks the file on the client: at most 3 MB ("The photo must be 3 MB or smaller."), PNG/JPEG/WEBP ("Use a PNG, JPG or WEBP image.").
 - It uploads to `profile-photos/<uid>/avatar-<slug>-<ts>.<ext>`, sets `user_profiles.avatar_url` to that path, and removes the previous object best-effort. Toast: "Profile photo updated." Then it navigates to `/student`.
 - A student cannot replace the photo later: their profile page shows it read-only ("Contact the HOD office if it needs to be replaced.").
-- Faculty, HOD and cluster-head profile pages have **no** photo control.
+- Faculty, HOD, administrator and cluster-head profile pages have **no** photo control.
 
 **Known issues:**
 
@@ -680,7 +708,7 @@ A violation surfaces as the generic "Some of the values entered are not valid. P
   - `components/queries/*`;
   - `hooks/useRealtimeQueries.js`;
   - student: `pages/student/StudentQueriesPage.jsx`, `pages/student/StudentQueryDetailPage.jsx`, `pages/student/StudentDashboardPage.jsx`;
-  - faculty (and HOD with `isHodView`): `pages/faculty/FacultyQueryQueuePage.jsx`, `pages/faculty/FacultyQueryDetailPage.jsx`.
+  - faculty (and HOD or administrator with `isHodView`): `pages/faculty/FacultyQueryQueuePage.jsx`, `pages/faculty/FacultyQueryDetailPage.jsx`.
 - SQL: `create_support_query`, `post_query_message`, `resolve_support_query`, `confirm_query_resolution`, `rate_support_query`, `set_query_in_progress`, `escalate_query_to_hod`, `max_resolution_rejections`, `assign_query_code`, `can_access_query`, and the notification triggers.
 - Tables: `support_queries`, `query_messages`, `canned_replies`.
 
@@ -756,7 +784,7 @@ supabase.from('support_queries')
 
 - Optional `.eq('status')` and `.eq('category')` filters.
 - The top-bar search (debounced 320 ms) becomes `.or('subject.ilike.%t%,query_code.ilike.%t%')`, with `%` and `,` stripped.
-- **RLS decides the scope:** own queries for a student, `mentor_id = me` for faculty, everything for the HOD.
+- **RLS decides the scope:** own queries for a student, `mentor_id = me` for faculty, the queries of the faculty mapped to them for a HOD, everything for the administrator (§4.25).
 - The list re-runs on any `support_queries` change (channel `queries-stream`).
 - The category filter offers only the five current categories. Legacy-category queries appear only under "All".
 
@@ -764,13 +792,13 @@ supabase.from('support_queries')
 |---|---|
 | Student list | Ref, Subject, Category, Priority, Status + resolution badge, Last update |
 | Faculty queue | Ref, Subject, Student, Category, Priority, Status, **Raise to HOD**, Last update |
-| HOD queue ("All queries") | Adds Mentor; drops Raise to HOD |
+| HOD / administrator queue ("All queries") | Adds Mentor; drops Raise to HOD |
 
 **Conversation** (`QueryConversation`, `useQueryThread`):
 
 - Loads the query plus `query_messages` with `sender:sender_id(id, full_name, role, avatar_url)`, live on channel `query-<id>`.
 - Composer: at most 5,000 characters with a counter. Ctrl/Cmd+Enter sends. The draft is restored if sending fails.
-- `post_query_message` checks participant-or-HOD ("Unauthorized to post on this query") and a non-empty message. The first faculty or HOD message sets `first_response_at`, and a staff message on an `Open` query moves it to `In Progress`.
+- `post_query_message` checks student, mentor, or the mentor's HOD or the administrator ("Unauthorized to post on this query") and a non-empty message. The first faculty, HOD or administrator message sets `first_response_at`, and a staff message on an `Open` query moves it to `In Progress`.
 - The composer is hidden once `resolution_status = 'confirmed'`. That is UI only; the RPC still accepts messages *(tested)*.
 - Faculty and HOD get **Quick replies**: chips from `canned_replies` that append text to the draft.
   - No migration creates any. The four global replies ("Acknowledged", "Need more detail", "Escalated to IT", "Meet in person") are inserted only by the seeds (`supabase/seed.sql` and `npm run db:seed`), so an unseeded production project has none unless someone adds them.
@@ -779,7 +807,7 @@ supabase.from('support_queries')
 **Resolving** (mentor or HOD; `FacultyQueryDetailPage` "Mark resolved", shown while not resolved or when reopened):
 
 - A confirmation dialog, then `resolve_support_query(p_query_id, p_note)`.
-- Checks: "Only the assigned mentor or the HOD can resolve this query"; "This query is already closed and confirmed".
+- Checks: "Only the assigned mentor or the HOD can resolve this query" (since 0039, the HOD of that mentor, or the administrator); "This query is already closed and confirmed".
 - Sets `Resolved` + `pending_confirmation`, `resolved_by`, `resolved_at`, and adds a system message ("Marked as resolved by <name>. Awaiting student confirmation.", or the note).
 - The student is notified `query_resolution_pending` ("Was your issue fixed?").
 
@@ -801,7 +829,7 @@ supabase.from('support_queries')
 - `rate_support_query(p_query_id, p_rating 1–5)`, once only ("This query has already been rated"). The mentor gets `query_rated` ("Query <code> rated n/5").
 - A student can rate **before** confirming, because resolving sets `Resolved` immediately. The rating stays if the query is later reopened *(tested)*.
 
-**Priority** (mentor or HOD, detail page): a direct `update({priority})` under the `queries_update_mentor` or `queries_update_hod` RLS policy. Toast: "Priority set to <p>."
+**Priority** (mentor, their HOD or the administrator, detail page): a direct `update({priority})` under the `queries_update_mentor` or `queries_update_hod` RLS policy. Toast: "Priority set to <p>."
 
 **Detail pages show:**
 
@@ -826,7 +854,7 @@ supabase.from('support_queries')
 - The composer is hidden, but posting is not blocked, after confirmation.
 - **`set_query_in_progress` accepts any query**, not only CR items. Called on a query awaiting confirmation, it moves it back to In Progress without a student decision and without counting a reopen.
 - **Every new query notifies the mentor twice**: `query_created` from the query, and `query_message` ("New reply from <student>") from its first message, which is not a system message.
-- The RLS `UPDATE` policies let the mentor and the HOD change **any column** of their queries directly. That includes `status`, which bypasses the RPC rules (§8.9).
+- The RLS `UPDATE` policies let the mentor, their HOD and the administrator change **any column** of their queries directly. That includes `status`, which bypasses the RPC rules (§8.9). Since 0039 a HOD cannot move a query to a mentor outside their own faculty (the policy's `WITH CHECK`).
 
 ### 4.5 Raise to HOD, and the mentor's department and HOD
 
@@ -835,38 +863,39 @@ supabase.from('support_queries')
 **Where:**
 
 - UI: `FacultyQueryQueuePage.jsx` (the "Raise to HOD" column), `FacultyQueryDetailPage.jsx`, `FacultyMenteesPage.jsx` ("Department & HOD").
-- SQL: `escalate_query_to_hod`, `set_mentor_department_and_hod` (0030/0031); `user_profiles.hod_email`.
+- SQL: `escalate_query_to_hod`, `set_mentor_department_and_hod` (current bodies in 0039); `user_profiles.hod_email`, `user_profiles.hod_id`.
 
 **Setting the department and HOD** (mentor, from My Mentees):
 
 - The modal calls `set_mentor_department_and_hod(p_department, p_hod_email)`.
+- Since 0039 the HOD is normally set by the administrator's **mentor–HOD mapping** (`hod_id`, §4.25). When the mentor is mapped, the HOD e-mail field is **read-only** ("Set by the administrator's mentor–HOD mapping") and only the department is saved.
 - Checks:
   - "Only a faculty mentor can set this";
   - "Enter a department" (at most 120 characters);
-  - "Enter your HOD's email address";
-  - the e-mail must belong to an **active HOD account** ("No active HOD account has the email …").
+  - mapped mentor: an e-mail other than the mapped HOD's is refused ("Your HOD is <name> (<e-mail>), from the department's mentor-HOD mapping. Ask the administrator if that is wrong."); a blank e-mail keeps the mapped HOD;
+  - unmapped mentor: "Enter your HOD's email address", and the e-mail must belong to an **active HOD account** ("No active HOD account has the email …").
 - Effect:
-  - sets the mentor's `department` and `hod_email` (stored as that HOD's own e-mail);
+  - sets the mentor's `department`, `hod_email` (stored as that HOD's own e-mail) and `hod_id`. An unmapped mentor naming their HOD is therefore **mapped to that HOD** (the same rule migration 0039 used for existing data); after that only the administrator changes it;
   - sets `department` on **all** of the mentor's mentees whose value differs;
   - returns the number of rows changed. Toast: "Saved. N mentee(s) updated."
 
-**Raising a query** (mentor; the HOD may also call the RPC):
+**Raising a query** (mentor; the mentor's HOD or the administrator may also call the RPC):
 
 1. **Input.** A "Raise" button on each not-yet-escalated row of the queue, or on the detail page. Both open a modal with an optional note (at most 1,000 characters).
 2. **Processing.** `escalate_query_to_hod(p_query_id, p_note)`:
-   - checks "Query not found"; the caller is the query's mentor or the HOD ("Only the assigned mentor can refer this query to the HOD"); not already escalated ("This query has already been referred to the HOD"); and the note length;
+   - checks "Query not found"; the caller is the query's mentor, that mentor's HOD or the administrator ("Only the assigned mentor can refer this query to the HOD"); not already escalated ("This query has already been referred to the HOD"); and the note length;
    - there is **no** status or reopen-count condition (the old "after 3 rejections" gate was removed in 0030);
    - sets `escalated_to_hod`, `escalated_at`, `escalated_by` and `escalation_note`, bumps `last_message_at`, and adds the system message "<mentor> referred this query to the HOD.", followed by " Note: <note>" when a note was given.
-3. **Routing.** It notifies (`query_escalated`, link `/hod/queries/<id>`) the **active HOD whose e-mail matches the caller's `hod_email`**, compared case-insensitively. The caller is normally the query's mentor. If none matches (not set, or that HOD is inactive or missing), it notifies **every active HOD** (except the caller, since `enqueue_notification` skips the actor).
+3. **Routing** (0039). It notifies (`query_escalated`, link `/hod/queries/<id>`) the **active HOD the query's mentor is mapped to** (`hod_id`). If the mentor is not mapped, or that HOD is inactive, it notifies **every active administrator** instead (link `/admin/queries/<id>`). It no longer falls back to every HOD: a HOD cannot open a query outside their own faculty. `enqueue_notification` skips the caller, as before.
 4. **Output.** The student is always notified ("<code> has been referred to the HOD", link `/student/queries/<id>`). The queue row shows "Sent". Toasts: "<code> sent to your HOD." (queue) or "Referred to the HOD. The student has been told too." (detail).
 
-**HOD side.** Referred queries appear in `/hod/queries` like any other query. There is **no escalated filter or column**; the referral is visible on the detail page banner and in the notification.
+**HOD side.** Referred queries appear in `/hod/queries` (or `/admin/queries`) like any other query. There is **no escalated filter or column**; the referral is visible on the detail page banner and in the notification.
 
 **Known issues:**
 
 - The hints in both modals say "The student is told the query was referred, but is not shown this note." **It is shown.** The note is part of the system message, which the student reads.
 - A query can be referred in any status, including closed.
-- **When the HOD calls the RPC**, the HOD's own profile is used: the mentor's `hod_email` is ignored, the fallback notifies every active HOD except the caller (so with a single HOD nobody is notified), and the system message names the HOD as the referrer.
+- **When a HOD calls the RPC** (there is no button for it), routing still follows the query's mentor, so the HOD is the recipient and is skipped as the actor: nobody is notified. The system message names the HOD as the referrer.
 
 ### 4.6 Star mentee (student representative)
 
@@ -879,7 +908,7 @@ supabase.from('support_queries')
 
 **Setting the star.**
 
-- The mentor (or HOD) calls `set_star_mentee(p_student_id, p_is_star)`, with a confirmation dialog on My Mentees.
+- The mentor (or their HOD, or the administrator) calls `set_star_mentee(p_student_id, p_is_star)`, with a confirmation dialog on My Mentees.
 - The function locks the mentor's row, clears any other star in that mentor's group, and sets the flag under the trusted-operation flag. **At most one star per mentor**, as far as this function is concerned. There is no unique index, and un-starring leaves the group with none.
 - The student gets `star_mentee_assigned` (link `/student/group-queries`).
 - Toasts: "<name> is now your student representative." / "<name> is no longer the student representative."
@@ -901,7 +930,7 @@ supabase.from('support_queries')
 
 **Where:**
 
-- UI: `pages/student/StudentCrReportPage.jsx`, `pages/faculty/FacultyCrReportsPage.jsx` (also `/hod/cr-reports`).
+- UI: `pages/student/StudentCrReportPage.jsx`, `pages/faculty/FacultyCrReportsPage.jsx` (also `/hod/cr-reports` and `/admin/cr-reports`).
 - SQL: `submit_mom_report`, `set_query_in_progress`, `resolve_support_query`, `notify_on_query_created` (skips items); table `mom_records`, and `support_queries.mom_id`.
 
 **Design.** A report is one `mom_records` row: the meeting. Each raised issue ("action item") is **a normal query** authored by the representative, linked by `mom_id`, so items get the whole query workflow (conversation, confirmation, rating).
@@ -929,7 +958,7 @@ supabase.from('support_queries')
 - A panel per meeting with its notes and items. Item links are plain `<a href>` links, which reload the page.
 - A filed report cannot be edited: `mom_records` has only a SELECT policy, so it is append-only.
 
-**Acting on items** (mentor, or HOD at `/hod/cr-reports`):
+**Acting on items** (mentor, or their HOD at `/hod/cr-reports`, or the administrator at `/admin/cr-reports`):
 
 - The page loads the last 20 reports plus all `support_queries` with a `mom_id`, grouped by report. KPIs: Reports, Issues raised, Needing action, Reopened.
 - Each item has "Update status":
@@ -952,7 +981,7 @@ supabase.from('support_queries')
 - UI: `pages/student/StudentCounsellingPage.jsx`, `pages/faculty/FacultyCounsellingPage.jsx`.
 - SQL: `request_counselling`, `respond_to_counselling`, `notify_on_counselling_request`; table `counselling_requests` (0029).
 
-**Privacy.** Only the student and **their assigned mentor** can read a request. RLS has **no HOD policy**, and there is no HOD route (`/faculty/counselling` is faculty-only). The page's promise "This goes only to them." is accurate.
+**Privacy.** Only the student and **their assigned mentor** can read a request. RLS has **no HOD or administrator policy**, and there is no HOD route (`/faculty/counselling` is faculty-only). The page's promise "This goes only to them." is accurate.
 
 **Student flow:**
 
@@ -1028,7 +1057,7 @@ GPAs students recorded before `0037` are kept with `source = 'student'`. They st
 **GPA sharing.**
 
 - `student_form_a_profiles.gpa_sharing_enabled` (default `true`) still gates the **mentor's** read of GPAs through `can_view_student_gpa`, which returns:
-  - `true` for the student themself and for the HOD;
+  - `true` for the student themself, for the HOD of the student's mentor and for the administrator (`oversees_student`, 0039);
   - for the mentor, `coalesce(gpa_sharing_enabled, true)`.
 - The **toggle was removed from the UI**, so sharing stays on unless it is changed outside the UI. Two routes remain: `set_gpa_sharing(false)` is still executable by any student through the API, and a student can update `gpa_sharing_enabled` on their own Form A row directly *(tested)*. Nothing in the code calls `set_gpa_sharing` (S20).
 
@@ -1076,7 +1105,8 @@ GPAs students recorded before `0037` are kept with `source = 'student'`. They st
 **Gate.**
 
 - Every cluster-head route except `/cluster-head/setup` is wrapped in `RequireClusterHeadSetup`, which redirects to the setup page until `user_profiles.cluster_head_setup_completed` is true.
-- The **academic upload endpoint enforces the same flag** for cluster heads: 403 "Complete the cluster head setup form before uploading data.". The HOD is exempt.
+- The **academic upload endpoint enforces the same flag** for cluster heads: 403 "Complete the cluster head setup form before uploading data.". HODs and the administrator are exempt.
+- **A HOD has no setup and no subject list** (0039). Their Uploads screens are not wrapped in `RequireClusterHeadSetup`, there is no My Subjects entry, and an attendance file's subject is created from the file the first time its code is uploaded in the cycle (§4.25).
 - The **roster import endpoint does not** check it.
 
 **Setup and My Subjects** (same RPC, same rules):
@@ -1117,7 +1147,7 @@ GPAs students recorded before `0037` are kept with `source = 'student'`. They st
 
 **Where:**
 
-- UI: `pages/clusterHead/ClusterHeadAttendancePage.jsx`, `ClusterHeadGpaPage.jsx`, `ClusterHeadBacklogPage.jsx`, `ClusterHeadBlackDotPage.jsx`, and `components/clusterHead/AcademicUploadPanel.jsx`.
+- UI: `pages/clusterHead/ClusterHeadAttendancePage.jsx`, `ClusterHeadGpaPage.jsx`, `ClusterHeadBacklogPage.jsx`, `ClusterHeadBlackDotPage.jsx`, and `components/clusterHead/AcademicUploadPanel.jsx`. The same pages are a HOD's Uploads screens under `/hod/uploads/*` (§4.25); on the attendance page a HOD sees "Subjects you have uploaded this cycle" instead of their subject list, and no "No subjects set up" gate.
 - API: `api/cluster-head/upload-academic-data.js`.
 - Parsers: `api/_lib/spreadsheet-parser.js` and `api/_lib/table-readers.js` (formats in §10.4).
 - SQL: `record_attendance_batch`, `record_gpa_batch`, `record_backlog_batch`, `record_black_dot_batch`, `resolve_student_ids`, `evaluate_student_risk`, and the helpers `try_numeric` and `is_blank_mark` (0035); the cycle triggers of 0036.
@@ -1137,17 +1167,17 @@ GPAs students recorded before `0037` are kept with `source = 'student'`. They st
   1. POST only.
   2. Body at most 10 MiB (413).
   3. Authenticate.
-  4. Role `cluster_head` or `hod`.
-  5. Rate limit: **30 uploads per 300 s** per user, across all five actions.
+  4. Role `cluster_head`, `hod` or `admin`; the `hod-map` action is the administrator's only (403 "Only the administrator can upload the mentor-HOD mapping.").
+  5. Rate limit: **30 uploads per 300 s** per user, across all six actions.
   6. zod validation.
   7. Setup gate (cluster heads).
   8. Decode base64.
   9. Parse.
   10. RPC **as the user**.
-  11. Audit `cluster_head.upload_<action>`, with `{action, filename, total_rows, matched, failed, mentor_accounts_created}`, plus `semester` and `cleared` for backlogs and the case numbers for black dots.
+  11. Audit `cluster_head.upload_<action>`, with `{action, filename, total_rows, matched, failed, mentor_accounts_created}`, plus `semester` and `cleared` for backlogs and the case numbers for black dots. The mapping upload audits `admin.upload_hod_map` instead (§4.25).
   12. Respond with the RPC's JSON plus `file_meta`, what the parser read out of the file (semesters, exam, programme, subjects, cases).
 - **In SQL, each RPC:**
-  - allows `is_cluster_head() or is_hod()`, or no JWT (for scripts);
+  - allows `is_cluster_head() or is_hod()` (a HOD or, since 0039, the administrator), or no JWT (for scripts);
   - resolves all identifiers once with `resolve_student_ids`: **active students only, registration number only** (since 0035; it also refuses any other caller, closing S3);
   - inserts an `academic_upload_batches` row, and at the end writes its counts and `scope_label` (what the file covered, shown in Recent uploads);
   - loops over the rows, collecting per-row errors;
@@ -1164,7 +1194,7 @@ GPAs students recorded before `0037` are kept with `source = 'student'`. They st
   - Accepted formats and aliases are in §10.4.
 - **Processing:** `record_attendance_batch(p_course_code, p_course_name, p_section, p_period_start, p_period_end, p_filename, p_rows)`.
   - **Aborts the whole upload for:**
-    - an unknown course: 'Course code "%" is not in your subject list for 2026–27. Add it under My Subjects, then upload this file again.' The match is case-insensitive against the caller's own subjects **in the active cycle**; a HOD matches any cluster head's.
+    - an unknown course, for a cluster head: 'Course code "%" is not in your subject list for 2026–27. Add it under My Subjects, then upload this file again.' The match is case-insensitive against the caller's own subjects **in the active cycle**. A HOD (or the administrator) matches any account's subject of that code, preferring their own, and **when there is none the subject is created** from the file's Course Code and Course Name, owned by the HOD; the result's `course_created` says so (0039, §4.25).
     - reversed dates: "The From/To dates in the file header are missing or out of order". Missing dates never reach SQL: the parser substitutes today, so an undated file (or one with dates in another format) is recorded as a one-day period ending today;
     - constraint violations: attended ≤ held, held ≤ 2000, section label pattern `^[A-Za-z0-9][A-Za-z0-9 .-]{0,11}$`.
   - **Per-row errors:**
@@ -1242,8 +1272,8 @@ GPAs students recorded before `0037` are kept with `source = 'student'`. They st
 
 **Where:**
 
-- UI: `pages/clusterHead/ClusterHeadRosterPage.jsx` ("Rosters & Mentors") and `components/clusterHead/AcademicUploadPanel.jsx`.
-- API: `api/admin/import-roster-spreadsheet.js` (rosters), `api/cluster-head/upload-academic-data.js` (`action: 'mentor-map'`).
+- UI: `pages/clusterHead/ClusterHeadRosterPage.jsx` ("Rosters & Mentors", also a HOD's `/hod/uploads/rosters`) and `components/clusterHead/AcademicUploadPanel.jsx`. For a HOD the faculty-roster and mapping hints add that the accounts they create report to them.
+- API: `api/admin/import-roster-spreadsheet.js` (rosters), `api/cluster-head/upload-academic-data.js` (`action: 'mentor-map'`). A mentor account a HOD's mapping upload creates gets that HOD's `hod_id`.
 - SQL: `map_students_to_mentors`, `resolve_student_ids`, `notify_on_mentor_reassignment`; `activate_roster_students` and the cycle enrolment trigger (0036).
 - Tables: `roster_import_batches`, `user_profiles`, `mentor_reassignment_log`, `academic_cycle_students`.
 
@@ -1255,7 +1285,7 @@ The page is steps 2 and 3 of an academic cycle (§4.24), and its subtitle says s
 
 **Roster import in detail.**
 
-- **Access:** roles `cluster_head` or `hod`. Rate limit: 200 requests per 300 s per user. No setup gate.
+- **Access:** roles `cluster_head`, `hod` or `admin`. Rate limit: 200 requests per 300 s per user. No setup gate. Faculty accounts a HOD's import creates get `hod_id` (and `hod_email`) set to that HOD, so they appear in the HOD's portal at once (0039).
 - **Body:** `import_type` (`faculty`, `student` or `combined`), `filename`, `file_base64` (at most 8,000,000 characters), `create_accounts` (default true; `false` is a dry run), `offset`, `batch_id`, `default_mentor_id`, `semester_cycle_id`. The UI never sends `combined`, `default_mentor_id` or `semester_cycle_id`.
 - **Every chunk re-parses the whole file.**
   - A `combined` file needs a Role cell on every row ("A combined import needs a "Role" column saying Faculty or Student on every row…"), and faculty rows are processed first.
@@ -1356,7 +1386,7 @@ Attendance and black dots are per cycle; GPA and backlogs are not. A black dot c
 3. The trigger `notify_on_at_risk_meeting` sends the mentor `at_risk_meeting_required` ("Schedule a meeting with <name>") and stamps `mentor_notified_at`.
 4. The job returns `{meetings_created, already_open, without_mentor}`.
 
-**At-risk page** (mentor: own mentees; HOD: everyone, with a Mentor column):
+**At-risk page** (mentor: own mentees; HOD: their faculty's mentees, with a Mentor column; administrator: everyone):
 
 - **Data:** `at_risk_student_overview` where `is_at_risk`, ordered by attendance (then `student_id`), read in pages of 1,000 with `fetchAllRows` so a department-wide list is never cut at PostgREST's `max_rows` (§4.20).
 - **KPIs:** Flagged, Low attendance, Low GPA, With backlogs, With black dots ("One in 2026–27 is enough to flag").
@@ -1438,7 +1468,7 @@ Attendance and black dots are per cycle; GPA and backlogs are not. A black dot c
 
 **Where:**
 
-- UI: `pages/hod/HodOperationsPage.jsx` ("Scheduled Jobs", `/hod/operations`).
+- UI: `pages/hod/HodOperationsPage.jsx` ("Scheduled Jobs", `/hod/operations` and `/admin/operations`). The jobs are department-wide whoever runs them.
 - API: `api/admin/run-cycle-job.js`.
 - SQL: `run_cycle_job`, `run_all_cycle_jobs_now`, `run_due_cycle_jobs` (dead), `get_cycle_job_status`; tables `cycle_job_schedule` and `cycle_job_runs`.
 
@@ -1497,9 +1527,9 @@ Attendance and black dots are per cycle; GPA and backlogs are not. A black dot c
 |---|---|---|
 | `student` | the caller's own queries | `role`, `total_queries`, `open_queries`, `in_progress_queries`, `resolved_queries`, `awaiting_confirmation`, `unrated_resolved`, `avg_resolution_hours`, `form_a_completed`, `is_star_mentee`, `achievements_count`, `unread_notifications` |
 | `faculty` | queries with `mentor_id = me` | the student keys that apply, plus `reopened_queries`, `avg_first_response_hours`, `avg_satisfaction`, `resolved_this_week`, `resolved_last_week` (both use `date_trunc('week', now())`), `mentee_count`, `onboarding_pending`, `star_mentee {id, name}`, `unread_notifications` |
-| everything else (`else` = HOD) | all queries | `role` (always `'hod'`, even for a cluster head); the faculty query keys **except** `resolved_this_week` / `resolved_last_week`; plus `academic_queries`, `erp_tech_queries`, `infrastructure_queries` (**legacy categories only**), `total_students`, `total_faculty`, `active_faculty`, `departed_faculty`, `unassigned_students`, `onboarding_pending`, `unread_notifications` |
+| everything else (`else` = HOD, administrator, cluster head) | a HOD: the queries, faculty and students of the faculty mapped to them; the administrator and a cluster head: everything | `role` (`'admin'` for the administrator, otherwise `'hod'`, even for a cluster head); `coverage` (`'hod'` or `'department'`, since 0039); the faculty query keys **except** `resolved_this_week` / `resolved_last_week`; plus `academic_queries`, `erp_tech_queries`, `infrastructure_queries` (**legacy categories only**), `total_students`, `total_faculty`, `active_faculty`, `departed_faculty`, `unassigned_students` (always 0 for a HOD: every student in their scope has a mentor), `onboarding_pending`, `unread_notifications` |
 
-Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head` caller falls into the HOD branch** and receives department-wide numbers. No cluster-head page calls it, but the RPC is callable (§8.9).
+Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head` caller falls into the department branch** and receives department-wide numbers. No cluster-head page calls it, but the RPC is callable (§8.9).
 
 **Student dashboard (`/student`):**
 
@@ -1523,9 +1553,10 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - "Recent load by category": the 8 most recent queries, **legacy categories only**.
 - "Needs your attention": open or reopened queries among those 8, at most 6 shown.
 
-**HOD dashboard (`/hod`):**
+**HOD and administrator dashboard (`/hod`, `/admin`):**
 
-- KPIs: Students (captioned with unassigned), Faculty mentors (active · departed), Total queries, Onboarding pending.
+- The same page. The administrator's figures cover the department; a HOD's cover the faculty mapped to them ("…for the faculty who report to you" in the subtitle). A HOD with nobody mapped sees an empty leaderboard reading "No faculty mapped to you yet".
+- KPIs: Students (captioned with unassigned for the administrator, "Mentees of your faculty" for a HOD), Faculty mentors (active · departed), Total queries, Onboarding pending.
 - An attention banner when students are unassigned or faculty have departed.
 - A status donut.
 - A category bar chart (**legacy keys**).
@@ -1534,12 +1565,12 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - A top-10 leaderboard from `faculty_performance_summary`, ordered by resolved. Columns: Faculty, Mentees, Queries, Resolved, Avg first response, Resolution rate, Rating.
 - **Known issue.** The trend query orders by day **ascending** with `limit 400`. Once there are more than 400 (mentor, day) rows, the chart shows the **oldest** days, not the last 30. It also plots the last 30 days *that had a query*; empty days are skipped rather than shown as zero. The subtitle says "Live picture", but the page does not subscribe to changes.
 
-**Faculty performance (`/hod/performance`):**
+**Faculty performance (`/hod/performance`, `/admin/performance`):**
 
-- Data: `faculty_performance_summary` (all time). Search by name.
+- Data: `faculty_performance_summary` (all time), which RLS limits to a HOD's own faculty. Search by name.
 - Sort options: resolved, total, mentees, fastest first response (a `null` is treated as 0, so faculty with no responses rank "fastest"), resolution rate, rating.
 - Charts: resolved vs still active, and average first response (top 8).
-- Table columns: Faculty, Branch, Status, Mentees, Queries, Resolved, Reopened, Avg first response, Avg resolution, Rate, Rating, and Report ("View" links to `/hod/reports?faculty_id=…`; "PDF" uses the default 90-day window).
+- Table columns: Faculty, Branch, Status, Mentees, Queries, Resolved, Reopened, Avg first response, Avg resolution, Rate, Rating, and Report ("View" links to `<portal>/reports?faculty_id=…`; "PDF" uses the default 90-day window).
 
 **Cluster-head dashboard (`/cluster-head`),** everything for the active academic cycle (§4.24):
 
@@ -1548,6 +1579,8 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - Shortcuts to the four academic upload pages (attendance, GPA, backlogs, black dots).
 - "My subjects · 2026–27" (`current_cycle_courses`).
 - "Recent uploads": the last 10 rows of `academic_upload_history` for the cycle, narrowed by the pills Whole cycle / Odd semester 2026 / Even semester 2027, with a "Whole cycle" link to Academic Cycles. Columns: Upload (type, and what it covered: the batch's `scope_label` such as "Semesters 1, 2 + CGPA" or "2 cases", or "IT2101 · Section A" for attendance), Semester, Recorded (with "n not matched" under it), When.
+
+**A HOD's Uploads → Overview (`/hod/uploads`)** is the same page (0039): titled "Uploads overview" instead of the greeting; "Subjects uploaded" and "Subjects uploaded · 2026–27" list the subjects the HOD's own attendance uploads in the cycle were filed under (`fetchUploadedSubjects`), with "No attendance uploaded in this cycle yet" when there are none; "Recent uploads" is filtered to the HOD's own (`uploaded_by`), since a HOD may read the department's; the shortcuts and links stay under `/hod/uploads`.
 
 ### 4.18 Reports and PDFs
 
@@ -1563,7 +1596,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 
 - **Range.** The last 90 days by default. Presets: 30, 90, 182, 365 days. From/To inputs are constrained so that From ≤ To ≤ today.
 - **SQL:** `get_faculty_activity_report(p_faculty_id, p_from, p_to)`.
-  - `p_faculty_id` defaults to the caller. A non-HOD may only ask for themself ("You can only generate a report for your own activity").
+  - `p_faculty_id` defaults to the caller. Anyone but that faculty member's HOD or the administrator may only ask for themself ("You can only generate a report for your own activity").
   - The period defaults to 90 days, and `to` is inclusive.
   - **Keys:** `faculty`, `period`, `generated_at`, `summary` (includes `escalated_queries`, `rated_queries`, `resolution_rate_percent`), `by_category` (`{category, total, resolved, open}`, dynamic), `by_status`, `resolution_confirmation`, `weekly_trend`, `rating_distribution`, `mentees`.
   - Metrics are filtered by `created_at` within the period, except each mentee's `query_count`, which is all time.
@@ -1582,14 +1615,16 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 
   Filename: `faculty-activity-report-<slug>-<from>-to-<to>.pdf`.
 
-**Department report** (HOD; the faculty picker's default, "All faculty members (consolidated)", i.e. `faculty_id=all`).
+**All-faculty report** (HOD or administrator; the faculty picker's default, "All faculty members (consolidated)", i.e. `faculty_id=all`). Called the department report in code and file names.
 
 - **SQL:** `get_department_faculty_report(p_from, p_to)`.
-  - Check: "Only the HOD can generate a department-wide report".
-  - The department label is the HOD's `department`, falling back to `'IoT & IS'`.
-  - **Keys:** `scope`, `department`, `period`, `generated_at`, `summary`, `by_category`, `by_status`, `monthly_trend`, `faculty[]` (sorted by resolved).
+  - Check: "Only the HOD can generate a department-wide report" (any HOD, or the administrator).
+  - **Coverage (0039).** The administrator's report covers the department. A HOD's covers only the faculty mapped to them, their mentees and the queries those faculty handle; `unassigned_students` is 0.
+  - The department label is the caller's `department`, falling back to `'IoT & IS'`.
+  - **Keys:** `scope` (always `'department'`, which is how the page tells this report from a single faculty member's), `coverage` (`'department'` or `'hod'`), `hod_name` (the HOD, for a HOD's report), `department`, `period`, `generated_at`, `summary`, `by_category`, `by_status`, `monthly_trend`, `faculty[]` (sorted by resolved).
 - **Page:**
-  - 8 KPIs, including Faculty, Students, Satisfaction and "Referred to HOD".
+  - Subtitle "All faculty · <department>", or "Faculty reporting to you · <department>" for a HOD.
+  - 8 KPIs, including Faculty, Students (captioned with unassigned, or "Mentees of your faculty" for a HOD), Satisfaction and "Referred to HOD".
   - A category bar, a status donut, monthly raised vs resolved, and load by faculty (top 8).
   - A faculty table: Faculty, Branch, Status, Mentees, Queries, Resolved, Reopened, Avg first response, Avg resolution, Rate, Rating.
 - **PDF (`buildDepartmentReportPdf`):**
@@ -1603,7 +1638,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 
   Filename: `department-activity-report-all-faculty-<from>-to-<to>.pdf`.
 
-**Student dossier** (mentor for their mentee; HOD for anyone; also the student for themself at the database level).
+**Student dossier** (mentor for their mentee; the mentor's HOD; the administrator for anyone; also the student for themself at the database level).
 
 - **SQL:** `get_student_dossier(p_student_id)`.
   - Checks: "Student not found"; "You are not this student's mentor".
@@ -1615,9 +1650,9 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
     - `achievements`, `achievements_by_category`;
     - `query_summary`, which counts the **legacy academic, erp_tech and infrastructure categories**;
     - `queries`, `monthly_query_trend` (YYYY-MM).
-- **Page** (`/faculty/mentees/:studentId`, `/hod/students/:studentId`):
+- **Page** (`/faculty/mentees/:studentId`, `/hod/students/:studentId`, `/admin/students/:studentId`):
   - Header: the name; registration number, branch, section and semester label.
-  - The **Academic Performance Overview** (§4.9), fed from the dossier plus a direct read of `student_attendance_overview` for the student (RLS: the mentor or the HOD). With no GPA on record the CGPA is "—", not the dossier's `gpa_stats.cgpa` of 0. When sharing is off the GPA tile reads "Not shared" and the GPA card "GPA not shared".
+  - The **Academic Performance Overview** (§4.9), fed from the dossier plus a direct read of `student_attendance_overview` for the student (RLS: the mentor, their HOD or the administrator). With no GPA on record the CGPA is "—", not the dossier's `gpa_stats.cgpa` of 0. When sharing is off the GPA tile reads "Not shared" and the GPA card "GPA not shared".
   - "Mentoring record": Queries raised, Achievements, Avg resolution; the "Query mix" donut (**legacy categories only**) beside the Query history; Form A; Achievements (with Verify and Proof).
   - A star toggle for the mentor, with no confirmation dialog on this page. Verifying or starring reloads the page quietly, keeping the semester picked.
   - PDF download.
@@ -1633,7 +1668,8 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 **Endpoint behaviour** (§6).
 
 - Both endpoints: rate limit 30 per 60 s per user; the RPC runs **as the caller**. A Postgres permission error (42501) becomes 403; other errors become 400.
-- The activity report requires the `faculty` or `hod` role. The dossier has no role check; the database decides.
+- The activity report requires the `faculty`, `hod` or `admin` role. The dossier has no role check; the database decides.
+- The all-faculty PDF's title block reads "Faculty reporting to <HOD>" for a HOD's report, and its "Unassigned students" card becomes "Students".
 - PDFs are audited (`report.faculty_activity_pdf`, `report.department_pdf`, `report.student_dossier_pdf`). JSON requests are not.
 - The browser saves the file under the server's `Content-Disposition` name.
 
@@ -1650,7 +1686,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 
 **Where:**
 
-- UI: `pages/hod/HodFacultyRosterPage.jsx` (`/hod/roster`).
+- UI: `pages/hod/HodFacultyRosterPage.jsx` (`/hod/roster`, `/admin/roster`). A HOD's roster is the faculty mapped to them (RLS on `faculty_reserve_pool`); the administrator's is everyone.
 - API: `api/admin/manage-faculty-roster.js`.
 - SQL: `set_faculty_employment_status`, `reassign_mentees`, `notify_on_mentor_reassignment`; the view `faculty_reserve_pool`; the table `mentor_reassignment_log`.
 
@@ -1660,16 +1696,16 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
    - KPIs: Faculty, Reserve pool, Departed, Mentees needing a new mentor.
    - Columns: Faculty, Faculty ID, Branch, Status, Mentees current/capacity, Accepting, Actions.
 2. **Change status.** POST `{action: 'set-status', faculty_id, employment_status}` calls `set_faculty_employment_status`.
-   - Check: "Only the HOD can change faculty employment status".
+   - Check: "Only this faculty member's HOD can change their employment status" (that HOD or the administrator, 0039).
    - When `available_for_reassignment` is not sent, a non-active status forces it to `false`. When it is sent, the value is stored as given (even `departed` with `true`).
    - The response carries `mentee_count` and `needs_reassignment` (departed with mentees). The page then warns "<name> still has N mentees. Reassign them now." and opens the reassignment modal.
 3. **Reassign.**
    - GET `?action=mentees&faculty_id=…` lists the mentees plus their unresolved-query counts. All are preselected.
    - The HOD picks a target from the pool, which the client computes from the roster.
    - POST `{action: 'reassign', student_ids (1–500), from_faculty_id, to_faculty_id, reason (≤500)}`:
-     - **`reassign_mentees`** (as the user) runs its checks: "Only the HOD can reassign mentees"; a non-empty list of at most 500; "Target mentor not found"; "Cannot reassign students to a mentor whose status is %". It then updates `assigned_mentor_id`.
+     - **`reassign_mentees`** (as the user) runs its checks: "Only the HOD can reassign mentees"; a non-empty list of at most 500; "Target mentor not found"; "Cannot reassign students to a mentor whose status is %"; since 0039, for a HOD, "You can only move students to a faculty member who reports to you" and "Some of these students are not mentored by a faculty member who reports to you". It then updates `assigned_mentor_id`.
      - The trigger logs each change and notifies the student, the new mentor and the old mentor. The reason is written onto the log rows.
-     - The API then uses the **service role** to move the students' **unresolved** queries (`status ≠ 'Resolved'`, `mentor_id = from`) to the new mentor. Resolved queries, whether awaiting confirmation or confirmed, stay with the old mentor.
+     - The API then uses the **service role** to move the students' **unresolved** queries (`status ≠ 'Resolved'`, `mentor_id = from`) to the new mentor, once it has confirmed through the caller's own token that the caller can see `from`. Resolved queries, whether awaiting confirmation or confirmed, stay with the old mentor.
      - The audit entry is `hod.reassign_mentees`, with `{student_count, moved, from, reason}`.
    - Toast: "Mentees reassigned. Everyone involved has been notified."
 
@@ -1686,24 +1722,25 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 
 **Status:** Implemented.
 
-**Where:** `pages/hod/HodStudentsPage.jsx` (`/hod/students`), `components/hod/AddAccountModal.jsx`, `api/admin/provision-user-accounts.js`.
+**Where:** `pages/hod/HodStudentsPage.jsx` (`/hod/students`, `/admin/students`), `components/hod/AddAccountModal.jsx`, `api/admin/provision-user-accounts.js`. A HOD's directory lists the mentees of the faculty mapped to them; the administrator's lists everyone, including students without a mentor.
 
 **Directory.**
 
 - **Data:** every row of `student_query_summary`, read in pages of 1,000 with `lib/fetchAllRows.js` (ordered by name, then `student_id`, so no student lands on two pages; the first request asks for an exact count), plus faculty names from `user_profiles`. The table shows 50 students per page; changing a filter or the search goes back to page 1.
 - **Filters:** All, No mentor, Form A pending, Active queries. Search by name, registration number or e-mail. The KPIs mirror the filters.
-- **Columns:** Student (links to `/hod/students/:id`, the dossier page in HOD mode), Reg. no., Branch, Sec, Mentor ("Unassigned" chip), Form A, Queries.
+- **Columns:** Student (links to `<portal>/students/:id`, the dossier page in HOD mode), Reg. no., Branch, Sec, Mentor ("Unassigned" chip), Form A, Queries.
 
 **Add account** (modal):
 
-- **Roles:** student, faculty, hod, cluster_head.
-- **Fields:** name, e-mail, registration number or staff id, branch, mobile (10 digits). Students also get section, semester and a mentor chosen from **active** faculty.
+- **Roles:** student, faculty, cluster_head; hod for the administrator only. A HOD adding a faculty member is told "They will report to you".
+- **Fields:** name, e-mail, registration number or staff id, branch, mobile (10 digits). Students also get section, semester and a mentor chosen from **active** faculty (for a HOD, their own).
 - **Call:** POST `/api/admin/provision-user-accounts` with `{accounts: [one]}`, carrying `department: 'IoT & IS'` (hard-coded).
 - **Output:** a credentials view with name, e-mail and the temporary password, "Copy credentials", and the note that a password change is required. If nothing was created, the first skipped or failed reason is shown as an error.
 
 **Endpoint behaviour.**
 
-- **Access:** HOD only. Body at most 2 MB. 20 requests per 60 s.
+- **Access:** HOD or administrator. Body at most 2 MB. 20 requests per 60 s.
+- **Scope (0039).** A HOD's `hod` rows fail with "Only the administrator can create HOD accounts"; a student whose mentor does not report to the HOD fails with "That mentor does not report to you"; a faculty account a HOD creates gets their `hod_id` and `hod_email`. The schema does not accept `admin`.
 - **Validation:** 1–500 accounts, each checked by `provisionUserSchema` (§6).
 - **Existing accounts:** an existing e-mail (case-insensitive) is skipped with "An account with this email already exists".
 - **Mentor:** a separate service-role update sets the mentor, which fires the reassignment notifications. If that update fails, the account is reported under `failed` but **still exists**.
@@ -1748,7 +1785,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 | `query_confirmed` | same trigger | mentor | "<code> confirmed as resolved" | `/faculty/queries/<id>` |
 | `query_reopened` | same trigger | mentor | "<code> reopened by the student" | `/faculty/queries/<id>` |
 | `query_rated` | same trigger (rating set) | mentor | "Query <code> rated n/5" | `/faculty/queries/<id>` |
-| `query_escalated` | `escalate_query_to_hod` | the HOD named in the caller's `hod_email`, else all active HODs except the caller | "<mentor> referred <code> to you" | `/hod/queries/<id>` |
+| `query_escalated` | `escalate_query_to_hod` | the active HOD the query's mentor is mapped to (`hod_id`); else every active administrator. Never the caller. | "<mentor> referred <code> to you" | `/hod/queries/<id>`, or `/admin/queries/<id>` for the administrator |
 | `query_escalated` | `escalate_query_to_hod` | student | "<code> has been referred to the HOD" | `/student/queries/<id>` |
 | `mentor_reassigned` | trigger on `user_profiles.assigned_mentor_id` change (also writes `mentor_reassignment_log`) | student; new mentor; old mentor | "Your faculty mentor has changed" / "New mentee assigned" / "Mentee reassigned" | `/student/profile`, `/faculty/mentees` |
 | `star_mentee_assigned` | trigger on `is_star_mentee` false → true | student | "You are now the student representative" | `/student/group-queries` |
@@ -1776,7 +1813,7 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
   - A "Change password" link.
   - The Form A view/edit panel (§4.3).
   - The photo, read-only.
-- **Faculty, HOD and cluster-head profile:**
+- **Faculty, HOD, administrator and cluster-head profile:**
   - Read-only identity: staff id, branch, department, joined date; faculty also see capacity and availability.
   - An editable phone.
   - A "Change password" link.
@@ -1816,13 +1853,14 @@ Averages are rounded but not coalesced, so they may be `null`. **A `cluster_head
 - `recordAuditEntry` calls `write_audit_entry(actor, action, entity_type, entity_id, metadata, ip, user_agent)`.
 - It is executable **only by `service_role`**, so clients cannot forge entries.
 - It never blocks the request: a failure is logged and ignored.
-- `audit_log` is append-only, and only the HOD can read it (RLS).
+- `audit_log` is append-only, and since 0039 only the administrator can read it (RLS `audit_log_admin_select`). It used to be every HOD.
 - There is **no UI** that shows the audit log.
 
 **Actions written:**
 
 - `admin.provision_accounts`
 - `admin.import_<type>_roster`
+- `admin.upload_hod_map` (the mentor–HOD mapping, §4.25)
 - `hod.set_faculty_status`
 - `hod.reassign_mentees`
 - `hod.run_cycle_job`
@@ -1875,11 +1913,11 @@ Programme semester 1–8                 a student's own semester ("3rd Semester
 - **Per cycle, and what carries on:**
   - **Subjects** are copied into each new cycle (§4.11), so next year's edits never touch last year's list or the attendance recorded against it.
   - **Attendance** on every screen, and in the at-risk rule, is the active cycle's (`student_attendance_overview` is filtered to it). Last year's stays in the database and in that cycle's report.
-  - **Students.** `academic_cycle_students` is each cycle's own list, with a snapshot of the semester, section, branch and mentor the student had in it, and how they joined (`activated_via`: `existing` from the migration, `account`, `roster`, `mentor_map`, `carried_over` or `profile`). The trigger `sync_student_cycle_enrollment` on `user_profiles` enrols new students and keeps the **active** cycle's snapshot in step with profile changes; a closed cycle's rows are never touched. RLS: `can_access_student` (the student, their mentor, the HOD); cluster heads see counts only.
+  - **Students.** `academic_cycle_students` is each cycle's own list, with a snapshot of the semester, section, branch and mentor the student had in it, and how they joined (`activated_via`: `existing` from the migration, `account`, `roster`, `mentor_map`, `carried_over` or `profile`). The trigger `sync_student_cycle_enrollment` on `user_profiles` enrols new students and keeps the **active** cycle's snapshot in step with profile changes; a closed cycle's rows are never touched. RLS: `can_access_student` (the student, their mentor, the mentor's HOD, the administrator); cluster heads see counts only.
   - **Black dots** count towards the at-risk rule only in their own cycle (§4.14).
   - **GPA and open backlogs** are not per cycle: a GPA belongs to a programme semester, and an uncleared backlog from last year is still owed this year.
 
-**The Academic Cycles page** (cluster head; the database lets the HOD call every function too, but the HOD has no screen for it):
+**The Academic Cycles page** (cluster head at `/cluster-head/cycles`; a HOD at `/hod/uploads/cycles` since 0039, with the same department-wide view; the administrator can call every function but has no screen for it):
 
 - **Header:** "Academic cycles", with **Download report** and **Start next cycle**.
 - **What is shown:** a cycle select (every cycle, marked "(active)" or "(closed)") and the semester pills Whole cycle / Odd semester 2026 / Even semester 2027. The semester narrows every module except Students, which belongs to the whole cycle.
@@ -1936,6 +1974,116 @@ Programme semester 1–8                 a student's own semester ("3rd Semester
 - **Any cluster head can start the next cycle for everyone.** A cycle is department-wide. The dialog's tick box, and Remove while nothing has been uploaded, are the safety net.
 - **A backlog is filed under the cycle it was first recorded in**, which is when the result was uploaded, not the year of the exam. Last year's results uploaded after the new cycle starts land in the new cycle (as an odd or even semester by parity). They still count towards the at-risk rule either way, because backlogs are not per cycle.
 - **Legacy `semester_cycles`** (0006, the retired semester-setup wizard) is unrelated and unused; `roster_import_batches.semester_cycle_id` is no longer written. "Cycle" in `cycle_job_*` and `survey_cycles` means the 15-day job cycle and the survey round, not an academic cycle (Appendix E).
+
+### 4.25 The administrator portal, the mentor–HOD mapping and HOD scope
+
+**Status:** Implemented (migrations `0038`–`0039`, 2026-10-07).
+
+**Where:**
+
+- SQL: `0038_admin_role.sql` (the enum value), `0039_admin_portal_and_hod_scoping.sql` (everything else).
+- API: `api/cluster-head/upload-academic-data.js` (`action: 'hod-map'`), and the role checks of every `api/admin/*` and `api/reports/*` endpoint.
+- Parser: `parseHodMappingFile`, `normaliseMappingSection` in `api/_lib/spreadsheet-parser.js` (§10.4).
+- UI: `pages/admin/AdminHodMappingPage.jsx` (`/admin/upload`); the department screens under `/admin/*`; the HOD's Uploads group (`/hod/uploads/*`); `lib/portalPaths.js`, `hooks/usePortalPaths.js`, `lib/uploadedSubjects.js`; `SidebarNavigation` groups.
+- Scripts: `supabase/scripts/create-admin-account.mjs` (`npm run db:admin`), `supabase/scripts/make-administrator.mjs`.
+
+**Why.** The department has several HODs, and each oversees a set of mentors and class coordinators. Before 0039 the one `hod` role saw everyone. Now:
+
+| | Administrator (`admin`) | HOD (`hod`) | Cluster head |
+|---|---|---|---|
+| Portal | `/admin`: the department screens of the old HOD portal, unchanged, plus **Upload** | `/hod`: the same department screens, plus **Uploads** (a dropdown group) | `/cluster-head`, unchanged |
+| Faculty and students seen | everyone, including unmapped faculty and students without a mentor | the faculty mapped to them (`hod_id`) and those faculty's mentees | none (as before) |
+| Queries, MoMs, at-risk meetings, reassignment log | all | those of their faculty (`mentor_id`) | none |
+| Reports, dashboard, performance | department-wide | their faculty (`coverage: 'hod'`) | — |
+| Uploads, academic cycles, cycle jobs, roster imports, upload history | through the API and Scheduled Jobs (no upload screens) | yes, department-wide, from Uploads | yes |
+| Mentor–HOD mapping upload | **yes, only them** | no | no |
+| Audit log (RLS) | yes | no | no |
+| Create HOD accounts | yes | no | no |
+
+**The mapping (data).** Three columns on `user_profiles`, all protected:
+
+- `hod_id` (FK to `user_profiles`, `ON DELETE SET NULL`, indexed): the HOD this faculty member reports to. It decides everything a HOD sees.
+- `mentor_section` ("A 3") and `mentor_designation` ("Mentor" or "Class Coordinator (fallback)"), shown on the Upload page.
+- Constraints: only a `faculty` row may carry them (`user_profiles_hod_mapping_faculty_only`); `hod_id <> id`; lengths 40 and 80.
+- `hod_email` (0030) is kept in step: the mapping writes the HOD's own address there.
+- **Existing data:** migration 0039 maps every faculty member whose `hod_email` matches a HOD to that HOD, so a department with one HOD keeps working before the first upload.
+- `hod_id` is also set when a HOD creates a faculty account (Add account, faculty roster, or a mentor created by their mentor–mentee mapping upload), and once by an unmapped mentor naming their HOD (§4.5). After that only the administrator changes it, by uploading the sheet again or by a direct update.
+
+**Scope helpers** (SECURITY DEFINER, `search_path = public, pg_temp`):
+
+| Function | Returns |
+|---|---|
+| `is_admin()` | the caller is an active administrator |
+| `is_hod()` | the caller is an active HOD **or the administrator** (redefined). Used for department-level permissions only. |
+| `my_overseen_faculty()` | `uuid[]` of the faculty whose `hod_id` is the caller, if the caller is an active HOD; empty otherwise (the administrator gets through by `is_admin()`) |
+| `oversees_faculty(id)` | the administrator, or the active HOD that faculty member is mapped to |
+| `oversees_student(id)` | the administrator, or the active HOD of that student's mentor |
+
+`can_access_student` is now self, mentor or `oversees_student`; `can_access_query` is student, mentor or `oversees_faculty(mentor_id)`; `can_view_student_gpa` lets `oversees_student` through before the sharing flag. Every table whose policy calls them (attendance, sections, GPA, CGPA, backlogs, black dots, risk flags, Form A, achievements, surveys, cycle students, query messages) is scoped with no policy of its own changing.
+
+**Policies replaced** (the department-level ones on upload batches, subjects, cycles, job runs, roster imports, semester cycles, canned replies and the `roster-imports` bucket keep `is_hod()`):
+
+- `user_profiles`: `profiles_select_hod_all` → `profiles_select_hod_scope` (administrator; or the row is one of the caller's faculty, or their mentee); new `profiles_select_staff_directory` (HOD-level callers see every HOD, cluster head and administrator: names on upload history); `profiles_select_faculty_roster` now faculty or administrator; `profiles_update_hod` scoped like the select, in both `USING` and `WITH CHECK`.
+- `support_queries` (`queries_select_participants`, `queries_update_hod`), `at_risk_meetings` (`meetings_select_visible`, `meetings_update_mentor`), `mom_records` (`mom_select_participants`): the HOD part is now "administrator, or `mentor_id` is one of my faculty".
+- `mentor_reassignment_log` (`reassignment_log_hod_select`): either end of the move is one of my faculty.
+- `student_form_a_profiles` (`form_a_update_hod`): `oversees_student(student_id)`.
+- `audit_log`: `audit_log_hod_select` → `audit_log_admin_select` (administrator only).
+- The array is read as `(select my_overseen_faculty())::uuid[]`, which Postgres evaluates once per statement.
+
+**Functions whose checks changed** (bodies otherwise unchanged): `get_student_dossier`, `get_faculty_activity_report`, `post_query_message` (the administrator also counts as staff for the first response), `resolve_support_query`, `set_query_in_progress`, `set_achievement_verification`, `set_at_risk_meeting_status`, `create_at_risk_meeting_link`, `set_star_mentee`, `unlock_student_form_a` ("Only this student's HOD can unlock a submitted Form A"), `set_faculty_employment_status`, `reassign_mentees` (both ends in scope), `escalate_query_to_hod` (routing, §4.5), `get_dashboard_metrics` and `get_department_faculty_report` (`coverage`, §4.17, §4.18), `set_mentor_department_and_hod` (§4.5).
+
+**Protected columns** (`guard_protected_profile_columns`). The administrator, the service role and trusted functions may change anything. Nobody else may change `hod_id`, `mentor_section`, `mentor_designation`, or the `hod_email` of a mapped mentor ("Not permitted: the mentor-HOD mapping is managed by the administrator"). A HOD may still change the other protected columns of the people they can update, but not grant or remove the `hod` or `admin` role, their own included ("Not permitted: only the administrator can grant or remove the HOD or administrator role").
+
+**The Upload page** (`/admin/upload`, "Upload" in the administrator's sidebar):
+
+1. **Input.** The department's *Mentor – Section – Email* sheet (`.xlsx` or `.csv`): Section, Mentor / Class Coordinator Name, Role, Official Email, and the HOD's name and Official Email. The real sheet heads the HOD columns "Cluster Head"; "HOD" and "Head of Department" work too (§10.4).
+2. **API** (`upload-academic-data`, `action: 'hod-map'`, administrator only, else 403):
+   - parses the sheet (`parseHodMappingFile`): headers recognised by meaning, sections normalised ("O3" → "O 3"), names tidied, e-mails lower-cased, blank rows skipped;
+   - creates every account the sheet names that does not exist yet: HOD e-mails as `hod`, mentor e-mails as `faculty`, on the temporary password, with `must_change_password` (a person named as a HOD anywhere in the sheet is created as a HOD). An address outside the allowed domains is reported, not created;
+   - calls `map_faculty_to_hods(p_rows)` **as the administrator**;
+   - audits `admin.upload_hod_map` with the counts and the accounts created;
+   - answers "N mentor(s) mapped across H HOD(s). … were already correct. … account(s) created — they sign in with the temporary password. … existing account(s) became HOD. … row(s) could not be mapped." with the RPC's result plus `hod_accounts_created`, `faculty_accounts_created` and `account_errors`.
+3. **`map_faculty_to_hods(p_rows)`** (administrator or no JWT; at most 5,000 rows), per row:
+   - "No mentor email in this row", "No HOD email in this row", "The mentor and the HOD are the same person";
+   - the HOD account: missing → "No account has this HOD email"; a **cluster head**, or a **faculty member with no mentees**, becomes a HOD (counted in `promoted_to_hod`; their uploads and subjects stay theirs); a faculty member with mentees → "This HOD is a faculty mentor with N mentee(s). Move them to another mentor first."; any other role → "This HOD email belongs to an account with the <role> role"; deactivated → "This HOD's account is deactivated";
+   - the mentor account: missing → "No account has this mentor email"; not faculty → "This mentor email belongs to an account with the <role> role, not a faculty member";
+   - otherwise sets `hod_id`, `hod_email`, `mentor_section`, `mentor_designation` (counted as `mapped`, or `unchanged` when nothing differs). A mentor named twice ends on the last row. **Mentors the sheet does not mention keep their mapping**, so a sheet for a few sections can be uploaded on its own.
+   - Returns `{total_rows, mapped, unchanged, failed, hods, promoted_to_hod, row_errors[{row, identifier, reason}]}`.
+4. **Page.** The upload panel (no cycle line; tiles Rows in file, Mapped, Already correct, HODs, Not mapped; the row problems table), "Accounts that could not be created" when there are any, "How the mapping works", three KPIs (HODs, Faculty mapped, Not mapped "Seen only by you"), and **Current mapping**: every faculty member with section, name and e-mail, role and HOD, sorted by HOD then section, 25 per page, with a pill per HOD (and "Not mapped") and the top-bar search.
+
+**The HOD's Uploads** (sidebar group before My Profile, open while on one of its pages):
+
+| Entry | Route | Page |
+|---|---|---|
+| Overview | `/hod/uploads` | `ClusterHeadDashboardPage`: "Uploads overview"; "Subjects uploaded" (the subjects their attendance uploads in the active cycle were filed under, `fetchUploadedSubjects`); their own recent uploads |
+| Academic Cycles | `/hod/uploads/cycles` | `ClusterHeadCyclesPage`, unchanged and department-wide |
+| Upload Attendance | `/hod/uploads/attendance` | no subject gate; "Subjects you have uploaded this cycle"; "(new subject)" after an upload that created one; the matching help says the subject comes from the file |
+| Upload GPA / Backlogs / Black dot | `/hod/uploads/gpa`, `/backlogs`, `/black-dots` | unchanged |
+| Rosters & Mentors | `/hod/uploads/rosters` | unchanged, except that the accounts a HOD creates report to them |
+
+There is no setup form, no My Subjects and no second My Profile. The cluster head portal itself is unchanged. Links inside these pages follow the portal they were opened from (`usePortalPaths`), and a cluster head never reaches `/hod/uploads` (or a HOD `/cluster-head`): `RequireRole` sends each to their own home.
+
+**The administrator account.** `npm run db:admin` creates `smp.admin@jaipur.manipal.edu` ("SMP Admin", override with `SSMP_ADMIN_EMAIL`) on the shared temporary password (`SSMP_TEMPORARY_PASSWORD`), forced to change at first sign-in. Supabase Auth files the new account as a student (§4.1), so the script then makes it the administrator itself (`makeAdministrator`). If the address already has an account:
+
+| Existing account | What `db:admin` does |
+|---|---|
+| The administrator | Nothing ("already the administrator") |
+| A student whose auth `user_metadata.role` is `admin` (one this script or the seed made, left as a student by an earlier version or an interrupted run) | Finishes it: "Finished setting up the administrator" |
+| Faculty, a HOD or a cluster head with no mentees | Makes it the administrator; its mapping columns are cleared |
+| Faculty with mentees | Refuses: "… mentors N student(s). Move them to another mentor first." |
+| Any other student | Refuses: "… belongs to a student. Set SSMP_ADMIN_EMAIL to another address." |
+
+The demo seeds create the same account on the seed password (Appendix D); `db:seed` makes it the administrator the same way.
+
+**Deployment order.** Apply `0038` and `0039` as separate transactions (`supabase db push` does), run `npm run db:admin`, sign in as the administrator and upload the mapping. Until then each HOD sees only the faculty whose `hod_email` already named them.
+
+**Known limitations:**
+
+- **Unmapping is not in the sheet.** Removing a mentor from the sheet leaves them with their HOD; move them by uploading a row with the new HOD, or clear `hod_id` by SQL.
+- **Students without a mentor, and faculty nobody has mapped, are the administrator's alone.** A HOD's dashboard therefore always shows 0 unassigned students.
+- **A HOD's uploads and academic cycles are department-wide**, the same as a cluster head's: a HOD's upload can touch students outside their faculty, and the cycle overview and report name every student.
+- **Changing a HOD's role away from `hod`** leaves their faculty's `hod_id` pointing at them; those faculty are then seen only by the administrator until remapped.
+- The `admin` role has no upload screens of its own (the API accepts its uploads); the department's uploads are made by HODs and cluster heads.
 
 ---
 
@@ -2023,6 +2171,8 @@ CORS rules in `applyBaseHeaders`:
 | `parseNoticeDate(text)` | `'YYYY-MM-DD'` for a complete day-first date, otherwise `null` |
 | `REGISTRATION_ALIASES` | The accepted registration-number headings (§10.4) |
 | `parseMentorMappingFile(buffer, filename)` | A plain array `[{rowNumber, identifier, mentor_email, mentor_name}]` |
+| `parseHodMappingFile(buffer, filename)` | The administrator's mentor–HOD sheet → `[{row, section, mentor_name, designation, mentor_email, hod_name, hod_email}]`; headers recognised by meaning, "Cluster Head" accepted for HOD (§10.4) |
+| `normaliseMappingSection(value)` | "O3", "o 3", "O-3" → "O 3"; anything else upper-cased and trimmed |
 | `classifyRole(value)` | `'faculty'`, `'student'` or `null` (substring match, §10.4) |
 | `parseSemesterLabel(value)` | The first digit run (or a standalone Roman numeral) as a number if it is 1–8, otherwise `null` |
 
@@ -2065,6 +2215,9 @@ Everything is drawn with vector primitives: no images except the logo, and no HT
 | `hooks/useAsyncAction.js` | `useAsyncAction()` → `{run, pending}` | `run(fn, {successMessage, onSuccess})`. `successMessage` may be a function of the result. Errors become `toast.error(describeError(err))`. |
 | `hooks/useActiveCycle.js` | `useActiveCycle()` → `{cycle, loading, error, reload}` | The active `academic_cycles` row, read once and shared by every component on the page session (a module-level cache) |
 | | `refreshActiveCycle()` | Re-reads it and updates every mounted `useActiveCycle`; called after a cycle is started, edited or removed |
+| `hooks/usePortalPaths.js` | `usePortalPaths()` → `{role, departmentBase, uploadsBase, isHodUploads, isAdmin}` | The link prefixes for screens mounted in two portals: `/hod` or `/admin`, and `/cluster-head` or `/hod/uploads`. `isHodUploads` switches the cluster head's upload screens into their HOD form (§4.25). |
+| `lib/portalPaths.js` | `departmentBase(role)`, `uploadsBase(role)` | The same prefixes as plain functions |
+| `lib/uploadedSubjects.js` | `fetchUploadedSubjects(uploaderId, cycleId)` | A HOD's subjects: the `current_cycle_courses` rows their attendance batches in the cycle were filed under |
 | `lib/academicCycles.js` | `cycleLabel`, `semesterTitle`, `semesterYear`, `semesterRange`, `semesterOn`, `todayInIndia`, `academicYearOf`, `defaultCycleDates`, `labelForYear`, `nextCycleYear`, `validateCycleDates`, `uploadScope`, `SEMESTERS`, `SEMESTER_NAMES` | Cycle naming ("2026–27", "Odd semester 2026") and date arithmetic that never lets a time zone move a day; `validateCycleDates` runs the database's own date checks before the RPC does (§4.24) |
 | `hooks/useDashboardMetrics.js` | `useDashboardMetrics()` → `{metrics, loading, error, reload}` | `rpc('get_dashboard_metrics')` |
 | `hooks/useRealtimeQueries.js` | `useRealtimeQueries({status, category, search, pageSize = 25})` → `{queries, loading, error, page, setPage, pageCount, total, reload}` | The paged, filtered, live list (§4.4) |
@@ -2109,21 +2262,21 @@ All functions live in schema `public`. Read the table this way:
   A function with nothing in this column is unused.
 - **Purpose** is written against the current function body.
 
-96 functions (0036 added 17).
+101 functions (0036 added 17; 0039 added `is_admin`, `my_overseen_faculty`, `oversees_faculty`, `oversees_student` and `map_faculty_to_hods`).
 
 | Function | Returns | Security | Execute | Migrations | Used by | Purpose |
 |---|---|---|---|---|---|---|
 | `activate_roster_students(p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `import-roster-spreadsheet.js` | Cluster head/HOD/no JWT. For each existing student on a roster: enrol in the active cycle (`roster`), make the file's non-blank semester, section and branch current (trusted operation), fill parent contacts only where empty. Returns `{activated, updated, cycle}`. |
 | `active_cycle_id()` | `uuid` | definer, stable | authenticated, service_role | 0036 | SQL: 8 functions; views `current_cycle_courses`, `student_attendance_overview` | The id of the active academic cycle (null when there is none). |
 | `assign_query_code()` | `trigger` | invoker, volatile | owner only | 0004, 0031 | trigger `trg_assign_query_code` on `support_queries` | BEFORE INSERT trigger on `support_queries`: sets `query_code = 'AN-' \|\| nextval(query_code_seq)` (AN-1001 onwards). |
-| `can_access_query(p_query_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007, 0031 | 1 RLS/storage policy | True when the caller is the query's student, its mentor, or the HOD. Used by the `query_messages` SELECT policy. |
-| `can_access_student(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007 | 12 RLS/storage policies | True for the student themself, their assigned mentor, or the HOD. The main read-scope helper in RLS and storage policies. |
-| `can_view_student_gpa(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: `get_student_dossier`; 1 RLS/storage policy | True for the student and the HOD; for the mentor, `coalesce(gpa_sharing_enabled, true)`. Gates `student_semester_gpas` reads and the dossier GPA. |
+| `can_access_query(p_query_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007, 0031, 0039 | 1 RLS/storage policy | True when the caller is the query's student, its mentor, or `oversees_faculty(mentor_id)` (that mentor's HOD, or the administrator). Used by the `query_messages` SELECT policy. |
+| `can_access_student(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007, 0039 | 12 RLS/storage policies | True for the student themself, their assigned mentor, or `oversees_student` (the mentor's HOD, or the administrator). The main read-scope helper in RLS and storage policies. |
+| `can_view_student_gpa(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007, 0039 | SQL: `get_student_dossier`; 1 RLS/storage policy | True for the student and `oversees_student` (their mentor's HOD, the administrator); for the mentor, `coalesce(gpa_sharing_enabled, true)`. Gates `student_semester_gpas` reads and the dossier GPA. |
 | `carry_over_cycle_students(p_from_cycle_id uuid)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Enrols every active student of an earlier cycle in the active one (`carried_over`) with their current profile values; changes no profile. Returns `{carried_over}`. |
 | `confirm_query_resolution(p_query_id uuid, p_response confirmation_response, p_comment text)` | `support_queries` | definer, volatile | authenticated | 0009, 0018, 0031 | `ResolutionConfirmation.jsx` | Student answers "was it fixed?". `yes` → confirmed (closed). `no` → reopened, In Progress, `reopen_count+1`; refused at the cap of 3. Comment ≤ 1000. Writes a system message. |
 | `consume_rate_limit(p_bucket_key text, p_max_requests integer, p_window_seconds integer)` | `boolean` | definer, volatile | service_role | 0015 | `request-guards.js` | Fixed-window counter for the API: upserts `(bucket_key, window_start)`, 1% chance to purge rows > 1 day old, returns `count <= max`. Service role only. |
 | `create_academic_cycle(p_start_year integer, p_starts_on date default null, p_even_starts_on date default null, p_ends_on date default null)` | `jsonb` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Starts the next cycle: after the latest one, dates checked (defaults 1 Jul / 1 Jan / 30 Jun); closes the active cycle, activates the new one, copies every cluster head's subjects, audits `academic_cycle.create`. Returns `{cycle, previous, subjects_copied}`. |
-| `create_at_risk_meeting_link(p_meeting_id uuid)` | `at_risk_meetings` | definer, volatile | authenticated, service_role | 0022 | SQL: `dispatch_at_risk_meetings` | **Placeholder.** Checks mentor/HOD/no-JWT, then returns the meeting unchanged (`TODO(provider)`: Teams/Meet link creation is not implemented). |
+| `create_at_risk_meeting_link(p_meeting_id uuid)` | `at_risk_meetings` | definer, volatile | authenticated, service_role | 0022, 0039 | SQL: `dispatch_at_risk_meetings` | **Placeholder.** Checks the mentor, `oversees_faculty(mentor_id)` or no JWT, then returns the meeting unchanged (`TODO(provider)`: Teams/Meet link creation is not implemented). |
 | `create_support_query(p_subject text, p_category query_category, p_description text, p_priority query_priority)` | `support_queries` | definer, volatile | authenticated | 0009, 0031 | `CreateQueryModal.jsx` | Student raises a query: active student with a mentor, subject ≤ 200, description ≤ 5000, fewer than 20 unresolved. Inserts the query and its first message. |
 | `current_user_role()` | `user_role` | definer, stable | authenticated, service_role | 0007 | — (unused) | Returns the caller's `user_profiles.role`. **Unused.** |
 | `cycle_containing(p_date date)` | `uuid` | definer, stable | authenticated, service_role | 0036 | SQL: `tag_black_dot_with_cycle` | The cycle whose dates contain the date (the active one first if two overlap), or null. |
@@ -2132,32 +2285,35 @@ All functions live in schema `public`. Read the table this way:
 | `dispatch_at_risk_meetings(p_job_run_id uuid)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0036 | SQL: `run_cycle_job` | HOD/no JWT. For every flagged student with a mentor and no open meeting, inserts an `awaiting_link` meeting (with the black dot count in its snapshot, filed under the active cycle) and calls the link stub. Returns `{meetings_created, already_open, without_mentor}`. |
 | `enqueue_notification(p_recipient uuid, p_actor uuid, p_type notification_type, p_title text, p_body text, p_query uuid, p_link text)` | `void` | definer, volatile | owner only | 0011, 0031 | SQL: 13 functions | The only notification writer. Skips a NULL recipient and recipient = actor. Not executable by clients. |
 | `enroll_student_in_cycle(p_cycle_id uuid, p_student_id uuid, p_via text)` | `void` | definer, volatile | owner only | 0036 | SQL: `activate_roster_students`, `map_students_to_mentors`, `sync_student_cycle_enrollment` | Internal. Upserts the student's `academic_cycle_students` row with their current semester, section, branch and mentor; keeps the first `activated_via`. |
-| `escalate_query_to_hod(p_query_id uuid, p_note text)` | `support_queries` | definer, volatile | authenticated | 0018, 0030, 0031 | `FacultyQueryDetailPage.jsx`, `FacultyQueryQueuePage.jsx` | Mentor (or HOD) refers a query to the HOD: any status, once, note ≤ 1000. Notifies the active HOD matching the **caller's** `hod_email` (else all active HODs except the caller) and the student; writes a system message. |
+| `escalate_query_to_hod(p_query_id uuid, p_note text)` | `support_queries` | definer, volatile | authenticated | 0018, 0030, 0031, 0039 | `FacultyQueryDetailPage.jsx`, `FacultyQueryQueuePage.jsx` | Mentor (or their HOD, or the administrator) refers a query to the HOD: any status, once, note ≤ 1000. Notifies the active HOD the **query's mentor** is mapped to (`hod_id`), else every active administrator, and the student; writes a system message. |
 | `evaluate_all_students_risk()` | `jsonb` | definer, volatile | authenticated, service_role | 0022 | SQL: `run_cycle_job` | HOD/no JWT. Runs `evaluate_student_risk` for every active student. Returns `{evaluated, at_risk}`. |
 | `evaluate_student_risk(p_student_id uuid)` | `student_risk_flags` | definer, volatile | authenticated, service_role | 0022, 0025, 0036 | SQL: `evaluate_all_students_risk`, `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch`, `reevaluate_students_batch` | Recomputes one student's flags: mean latest attendance in the active cycle < 75, GPA of the latest semester < 6, uncleared backlogs ≥ 1, black dots in the active cycle ≥ 1. Upserts `student_risk_flags`. **No caller check** (see §8.9). |
 | `get_active_survey_for_student()` | `jsonb` | definer, stable | authenticated | 0023 | `StudentSurveyPage.jsx` | Student only. Returns the active cycle, whether the caller has submitted, and the active questions. |
 | `get_cycle_job_status()` | `jsonb` | definer, stable | authenticated | 0024 | `run-cycle-job.js` | HOD only. Job schedule rows, the last 25 runs, active survey cycle, at-risk count, open meeting count. |
 | `get_cycle_overview(p_cycle_id uuid default null, p_semester semester_term default null)` | `jsonb` | definer, stable | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx`, `academic-cycle-report.js` | Cluster head/HOD/no JWT. One cycle (default the active one), whole or one semester: students, mentors, uploads, roster imports, attendance, GPA upload counts, backlogs, black dots, stale risk flags. Counts and averages only, no student named (§4.24). |
-| `get_dashboard_metrics()` | `jsonb` | definer, stable | authenticated | 0013, 0031 | `useDashboardMetrics.js` | Role-aware dashboard numbers: student / faculty / everyone else (HOD branch, also reached by cluster heads). Category counts are legacy-only. |
-| `get_department_faculty_report(p_from date, p_to date)` | `jsonb` | definer, stable | authenticated | 0019, 0031 | `FacultyActivityReportPage.jsx`, `faculty-activity-report.js` | HOD only. Department-wide report JSON for a period (summary, by category/status, monthly trend, per-faculty rows). |
-| `get_faculty_activity_report(p_faculty_id uuid, p_from date, p_to date)` | `jsonb` | definer, stable | authenticated | 0013, 0030, 0031 | `FacultyActivityReportPage.jsx`, `faculty-activity-report.js` | Faculty (self only) or HOD (anyone). Activity report JSON for a period; defaults to the last 90 days. |
+| `get_dashboard_metrics()` | `jsonb` | definer, stable | authenticated | 0013, 0031, 0039 | `useDashboardMetrics.js` | Role-aware dashboard numbers: student / faculty / everyone else (a HOD: their mapped faculty and mentees; the administrator and cluster heads: the department; `coverage` says which). Category counts are legacy-only. |
+| `get_department_faculty_report(p_from date, p_to date)` | `jsonb` | definer, stable | authenticated | 0019, 0031, 0039 | `FacultyActivityReportPage.jsx`, `faculty-activity-report.js` | HOD or administrator. All-faculty report JSON for a period (summary, by category/status, monthly trend, per-faculty rows): a HOD's covers their mapped faculty (`coverage: 'hod'`, `hod_name`), the administrator's the department. `scope` stays `'department'`. |
+| `get_faculty_activity_report(p_faculty_id uuid, p_from date, p_to date)` | `jsonb` | definer, stable | authenticated | 0013, 0030, 0031, 0039 | `FacultyActivityReportPage.jsx`, `faculty-activity-report.js` | Faculty (self only), their HOD or the administrator. Activity report JSON for a period; defaults to the last 90 days. |
 | `get_mentor_group_queries()` | `jsonb` | definer, stable | authenticated | 0017, 0031 | `StudentGroupQueriesPage.jsx` | Star mentee only. Every query of the mentor group, narrow projection (no ids, bodies, e-mails or registration numbers). |
 | `get_mentor_group_survey_status()` | `TABLE(cycle_id uuid, cycle_number integer, opens_on date, closes_on date, student_name text, registration_no text, section text, has_submitted boolean, is_me boolean)` | definer, stable | authenticated | 0023 | `StudentSurveyTrackingPage.jsx` | Star mentee only. The group's active students with has-submitted status for the active cycle. |
-| `get_student_dossier(p_student_id uuid)` | `jsonb` | definer, stable | authenticated | 0013, 0031, 0035 | `FacultyMenteeDetailPage.jsx`, `student-dossier-report.js` | Student themself, mentor or HOD. Everything about one student: profile, mentor, Form A, GPAs with credits and the official `cgpa_record` (if visible; `gpa_stats.cgpa` is the official CGPA when there is one, flagged by `cgpa_official`), backlogs (open first), black dots, achievements, query summary and history. |
-| `guard_protected_profile_columns()` | `trigger` | invoker, volatile | PUBLIC | 0007, 0021, 0035 | trigger `trg_guard_protected_profile_columns` on `user_profiles` | BEFORE UPDATE trigger on `user_profiles`: blocks self-service changes to protected columns unless HOD, no JWT, or `ssmp.trusted_operation = on`. |
+| `get_student_dossier(p_student_id uuid)` | `jsonb` | definer, stable | authenticated | 0013, 0031, 0035, 0039 | `FacultyMenteeDetailPage.jsx`, `student-dossier-report.js` | Student themself, mentor, the mentor's HOD or the administrator. Everything about one student: profile, mentor, Form A, GPAs with credits and the official `cgpa_record` (if visible; `gpa_stats.cgpa` is the official CGPA when there is one, flagged by `cgpa_official`), backlogs (open first), black dots, achievements, query summary and history. |
+| `guard_protected_profile_columns()` | `trigger` | invoker, volatile | PUBLIC | 0007, 0021, 0035, 0039 | trigger `trg_guard_protected_profile_columns` on `user_profiles` | BEFORE UPDATE trigger on `user_profiles`: blocks changes to protected columns unless no JWT, `ssmp.trusted_operation = on` or the administrator. The mentor–HOD mapping columns are the administrator's alone; a HOD may change the rest but not grant or remove `hod` / `admin` (§4.25). |
 | `handle_auth_user_email_change()` | `trigger` | definer, volatile | PUBLIC | 0002 | trigger `trg_on_auth_user_email_changed` on `users` | AFTER UPDATE trigger on `auth.users`: copies a changed e-mail to `user_profiles.email`. |
-| `handle_new_auth_user()` | `trigger` | definer, volatile | PUBLIC | 0002, 0021 | trigger `trg_on_auth_user_created` on `users` | AFTER INSERT trigger on `auth.users`: creates the `user_profiles` row from `raw_user_meta_data` (role of the four, else student; department default 'IoT & IS'; `must_change_password` default true). |
+| `handle_new_auth_user()` | `trigger` | definer, volatile | PUBLIC | 0002, 0021, 0039 | trigger `trg_on_auth_user_created` on `users` | AFTER INSERT trigger on `auth.users`: creates the `user_profiles` row from `raw_user_meta_data` (student, faculty, hod or cluster_head as asked, else student; `admin` only when the inserted row's `raw_app_meta_data.role` is also `admin`, which `auth.admin.createUser` never provides because it writes `app_metadata` after the insert, so the account scripts set the role themselves, §4.1; department default 'IoT & IS'; `must_change_password` default true). |
+| `is_admin()` | `boolean` | definer, stable | authenticated, service_role | 0039 | SQL: `oversees_faculty`, `oversees_student`, `guard_protected_profile_columns`, `map_faculty_to_hods`, `get_department_faculty_report`, `reassign_mentees`; 10 RLS/storage policies | Caller is an active administrator. |
 | `is_blank_mark(p_value text)` | `boolean` | invoker, immutable | authenticated, service_role | 0035 | SQL: `record_gpa_batch`, `record_backlog_batch` | True for an empty cell or an ERP placeholder (`-`, `--`, `NA`, `N/A`): "nothing here". |
 | `is_cluster_head()` | `boolean` | definer, stable | authenticated, service_role | 0021 | SQL: 16 functions; 3 RLS/storage policies | Caller is an active cluster head. |
 | `is_faculty()` | `boolean` | definer, stable | authenticated, service_role | 0007 | 3 RLS/storage policies | Caller is an active faculty member. |
-| `is_hod()` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: 41 functions; 20 RLS/storage policies | Caller is an active HOD. |
+| `is_hod()` | `boolean` | definer, stable | authenticated, service_role | 0007, 0039 | SQL: 26 functions; 10 RLS/storage policies | Caller is an active HOD **or the administrator** (since 0039). Department-level permission only (uploads, cycles, jobs, roster imports); who a HOD sees is `oversees_*`. |
 | `is_mentor_of(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: `can_access_student`, `can_view_student_gpa`, `get_student_dossier`, `set_achievement_verification`, `set_star_mentee` | Caller is the assigned mentor of the given student. |
 | `is_non_blank(value text)` | `boolean` | invoker, immutable | PUBLIC | 0001 | SQL: 6 functions | `value is not null and length(btrim(value)) > 0`. Used in CHECK constraints and RPC validation. |
 | `is_student()` | `boolean` | definer, stable | authenticated, service_role | 0007 | SQL: `get_active_survey_for_student`, `set_gpa_sharing`, `submit_survey_response`, `upsert_semester_gpa`; 3 RLS/storage policies | Caller is an active student. |
 | `list_academic_cycles()` | `jsonb` | definer, stable | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Every cycle, newest first, with students, uploads, roster imports, `can_delete` and `current_semester`. |
 | `map_students_to_mentors(p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0027, 0033, 0036 | `upload-academic-data.js` | Cluster head/HOD/no JWT. Sets `assigned_mentor_id` per row (registration no. → mentor e-mail), skipping unchanged; per-row errors. Enrols every matched student in the active cycle (`mentor_map`). Triggers reassignment notifications and log. |
+| `map_faculty_to_hods(p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0039 | `upload-academic-data.js`, `seed-demo-accounts.mjs`, `seed.sql` | Administrator/no JWT. Applies the mentor–HOD mapping sheet (≤ 5000 rows): per row, matches the HOD and the mentor by e-mail, makes a cluster head (or a faculty member with no mentees) named as HOD a HOD, and sets the mentor's `hod_id`, `hod_email`, `mentor_section`, `mentor_designation`. Returns `{total_rows, mapped, unchanged, failed, hods, promoted_to_hod, row_errors}` (§4.25). |
 | `mark_all_notifications_read()` | `integer` | definer, volatile | authenticated | 0010 | `NotificationProvider.jsx` | Marks all of the caller's unread notifications read; returns the count. |
 | `max_resolution_rejections()` | `integer` | invoker, immutable | authenticated, service_role | 0018 | SQL: `confirm_query_resolution` | Returns 3: how many times a student may reject a resolution. |
+| `my_overseen_faculty()` | `uuid[]` | definer, stable | authenticated, service_role | 0039 | SQL: `get_dashboard_metrics`, `get_department_faculty_report`; 8 RLS/storage policies | The faculty mapped to the calling active HOD (`hod_id`); empty for everyone else. Read in policies as `(select my_overseen_faculty())::uuid[]`, once per statement. |
 | `my_mentor_id()` | `uuid` | definer, stable | authenticated, service_role | 0007, 0016 | 2 RLS/storage policies | The caller's `assigned_mentor_id`. SECURITY DEFINER so policies can use it without recursion (0016). |
 | `notify_on_achievement_verified()` | `trigger` | definer, volatile | PUBLIC (default) | 0011 | trigger `trg_notify_achievement_verified` on `student_achievements` | Trigger: verification false → true notifies the student. |
 | `notify_on_at_risk_meeting()` | `trigger` | definer, volatile | PUBLIC (default) | 0022 | trigger `trg_notify_at_risk_meeting` on `at_risk_meetings` | Trigger: a new at-risk meeting notifies the mentor and stamps `mentor_notified_at`. |
@@ -2169,10 +2325,12 @@ All functions live in schema `public`. Read the table this way:
 | `notify_on_risk_flag_change()` | `trigger` | definer, volatile | PUBLIC (default) | 0022, 0036 | trigger `trg_notify_risk_flag_change` on `student_risk_flags` | Trigger: at-risk state changes notify the mentor. A first evaluation that is not at risk sends nothing (B2 fixed in 0036); "no longer at-risk" is suppressed while `ssmp.quiet_risk_notifications` is on. |
 | `notify_on_star_mentee_change()` | `trigger` | definer, volatile | PUBLIC (default) | 0011, 0017, 0031 | trigger `trg_notify_star_mentee` on `user_profiles` | Trigger: becoming the star mentee notifies the student. |
 | `open_survey_cycle(p_trigger cycle_job_trigger, p_job_run_id uuid, p_window_days integer)` | `survey_cycles` | definer, volatile | authenticated, service_role | 0023 | SQL: `run_cycle_job` | HOD/no JWT. Deactivates the active cycle, opens cycle n+1 for `interval_days` (inclusive), notifies every active student. |
-| `post_query_message(p_query_id uuid, p_body text)` | `query_messages` | definer, volatile | authenticated | 0009, 0031 | `QueryConversation.jsx` | Participant or HOD posts a message (≤ 5000). First staff reply sets `first_response_at`; a staff reply moves Open → In Progress. |
+| `oversees_faculty(p_faculty_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0039 | SQL: `can_access_query` and 9 workflow and report functions | The administrator, or the active HOD this faculty member is mapped to. |
+| `oversees_student(p_student_id uuid)` | `boolean` | definer, stable | authenticated, service_role | 0039 | SQL: `can_access_student`, `can_view_student_gpa` and 5 workflow functions; 1 RLS/storage policy | The administrator, or the active HOD of the student's mentor. |
+| `post_query_message(p_query_id uuid, p_body text)` | `query_messages` | definer, volatile | authenticated | 0009, 0031, 0039 | `QueryConversation.jsx` | Student, mentor, the mentor's HOD or the administrator posts a message (≤ 5000). First staff reply (faculty, HOD, administrator) sets `first_response_at`; a staff reply moves Open → In Progress. |
 | `rate_support_query(p_query_id uuid, p_rating smallint)` | `support_queries` | definer, volatile | authenticated | 0009, 0031 | `SatisfactionRating.jsx` | Query owner rates a Resolved query 1–5, once. |
-| `reassign_mentees(p_student_ids uuid[], p_to_mentor_id uuid, p_reason text)` | `integer` | definer, volatile | authenticated, service_role | 0015 | `manage-faculty-roster.js` | HOD only. Moves up to 500 students to an active mentor (no capacity or ownership check). Log rows get the reason. Queries are moved by the API, not here. |
-| `record_attendance_batch(p_course_code text, p_course_name text, p_section text, p_period_start date, p_period_end date, p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0025, 0027, 0033, 0036 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One attendance upload into the active cycle: course by code among the caller's subjects **in the active cycle**, per-row sections, upsert per (student, course, period start), risk re-evaluation. Returns the counts plus `cycle` and `semester`. |
+| `reassign_mentees(p_student_ids uuid[], p_to_mentor_id uuid, p_reason text)` | `integer` | definer, volatile | authenticated, service_role | 0015, 0039 | `manage-faculty-roster.js` | HOD or administrator. Moves up to 500 students to an active mentor (no capacity or ownership check); for a HOD, the target and every student must be in their scope. Log rows get the reason. Queries are moved by the API, not here. |
+| `record_attendance_batch(p_course_code text, p_course_name text, p_section text, p_period_start date, p_period_end date, p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0025, 0027, 0033, 0036, 0039 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/administrator/no JWT. One attendance upload into the active cycle: course by code among the caller's subjects **in the active cycle** (a HOD: any account's, own first, **created from the file when there is none**), per-row sections, upsert per (student, course, period start), risk re-evaluation. Returns the counts plus `cycle`, `semester` and `course_created`. |
 | `record_backlog_batch(p_semester_number smallint, p_exam_session text, p_filename text, p_rows jsonb, p_subject_codes text[] default null)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0033, 0035 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One backlog upload for a semester: Defaulter Grade rows (a grade list per student) or one subject per row; matches subject codes case-insensitively; with `p_subject_codes`, clears every open backlog in those subjects the file no longer marks. Re-evaluates risk. (0035 dropped the four-argument version.) |
 | `record_black_dot_batch(p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0035, 0036 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One PB notice: a black dot per student per case, upsert on `(student, lower(case_number))`, with the notice's name checked against the account. Re-evaluates every student it names (`students_reevaluated`). |
 | `record_gpa_batch(p_semester_number smallint, p_filename text, p_rows jsonb)` | `jsonb` | definer, volatile | authenticated, service_role | 0022, 0025, 0033, 0035 | `seed-demo-accounts.mjs`, `upload-academic-data.js` | Cluster head/HOD/no JWT. One GPA upload: every graded semester per student with credits, plus the official CGPA into `student_cgpas`; a row is all or nothing; values validated with `try_numeric`; rows of dashes skipped. The flat one-semester shape still works. Re-evaluates risk. |
@@ -2181,31 +2339,31 @@ All functions live in schema `public`. Read the table this way:
 | `request_form_a_unlock()` | `void` | definer, volatile | authenticated | 0010 | — (unused) | **Dead** (no caller; Form A has been editable since 0017). Sets `unlock_requested` on a locked form. |
 | `resolve_student_ids(p_identifiers text[])` | `jsonb` | definer, stable | authenticated, service_role | 0033, 0035 | SQL: `map_students_to_mentors`, `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch` | Batch registration number → student id map for uploads (active students; **registration number only**). Cluster head, HOD or no JWT only (S3 closed in 0035). |
 | `resolve_students_for_upload(p_identifiers text[])` | `TABLE(student_id uuid, registration_no text, full_name text, section text, matched_on text)` | definer, stable | authenticated, service_role | 0021 | — (unused) | **Dead** (no caller since 0033). Cluster head/HOD identifier lookup returning matched students. |
-| `resolve_support_query(p_query_id uuid, p_note text)` | `support_queries` | definer, volatile | authenticated | 0009, 0031 | `FacultyCrReportsPage.jsx`, `FacultyQueryDetailPage.jsx` | Mentor or HOD resolves: Resolved + pending_confirmation, `resolved_by/at`, system message (optional note). |
+| `resolve_support_query(p_query_id uuid, p_note text)` | `support_queries` | definer, volatile | authenticated | 0009, 0031, 0039 | `FacultyCrReportsPage.jsx`, `FacultyQueryDetailPage.jsx` | Mentor, their HOD or the administrator resolves: Resolved + pending_confirmation, `resolved_by/at`, system message (optional note). |
 | `respond_to_counselling(p_request_id uuid, p_note text, p_close boolean)` | `counselling_requests` | definer, volatile | authenticated | 0029 | `FacultyCounsellingPage.jsx` | Assigned mentor replies (≤ 3000): overwrites `mentor_note`, sets acknowledged or closed. |
 | `run_all_cycle_jobs_now(p_note text)` | `jsonb` | definer, volatile | authenticated, service_role | 0024 | `run-cycle-job.js` | HOD/no JWT. Runs at_risk_sweep → at_risk_meeting_dispatch → survey_cycle as manual (not the reminder sweep). |
 | `run_cycle_job(p_job_type cycle_job_type, p_trigger cycle_job_trigger, p_note text)` | `jsonb` | definer, volatile | authenticated, service_role | 0024 | `run-cycle-job.js`, `seed-demo-accounts.mjs`; SQL: `run_all_cycle_jobs_now`, `run_due_cycle_jobs` | HOD/no JWT. Runs one job with a `cycle_job_runs` row; manual runs leave `next_run_due_on`; scheduled runs advance it. A failure re-raises (rolls back the run row). |
 | `run_due_cycle_jobs()` | `jsonb` | definer, volatile | authenticated, service_role | 0024 | — (unused) | **Dead** (no caller, no scheduler). Would run every enabled job due today as `scheduled`. |
 | `semester_term_of_number(p_semester integer)` | `semester_term` | invoker, immutable | authenticated, service_role | 0036 | SQL: `get_cycle_overview`; view `academic_upload_history` | Programme semester parity: 1, 3, 5, 7 → `Odd`; 2, 4, 6, 8 → `Even`. Files backlogs under a semester. |
 | `send_survey_reminders()` | `jsonb` | definer, volatile | authenticated, service_role | 0023 | SQL: `run_cycle_job` | HOD/no JWT. Notifies active students without a response in the active cycle. |
-| `set_achievement_verification(p_achievement_id uuid, p_verified boolean)` | `student_achievements` | definer, volatile | authenticated | 0010 | `FacultyMenteeDetailPage.jsx` | Mentor or HOD sets `verified_by_faculty` on an achievement. |
-| `set_at_risk_meeting_status(p_meeting_id uuid, p_status at_risk_meeting_status)` | `at_risk_meetings` | definer, volatile | authenticated | 0022 | `FacultyAtRiskPage.jsx` | Organising mentor or HOD sets any meeting status; stamps completed/cancelled time. No transition validation. |
-| `set_faculty_employment_status(p_faculty_id uuid, p_status employment_status, p_available boolean)` | `user_profiles` | definer, volatile | authenticated, service_role | 0015 | `manage-faculty-roster.js` | HOD only. Sets employment status; a non-active status forces `available_for_reassignment = false` unless `p_available` is given. |
+| `set_achievement_verification(p_achievement_id uuid, p_verified boolean)` | `student_achievements` | definer, volatile | authenticated | 0010, 0039 | `FacultyMenteeDetailPage.jsx` | Mentor, their HOD or the administrator sets `verified_by_faculty` on an achievement. |
+| `set_at_risk_meeting_status(p_meeting_id uuid, p_status at_risk_meeting_status)` | `at_risk_meetings` | definer, volatile | authenticated | 0022, 0039 | `FacultyAtRiskPage.jsx` | Organising mentor, their HOD or the administrator sets any meeting status; stamps completed/cancelled time. No transition validation. |
+| `set_faculty_employment_status(p_faculty_id uuid, p_status employment_status, p_available boolean)` | `user_profiles` | definer, volatile | authenticated, service_role | 0015, 0039 | `manage-faculty-roster.js` | That faculty member's HOD or the administrator. Sets employment status; a non-active status forces `available_for_reassignment = false` unless `p_available` is given. |
 | `set_gpa_sharing(p_enabled boolean)` | `boolean` | definer, volatile | authenticated | 0010 | — (unused) | No caller in the code (the UI toggle was removed), but still executable by students: sets their own `gpa_sharing_enabled`. |
-| `set_mentor_department_and_hod(p_department text, p_hod_email text)` | `integer` | definer, volatile | authenticated | 0030, 0031 | `FacultyMenteesPage.jsx` | Faculty only. Sets own `department` and `hod_email` (must be an active HOD) and copies the department to all mentees. |
-| `set_query_in_progress(p_query_id uuid)` | `support_queries` | definer, volatile | authenticated | 0027, 0031 | `FacultyCrReportsPage.jsx` | Mentor or HOD marks a query In Progress (resolution none); system message. Used for CR-report items, but accepts any query not yet confirmed. |
-| `set_star_mentee(p_student_id uuid, p_is_star boolean)` | `user_profiles` | definer, volatile | authenticated | 0010 | `FacultyMenteeDetailPage.jsx`, `FacultyMenteesPage.jsx` | Mentor or HOD sets/clears the star mentee; at most one per mentor (row lock, clears others; no unique index). |
+| `set_mentor_department_and_hod(p_department text, p_hod_email text)` | `integer` | definer, volatile | authenticated | 0030, 0031, 0039 | `FacultyMenteesPage.jsx` | Faculty only. Sets own `department`; a mapped mentor keeps the mapped HOD (another e-mail is refused), an unmapped one names an active HOD and is mapped to them (`hod_id`, `hod_email`). Copies the department to all mentees. |
+| `set_query_in_progress(p_query_id uuid)` | `support_queries` | definer, volatile | authenticated | 0027, 0031, 0039 | `FacultyCrReportsPage.jsx` | Mentor, their HOD or the administrator marks a query In Progress (resolution none); system message. Used for CR-report items, but accepts any query not yet confirmed. |
+| `set_star_mentee(p_student_id uuid, p_is_star boolean)` | `user_profiles` | definer, volatile | authenticated | 0010, 0039 | `FacultyMenteeDetailPage.jsx`, `FacultyMenteesPage.jsx` | Mentor, their HOD or the administrator sets/clears the star mentee; at most one per mentor (row lock, clears others; no unique index). |
 | `set_updated_at_timestamp()` | `trigger` | invoker, volatile | PUBLIC | 0001 | 16 `updated_at` triggers | BEFORE UPDATE trigger: `new.updated_at = now()`. |
 | `submit_cluster_head_setup(p_courses jsonb)` | `SETOF cluster_head_courses` | definer, volatile | authenticated | 0021, 0032, 0036 | `ClusterHeadCoursesPage.jsx`, `ClusterHeadSetupPage.jsx` | Cluster head only. Replaces the subject list **of the active cycle** (1–60, unique codes); deletes removed codes (cascades that cycle's attendance); marks setup complete. |
 | `submit_mom_report(p_meeting_date date, p_notes text, p_items jsonb, p_students_present integer, p_students_total integer)` | `mom_records` | definer, volatile | authenticated | 0027, 0031 | `StudentCrReportPage.jsx` | Star mentee files a CR report (≤ 12 items); each item becomes a query with `mom_id`; one summary notification to the mentor (each item's first message also notifies). |
 | `submit_student_form_a(p_payload jsonb)` | `student_form_a_profiles` | definer, volatile | authenticated | 0010, 0017 | `StudentOnboardingFormPage.jsx`, `StudentProfilePage.jsx` | Student submits/updates Form A (upsert), marks onboarding complete, copies phone/section/branch to the profile. |
 | `submit_survey_response(p_cycle_id uuid, p_answers jsonb)` | `survey_responses` | definer, volatile | authenticated | 0023 | `StudentSurveyPage.jsx` | Student answers the active cycle once; all active questions, ratings 1–5; stores the current mentor. |
 | `sync_student_cycle_enrollment()` | `trigger` | definer, volatile | owner only | 0036 | trigger `trg_sync_student_cycle_enrollment` on `user_profiles` | AFTER INSERT or UPDATE of mentor, section, semester, branch or role: enrols the student in the active cycle (`account` or `profile`) and refreshes that cycle's snapshot. Closed cycles are never touched. |
-| `tag_attendance_with_cycle()` | `trigger` | definer, volatile | owner only | 0036 | trigger `trg_attendance_cycle` on `student_attendance_records` | BEFORE INSERT: sets `cycle_id` to the subject's cycle. |
-| `tag_black_dot_with_cycle()` | `trigger` | definer, volatile | owner only | 0036 | trigger `trg_black_dots_cycle` on `student_black_dots` | BEFORE INSERT: sets `cycle_id` to the cycle containing the incident date, else the active cycle. |
-| `tag_row_with_active_cycle()` | `trigger` | definer, volatile | owner only | 0036 | 5 triggers: `academic_upload_batches`, `roster_import_batches`, `cluster_head_courses`, `student_backlogs`, `at_risk_meetings` | BEFORE INSERT: sets a missing `cycle_id` to the active cycle. With the argument `required`, refuses when there is none ("There is no active academic cycle..."). |
+| `tag_attendance_with_cycle()` | `trigger` | definer, volatile | owner only | 0036, 0039 | trigger `trg_attendance_cycle` on `student_attendance_records` | BEFORE INSERT: sets `cycle_id` to the subject's cycle. |
+| `tag_black_dot_with_cycle()` | `trigger` | definer, volatile | owner only | 0036, 0039 | trigger `trg_black_dots_cycle` on `student_black_dots` | BEFORE INSERT: sets `cycle_id` to the cycle containing the incident date, else the active cycle. |
+| `tag_row_with_active_cycle()` | `trigger` | definer, volatile | owner only | 0036, 0039 | 5 triggers: `academic_upload_batches`, `roster_import_batches`, `cluster_head_courses`, `student_backlogs`, `at_risk_meetings` | BEFORE INSERT: sets a missing `cycle_id` to the active cycle. With the argument `required`, refuses when there is none ("There is no active academic cycle..."). |
 | `try_numeric(p_value text)` | `numeric` | invoker, immutable | authenticated, service_role | 0035 | SQL: `record_gpa_batch`, `record_backlog_batch`, `record_black_dot_batch` | A plain decimal, or NULL instead of an error, so a stray word in a numeric cell is a row error (B7). |
-| `unlock_student_form_a(p_student_id uuid)` | `void` | definer, volatile | authenticated | 0010 | — (unused) | **Dead** (no caller). HOD only; clears the lock **and sets `form_a_completed = false`**, which would send the student back through onboarding. |
+| `unlock_student_form_a(p_student_id uuid)` | `void` | definer, volatile | authenticated | 0010, 0039 | — (unused) | **Dead** (no caller). The student's HOD or the administrator; clears the lock **and sets `form_a_completed = false`**, which would send the student back through onboarding. |
 | `update_academic_cycle_dates(p_cycle_id uuid, p_starts_on date, p_even_starts_on date, p_ends_on date)` | `academic_cycles` | definer, volatile | authenticated, service_role | 0036 | `ClusterHeadCyclesPage.jsx` | Cluster head/HOD/no JWT. Corrects a cycle's dates (same checks as creation); every row's semester is recomputed on read. Audits `academic_cycle.update_dates`. |
 | `upsert_semester_gpa(p_semester_number smallint, p_gpa numeric)` | `student_semester_gpas` | definer, volatile | owner only | 0010, 0021, 0037 | — (unused) | **Retired in 0037.** Was the student's own GPA entry (1–8, 0–10; refused for department-published semesters). No longer executable by signed-in users; kept so it could be re-granted. |
 | `write_audit_entry(p_actor_id uuid, p_action text, p_entity_type text, p_entity_id text, p_metadata jsonb, p_ip_address text, p_user_agent text)` | `void` | definer, volatile | service_role | 0015 | `request-guards.js` | Inserts into `audit_log`. Executable by `service_role` only. |
@@ -2264,7 +2422,7 @@ All functions live in schema `public`. Read the table this way:
 
 | | |
 |---|---|
-| **Roles** | `hod` |
+| **Roles** | `hod`, `admin` |
 | **Rate limit** | `provision-accounts`: 20 per 60 s |
 | **Body limit** | 2 MB (`assertBodySize`) |
 | **Request** | `{"accounts": [ … 1–500 × provisionUserSchema ]}` |
@@ -2291,15 +2449,17 @@ All functions live in schema `public`. Read the table this way:
 
 Processing, per account:
 
+0. For a HOD caller (0039): a `hod` account → failed, "Only the administrator can create HOD accounts"; a student whose `assigned_mentor_id` is not one of the HOD's own faculty → failed, "That mentor does not report to you".
 1. If `user_profiles.email` matches (case-insensitive) → skipped: "An account with this email already exists".
 2. `auth.admin.createUser({email, password: TEMPORARY_PASSWORD, email_confirm: true, user_metadata: {role, full_name, login_id, branch, section, semester_label, department (default 'IoT & IS'), phone, must_change_password: true}, app_metadata: {role}})`. An error → failed.
-3. If `assigned_mentor_id` is given **and the role is `student`**, a service-role `update user_profiles set assigned_mentor_id`. For other roles the field is silently ignored. Failure → failed, "Account created but mentor assignment failed: …", but the account remains.
+3. A faculty account created by a HOD gets `hod_id` and `hod_email` set to that HOD (service role). Failure → failed, "Account created but not placed under you: …", but the account remains.
+4. If `assigned_mentor_id` is given **and the role is `student`**, a service-role `update user_profiles set assigned_mentor_id`. For other roles the field is silently ignored. Failure → failed, "Account created but mentor assignment failed: …", but the account remains.
 
 ### 6.4 `POST /api/admin/import-roster-spreadsheet`
 
 | | |
 |---|---|
-| **Roles** | `cluster_head`, `hod` (no setup gate) |
+| **Roles** | `cluster_head`, `hod`, `admin` (no setup gate). Faculty a HOD's import creates get that HOD's `hod_id` and `hod_email`. |
 | **Rate limit** | `roster-import`: 200 per 300 s |
 | **Body limit** | 10 MB (body parser) plus `assertBodySize` |
 | **Request** (`rosterImportSchema`) | See the table below. |
@@ -2337,7 +2497,7 @@ Processing (details in §4.13):
 
 | | |
 |---|---|
-| **Roles** | `hod` |
+| **Roles** | `hod`, `admin` |
 | **Rate limit** | POST only: `faculty-roster:<action>`, 60 per 60 s. GETs are not limited. |
 | **Caller** | `pages/hod/HodFacultyRosterPage.jsx` |
 
@@ -2347,14 +2507,14 @@ Processing (details in §4.13):
 | `GET ?action=mentees&faculty_id=<uuid>` | The mentor's students (`id, full_name, email, login_id, section, branch, semester_label, is_star_mentee, form_a_completed`), plus a count of non-Resolved queries per student | `{mentees: [{…, open_queries}]}`; 400 "A valid faculty_id is required" |
 | `GET ?action=reserve-pool` | The same view filtered to `employment_status = 'active'` and `available_for_reassignment`, ordered by remaining capacity, descending. **Unused by the UI.** | `{faculty: [...]}` |
 | `POST {action: 'set-status', faculty_id, employment_status: active\|on_leave\|departed, available_for_reassignment?}` | `set_faculty_employment_status(p_faculty_id, p_status, p_available)` as the user; count the faculty member's mentees | `{faculty, mentee_count, needs_reassignment}`; message `Status updated to "<status>".`; audit `hod.set_faculty_status` |
-| `POST {action: 'reassign', student_ids: uuid[1..500], from_faculty_id?, to_faculty_id, reason? ≤500}` | `reassign_mentees(...)` as the user, then a **service-role** `update support_queries set mentor_id = to` where the student is in the list, `mentor_id = from` and `status <> 'Resolved'` | `{reassigned: n}`; message "n student(s) reassigned successfully."; audit `hod.reassign_mentees` with `{student_count, moved, from, reason}` |
+| `POST {action: 'reassign', student_ids: uuid[1..500], from_faculty_id?, to_faculty_id, reason? ≤500}` | `reassign_mentees(...)` as the user, then, if the caller can read `from` through their own token, a **service-role** `update support_queries set mentor_id = to` where the student is in the list, `mentor_id = from` and `status <> 'Resolved'` | `{reassigned: n}`; message "n student(s) reassigned successfully."; audit `hod.reassign_mentees` with `{student_count, moved, from, reason}` |
 | any other action | — | 400 `Unknown action "<x>"` |
 
 ### 6.6 `GET | POST /api/admin/run-cycle-job`
 
 | | |
 |---|---|
-| **Roles** | `hod` |
+| **Roles** | `hod`, `admin` |
 | **Rate limit** | POST only: `cycle-job`, 40 per 300 s |
 | **GET** | `get_cycle_job_status()` as the user. `data` = `{jobs: [{job_type, description, interval_days, is_enabled, next_run_due_on, last_run_at, last_run_status, last_manual_run_at}], recent_runs: [last 25], active_survey_cycle, at_risk_count, open_meeting_count}` |
 | **POST request** (`cycleJobSchema`) | `{job_type: survey_cycle\|survey_reminder_sweep\|at_risk_sweep\|at_risk_meeting_dispatch\|all, trigger_source: manual (default)\|scheduled, note?: ≤300}` |
@@ -2367,17 +2527,17 @@ Processing (details in §4.13):
 
 | | |
 |---|---|
-| **Roles** | `cluster_head`, `hod` |
+| **Roles** | `cluster_head`, `hod`, `admin`; `hod-map` is `admin` only (403 "Only the administrator can upload the mentor-HOD mapping.") |
 | **Gate** | Cluster heads must have `cluster_head_setup_completed`, else 403 "Complete the cluster head setup form before uploading data." |
 | **Rate limit** | `academic-upload`: 30 per 300 s (shared by all actions) |
 | **Body limit** | 10 MB |
 | **Request** (`clusterHeadUploadSchema`, discriminated on `action`) | Every action also takes `filename` (1–255) and `file_base64` (≤ 8,000,000 characters). See the table below. |
-| **Processing** | Decode (an empty result → 400 "The uploaded file is empty."), parse (§10.4), [mentor-map: `createMissingMentors`], then the RPC as the user. Backlogs: 400 "The file does not say which semester it is for. Choose the semester, then upload it again." when neither the file nor the request names one. |
-| **Response 200** | `data` = the RPC's JSON plus `file_meta` (what the parser read from the file; `null` for attendance and the mentor map): `{batch_id, total_rows, matched, failed, students_reevaluated, row_errors: [{row, identifier, reason}]}`. Attendance adds `course_code, course_name, section, sections, period_start, period_end`. GPA adds `skipped, semester_gpas_recorded, semesters, cgpa_recorded`. Backlogs add `semester_number, exam_session, backlogs_recorded, backlogs_cleared`. Black dots add `cases, case_numbers, students`, and each row error a `where`. Mentor-map returns `{total_rows, matched, unchanged, failed, row_errors, mentors_created, mentor_errors}`. |
-| **Message** | "n row(s) recorded for <course> (section <s>), f could not be matched." / "n student(s) recorded (semester 1, 2 GPA and CGPA)." / "n backlog(s) recorded for semester s, c cleared." / "n black dot(s) recorded across c case(s). r student(s) re-checked against the at-risk rule." / "n student(s) mapped to their mentor. m mentor account(s) created …" |
+| **Processing** | Decode (an empty result → 400 "The uploaded file is empty."), parse (§10.4), [mentor-map: `createMissingMentors`, whose accounts get the uploading HOD's `hod_id`; hod-map: `createMissingMappingAccounts`, which pages through every profile e-mail and creates the missing HODs and faculty], then the RPC as the user. Backlogs: 400 "The file does not say which semester it is for. Choose the semester, then upload it again." when neither the file nor the request names one. |
+| **Response 200** | `data` = the RPC's JSON plus `file_meta` (what the parser read from the file; `null` for attendance and the mentor map): `{batch_id, total_rows, matched, failed, students_reevaluated, row_errors: [{row, identifier, reason}]}`. Attendance adds `course_code, course_name, section, sections, period_start, period_end`. GPA adds `skipped, semester_gpas_recorded, semesters, cgpa_recorded`. Backlogs add `semester_number, exam_session, backlogs_recorded, backlogs_cleared`. Black dots add `cases, case_numbers, students`, and each row error a `where`. Mentor-map returns `{total_rows, matched, unchanged, failed, row_errors, mentors_created, mentor_errors}`. Hod-map returns `{total_rows, mapped, unchanged, failed, hods, promoted_to_hod, row_errors, hod_accounts_created, faculty_accounts_created, account_errors}`. Attendance adds `course_created` (0039). |
+| **Message** | "n row(s) recorded for <course> (section <s>), f could not be matched." / "n student(s) recorded (semester 1, 2 GPA and CGPA)." / "n backlog(s) recorded for semester s, c cleared." / "n black dot(s) recorded across c case(s). r student(s) re-checked against the at-risk rule." / "n student(s) mapped to their mentor. m mentor account(s) created …" / "n mentor(s) mapped across h HOD(s). u were already correct. … account(s) created … p existing account(s) became HOD. f row(s) could not be mapped." |
 | **Academic cycle** | Every batch and row is filed under the active cycle by the database; with no active cycle the RPC refuses the upload (§4.24). Attendance also returns `cycle` and `semester`. |
-| **Audit** | `cluster_head.upload_<action>`, with `{action, filename, total_rows, matched, failed, mentor_accounts_created}`, plus `{semester, cleared}` for backlogs and `{cases}` for black dots |
-| **Callers** | `ClusterHeadAttendancePage`, `ClusterHeadGpaPage`, `ClusterHeadBacklogPage`, `ClusterHeadBlackDotPage`, `ClusterHeadRosterPage` (mentor map), all through `AcademicUploadPanel` |
+| **Audit** | `cluster_head.upload_<action>`, with `{action, filename, total_rows, matched, failed, mentor_accounts_created}`, plus `{semester, cleared}` for backlogs and `{cases}` for black dots. Hod-map: `admin.upload_hod_map`, with `{filename, total_rows, mapped, unchanged, failed, hods, promoted_to_hod, hod_accounts_created, faculty_accounts_created}`. |
+| **Callers** | `ClusterHeadAttendancePage`, `ClusterHeadGpaPage`, `ClusterHeadBacklogPage`, `ClusterHeadBlackDotPage`, `ClusterHeadRosterPage` (mentor map), all also under `/hod/uploads`; `AdminHodMappingPage` (hod-map); all through `AcademicUploadPanel` |
 
 Per-action fields and RPCs:
 
@@ -2388,15 +2548,16 @@ Per-action fields and RPCs:
 | `backlog` | `semester_number?` (1–8, used only when the file's title names no semester), `exam_session?` (≤ 60; wins over the title's exam) | `record_backlog_batch`, with `p_subject_codes` from the file |
 | `black-dot` | none | `record_black_dot_batch` |
 | `mentor-map` | none | `map_students_to_mentors` |
+| `hod-map` | none (administrator only) | `map_faculty_to_hods` |
 
 ### 6.8 `GET /api/reports/faculty-activity-report`
 
 | | |
 |---|---|
-| **Roles** | `faculty`, `hod` |
+| **Roles** | `faculty`, `hod`, `admin` |
 | **Rate limit** | `faculty-report`: 30 per 60 s |
 | **Query** (`facultyReportQuerySchema`) | `faculty_id?` (uuid or `all`), `from?` / `to?` (`YYYY-MM-DD`), `format` (`json`, the default, or `pdf`) |
-| **Processing** | `faculty_id=all` calls `get_department_faculty_report(p_from, p_to)` (the database requires the HOD). Otherwise `get_faculty_activity_report(p_faculty_id, p_from, p_to)`. Both run as the user. |
+| **Processing** | `faculty_id=all` calls `get_department_faculty_report(p_from, p_to)` (the database requires a HOD or the administrator, and limits a HOD's to their faculty). Otherwise `get_faculty_activity_report(p_faculty_id, p_from, p_to)`. Both run as the user. |
 | **Response** | `format=json` → `data: {report}`. `format=pdf` → the PDF, `faculty-activity-report-<name>-<from>-to-<to>.pdf` or `department-activity-report-all-faculty-<from>-to-<to>.pdf`. |
 | **Errors** | database 42501 → 403; other database errors → 400; no data → 404 |
 | **Audit** | PDF only: `report.faculty_activity_pdf` / `report.department_pdf` |
@@ -2406,7 +2567,7 @@ Per-action fields and RPCs:
 
 | | |
 |---|---|
-| **Roles** | Any authenticated user. The database's `get_student_dossier` decides: the student themself, their mentor, or the HOD. |
+| **Roles** | Any authenticated user. The database's `get_student_dossier` decides: the student themself, their mentor, the mentor's HOD, or the administrator. |
 | **Rate limit** | `student-report`: 30 per 60 s |
 | **Query** | `student_id` (uuid, required), `format` (`json` or `pdf`) |
 | **Response** | `format=json` → `data: {report}`. `format=pdf` → `student-report-<name>-<YYYY-MM-DD>.pdf`. |
@@ -2418,7 +2579,7 @@ Per-action fields and RPCs:
 
 | | |
 |---|---|
-| **Roles** | `cluster_head`, `hod` (the database's `get_cycle_overview` checks again) |
+| **Roles** | `cluster_head`, `hod`, `admin` (the database's `get_cycle_overview` checks again) |
 | **Rate limit** | `cycle-report`: 20 per 60 s |
 | **Query** (`cycleReportQuerySchema`) | `cycle_id?` (uuid; default the active cycle), `semester?` (`Odd` or `Even`; default the whole cycle) |
 | **Processing** | `get_cycle_overview(p_cycle_id, p_semester)` as the user, then `buildCycleWorkbook(overview, {generatedBy})` with ExcelJS. |
@@ -2439,7 +2600,7 @@ The database is Postgres 15 on Supabase. There is a single application schema, `
 - 2 sequences (`query_code_seq`, `audit_log_id_seq`);
 - the extensions `citext`, `pg_trgm` and `pgcrypto`.
 
-Everything in §7.3–§7.8 was **generated from the live catalogue** after replaying all 33 migrations (and updated for 0034–0035 on 2026-09-27 and for 0036–0037 on 2026-09-28), so column lists, constraints, indexes, policies and grants are exact. Where a table's own SQL comment has gone stale, a **Doc note** says so.
+Everything in §7.3–§7.8 was **generated from the live catalogue** after replaying all 33 migrations (and updated for 0034–0035 on 2026-09-27, for 0036–0037 on 2026-09-28 and for 0038–0039 on 2026-10-07), so column lists, constraints, indexes, policies and grants are exact. Where a table's own SQL comment has gone stale, a **Doc note** says so.
 
 Conventions that hold across the schema:
 
@@ -2449,11 +2610,14 @@ Conventions that hold across the schema:
   - `authenticated` receives only the table privileges its policies need.
   - CI fails if any public table lacks RLS.
 - **Writes with rules go through SECURITY DEFINER functions.** Each one:
-  - checks the caller with the helper functions `is_hod()`, `is_faculty()`, `is_student()`, `is_cluster_head()`, `is_mentor_of()` and `can_access_student()` / `can_access_query()`;
+  - checks the caller with the helper functions `is_hod()`, `is_admin()`, `is_faculty()`, `is_student()`, `is_cluster_head()`, `is_mentor_of()`, `oversees_faculty()` / `oversees_student()` (0039) and `can_access_student()` / `can_access_query()`;
   - pins `search_path = public, pg_temp`;
   - raises `42501` for permission errors and `P0002` for "not found", plus readable messages. The two report endpoints map 42501 to 403; the other endpoints return every database error as 400.
-- **Protected profile columns.** The trigger `guard_protected_profile_columns` (BEFORE UPDATE on `user_profiles`) rejects a change to any of these unless the caller is the HOD, the call has no JWT (service role or scripts), or the transaction has set `ssmp.trusted_operation = 'on'`:
-  - `role`, `assigned_mentor_id`, `is_star_mentee` / `star_mentee_assigned_by`, `employment_status` / `available_for_reassignment`, `is_active`, `form_a_completed`, `cluster_head_setup_completed`, `id`, `email`, and (since 0035) `login_id`, the registration number.
+- **Protected profile columns.** The trigger `guard_protected_profile_columns` (BEFORE UPDATE on `user_profiles`) rejects a change to any of these unless the caller is the administrator, the call has no JWT (service role or scripts), or the transaction has set `ssmp.trusted_operation = 'on'`:
+  - `role`, `assigned_mentor_id`, `is_star_mentee` / `star_mentee_assigned_by`, `employment_status` / `available_for_reassignment`, `is_active`, `form_a_completed`, `cluster_head_setup_completed`, `id`, `email`, and (since 0035) `login_id`, the registration number;
+  - since 0039, the mentor–HOD mapping: `hod_id`, `mentor_section`, `mentor_designation`, and `hod_email` once `hod_id` is set.
+  
+  A HOD is exempt from the first list (for the rows RLS lets them update, §4.25) but not from the second, and cannot grant or remove the `hod` or `admin` role.
 
   Definer RPCs that legitimately change these set the flag with `set_config('ssmp.trusted_operation', 'on', true)`: `submit_student_form_a`, `set_star_mentee`, `set_faculty_employment_status`, `reassign_mentees`, `submit_cluster_head_setup`, `map_students_to_mentors`, `unlock_student_form_a`. Every other profile column is freely editable by its owner (§8.9).
 - **Notifications** are inserted only through `enqueue_notification` (§4.21).
@@ -2494,7 +2658,7 @@ Conventions that hold across the schema:
 - **`survey_cycles`**: `opened_by` → `user_profiles(id)` (on delete set null)
 - **`survey_response_answers`**: `question_id` → `survey_questions(id)` (on delete cascade); `response_id` → `survey_responses(id)` (on delete cascade)
 - **`survey_responses`**: `cycle_id` → `survey_cycles(id)` (on delete cascade); `mentor_id` → `user_profiles(id)` (on delete set null); `student_id` → `user_profiles(id)` (on delete cascade)
-- **`user_profiles`**: `assigned_mentor_id` → `user_profiles(id)` (on delete set null); `id` → `auth.users(id)` (on delete cascade); `star_mentee_assigned_by` → `user_profiles(id)` (on delete set null)
+- **`user_profiles`**: `assigned_mentor_id` → `user_profiles(id)` (on delete set null); `hod_id` → `user_profiles(id)` (on delete set null, 0039); `id` → `auth.users(id)` (on delete cascade); `star_mentee_assigned_by` → `user_profiles(id)` (on delete set null)
 
 ### 7.3 Enum types
 
@@ -2519,7 +2683,7 @@ Real Postgres enums. Any value added in SQL must also be mirrored in `frontend/s
 | `resolution_status` | none · pending_confirmation · confirmed · reopened | 0001 |
 | `roster_import_type` | faculty · student · combined | 0001 |
 | `semester_term` | Odd · Even | 0001 (used by `semester_cycles`; since 0036 also the odd and even semesters of an academic cycle) |
-| `user_role` | student · faculty · hod · cluster_head | 0001 |
+| `user_role` | student · faculty · hod · cluster_head · admin | 0001, 0020, 0038 |
 
 ### 7.4 Tables
 
@@ -2690,8 +2854,8 @@ Constraints and indexes:
 
 RLS policies:
 
-- `meetings_select_visible` — **SELECT** to authenticated; using `((student_id = auth.uid()) OR (mentor_id = auth.uid()) OR is_hod())`
-- `meetings_update_mentor` — **UPDATE** to authenticated; using `((mentor_id = auth.uid()) OR is_hod())`; check `((mentor_id = auth.uid()) OR is_hod())`
+- `meetings_select_visible` — **SELECT** to authenticated; using `((student_id = auth.uid()) OR (mentor_id = auth.uid()) OR ( SELECT is_admin() AS is_admin) OR (mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`
+- `meetings_update_mentor` — **UPDATE** to authenticated; using `((mentor_id = auth.uid()) OR ( SELECT is_admin() AS is_admin) OR (mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`; check `((mentor_id = auth.uid()) OR ( SELECT is_admin() AS is_admin) OR (mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`
 
 Grants: `authenticated`: SELECT,UPDATE
 
@@ -2728,7 +2892,7 @@ Constraints and indexes:
 
 RLS policies:
 
-- `audit_log_hod_select` — **SELECT** to authenticated; using `is_hod()`
+- `audit_log_admin_select` — **SELECT** to authenticated; using `( SELECT is_admin() AS is_admin)`
 
 Grants: `authenticated`: SELECT
 
@@ -2936,7 +3100,7 @@ Constraints and indexes:
 
 RLS policies:
 
-- `reassignment_log_hod_select` — **SELECT** to authenticated; using `is_hod()`
+- `reassignment_log_hod_select` — **SELECT** to authenticated; using `(( SELECT is_admin() AS is_admin) OR (from_mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])) OR (to_mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`
 - `reassignment_log_own_select` — **SELECT** to authenticated; using `(student_id = auth.uid())`
 
 Grants: `authenticated`: SELECT
@@ -2972,7 +3136,7 @@ Constraints and indexes:
 
 RLS policies:
 
-- `mom_select_participants` — **SELECT** to authenticated; using `((reported_by = auth.uid()) OR (mentor_id = auth.uid()) OR is_hod())`
+- `mom_select_participants` — **SELECT** to authenticated; using `((reported_by = auth.uid()) OR (mentor_id = auth.uid()) OR ( SELECT is_admin() AS is_admin) OR (mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`
 
 Grants: `authenticated`: SELECT
 
@@ -3451,7 +3615,7 @@ RLS policies:
 
 - `form_a_insert_own` — **INSERT** to authenticated; check `((student_id = auth.uid()) AND is_student())`
 - `form_a_select_visible` — **SELECT** to authenticated; using `can_access_student(student_id)`
-- `form_a_update_hod` — **UPDATE** to authenticated; using `is_hod()`; check `is_hod()`
+- `form_a_update_hod` — **UPDATE** to authenticated; using `oversees_student(student_id)`; check `oversees_student(student_id)`
 - `form_a_update_own` — **UPDATE** to authenticated; using `(student_id = auth.uid())`; check `(student_id = auth.uid())`
 
 Grants: `authenticated`: INSERT,SELECT,UPDATE
@@ -3510,7 +3674,7 @@ Feature 2 — semester GPA history. Visible to faculty/HOD only when the student
 
 *created in migration 0003 · RLS enabled*
 
-> **Doc note:** the HOD can always read GPAs; the mentor reads them per `gpa_sharing_enabled` (default true; the UI toggle was removed). `source` is `cluster_head` (department upload, which always overwrites) or `student` (self-reported before 0037, which ended student entry). Since 0037 only the definer upload functions write this table: the student's INSERT/UPDATE/DELETE policies, which ignored `source` (S1), are gone.
+> **Doc note:** the student's HOD (the HOD of their mentor) and the administrator can always read GPAs; the mentor reads them per `gpa_sharing_enabled` (default true; the UI toggle was removed). `source` is `cluster_head` (department upload, which always overwrites) or `student` (self-reported before 0037, which ended student entry). Since 0037 only the definer upload functions write this table: the student's INSERT/UPDATE/DELETE policies, which ignored `source` (S1), are gone.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -3604,8 +3768,8 @@ Constraints and indexes:
 RLS policies:
 
 - `queries_insert_own` — **INSERT** to authenticated; check `(is_student() AND (student_id = auth.uid()) AND (mentor_id = my_mentor_id()))`
-- `queries_select_participants` — **SELECT** to authenticated; using `((student_id = auth.uid()) OR (mentor_id = auth.uid()) OR is_hod())`
-- `queries_update_hod` — **UPDATE** to authenticated; using `is_hod()`; check `is_hod()`
+- `queries_select_participants` — **SELECT** to authenticated; using `((student_id = auth.uid()) OR (mentor_id = auth.uid()) OR ( SELECT is_admin() AS is_admin) OR (mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`
+- `queries_update_hod` — **UPDATE** to authenticated; using `(( SELECT is_admin() AS is_admin) OR (mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`; check `(( SELECT is_admin() AS is_admin) OR (mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`
 - `queries_update_mentor` — **UPDATE** to authenticated; using `(mentor_id = auth.uid())`; check `(mentor_id = auth.uid())`
 
 Grants: `authenticated`: INSERT,SELECT,UPDATE
@@ -3728,7 +3892,7 @@ Application identity for every authenticated user. One row per auth.users row.
 
 *created in migration 0002 · RLS enabled · published to Realtime*
 
-> **Doc note:** protected columns (see §7.1) can only change through the listed RPCs or by the HOD; every other column is editable by its owner through `profiles_update_self`.
+> **Doc note:** protected columns (see §7.1) can only change through the listed RPCs, by the administrator, or by a HOD for the people they can update (never the mapping columns, and never to or from the `hod` / `admin` role); every other column is editable by its owner through `profiles_update_self`.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -3762,13 +3926,20 @@ Application identity for every authenticated user. One row per auth.users row.
 | `parent_name` | text |  |  |  |
 | `parent_mobile` | text |  |  | Guardian contact from the student roster import. Form A is still preferred where the student filled one in — see at_risk_student_overview. |
 | `parent_email` | text |  |  |  |
-| `hod_email` | text |  |  | Faculty only. The HOD that this mentor's escalations are routed to. Validated against an active hod profile when set. |
+| `hod_email` | text |  |  | Faculty only. The HOD's e-mail, kept in step with `hod_id` by the mapping and by `set_mentor_department_and_hod`. Protected once `hod_id` is set. |
+| `hod_id` | uuid |  |  | FK → `user_profiles(id) on delete set null`. Faculty only (0039). The HOD this faculty member reports to: decides which HOD sees them and their mentees, and receives their referrals. Protected; set by the administrator's mapping upload (§4.25). |
+| `mentor_section` | text |  |  | Faculty only (0039). Section from the mentor–HOD mapping, e.g. "A 3". Protected. |
+| `mentor_designation` | text |  |  | Faculty only (0039). "Mentor" or "Class Coordinator (fallback)" from the mapping. Protected. |
 
 Constraints and indexes:
 
 - `user_profiles_email_shape` — `CHECK ((email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'::text))`
 - `user_profiles_full_name_not_blank` — `CHECK (is_non_blank(full_name))`
 - `user_profiles_hod_email_shape` — `CHECK (((hod_email IS NULL) OR (hod_email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'::text)))`
+- `user_profiles_hod_mapping_faculty_only` — `CHECK (((role = 'faculty'::user_role) OR ((hod_id IS NULL) AND (mentor_section IS NULL) AND (mentor_designation IS NULL))))` (0039)
+- `user_profiles_hod_not_self` — `CHECK (((hod_id IS NULL) OR (hod_id <> id)))` (0039)
+- `user_profiles_mentor_designation_length` — `CHECK (((mentor_designation IS NULL) OR (char_length(mentor_designation) <= 80)))` (0039)
+- `user_profiles_mentor_section_length` — `CHECK (((mentor_section IS NULL) OR (char_length(mentor_section) <= 40)))` (0039)
 - `user_profiles_mentee_capacity_sane` — `CHECK (((mentee_capacity >= 1) AND (mentee_capacity <= 200)))`
 - `user_profiles_no_self_mentor` — `CHECK (((assigned_mentor_id IS NULL) OR (assigned_mentor_id <> id)))`
 - `user_profiles_student_only_fields` — `CHECK (((role = 'student'::user_role) OR ((assigned_mentor_id IS NULL) AND (is_star_mentee = false) AND (form_a_completed = false))))`
@@ -3776,17 +3947,19 @@ Constraints and indexes:
 - index `user_profiles_email_unique_idx` — `unique btree (lower(email))`
 - index `user_profiles_employment_status_idx` — `btree (employment_status) WHERE (role = 'faculty'::user_role)`
 - index `user_profiles_full_name_trgm_idx` — `gin (full_name extensions.gin_trgm_ops)`
+- index `user_profiles_hod_idx` — `btree (hod_id) WHERE (hod_id IS NOT NULL)` (0039)
 - index `user_profiles_login_id_unique_idx` — `unique btree (lower(login_id)) WHERE (login_id IS NOT NULL)`
 - index `user_profiles_role_idx` — `btree (role)`
 
 RLS policies:
 
-- `profiles_select_faculty_roster` — **SELECT** to authenticated; using `((role = 'faculty'::user_role) AND (is_faculty() OR is_hod()))`
-- `profiles_select_hod_all` — **SELECT** to authenticated; using `is_hod()`
+- `profiles_select_faculty_roster` — **SELECT** to authenticated; using `((role = 'faculty'::user_role) AND (( SELECT is_faculty() AS is_faculty) OR ( SELECT is_admin() AS is_admin)))`
+- `profiles_select_hod_scope` — **SELECT** to authenticated; using `(( SELECT is_admin() AS is_admin) OR (id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])) OR (assigned_mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`
 - `profiles_select_own_mentees` — **SELECT** to authenticated; using `(assigned_mentor_id = auth.uid())`
 - `profiles_select_own_mentor` — **SELECT** to authenticated; using `(id = my_mentor_id())`
 - `profiles_select_self` — **SELECT** to authenticated; using `(id = auth.uid())`
-- `profiles_update_hod` — **UPDATE** to authenticated; using `is_hod()`; check `is_hod()`
+- `profiles_select_staff_directory` — **SELECT** to authenticated; using `((role = ANY (ARRAY['hod'::user_role, 'cluster_head'::user_role, 'admin'::user_role])) AND ( SELECT is_hod() AS is_hod))`
+- `profiles_update_hod` — **UPDATE** to authenticated; using `(( SELECT is_admin() AS is_admin) OR (id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])) OR (assigned_mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`; check `(( SELECT is_admin() AS is_admin) OR (id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])) OR (assigned_mentor_id = ANY (( SELECT my_overseen_faculty() AS my_overseen_faculty)::uuid[])))`
 - `profiles_update_self` — **UPDATE** to authenticated; using `(id = auth.uid())`; check `(id = auth.uid())`
 
 Grants: `authenticated`: SELECT,UPDATE
@@ -3923,17 +4096,17 @@ Reads inside SQL functions and views are not listed.
 
 | Table / view | Browser / API direct | Written by SQL functions |
 |---|---|---|
-| `academic_cycle_students` | — (counts through `get_cycle_overview`) | `enroll_student_in_cycle` (via `activate_roster_students`, `map_students_to_mentors`, `sync_student_cycle_enrollment`), `carry_over_cycle_students` |
+| `academic_cycle_students` | **delete**: `make-administrator.mjs` (the new administrator's own row); otherwise counts through `get_cycle_overview` | `enroll_student_in_cycle` (via `activate_roster_students`, `map_students_to_mentors`, `sync_student_cycle_enrollment`), `carry_over_cycle_students` |
 | `academic_cycles` | **select**: `useActiveCycle.js`, `seed-demo-accounts.mjs` | `create_academic_cycle`, `update_academic_cycle_dates`, `delete_academic_cycle` |
-| `academic_upload_batches` | — (read through `academic_upload_history` and `get_cycle_overview`) | `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch` |
+| `academic_upload_batches` | **select**: `uploadedSubjects.js` (a HOD's attendance batches); otherwise read through `academic_upload_history` and `get_cycle_overview` | `record_attendance_batch`, `record_backlog_batch`, `record_black_dot_batch`, `record_gpa_batch` |
 | `academic_upload_history` (view) | **select**: `ClusterHeadDashboardPage.jsx` | — |
 | `api_rate_limits` | — | `consume_rate_limit` |
 | `at_risk_meetings` | — | `dispatch_at_risk_meetings`, `notify_on_at_risk_meeting`, `set_at_risk_meeting_status`, `delete_academic_cycle` (clears `cycle_id`) |
 | `at_risk_student_overview` (view) | **select**: `FacultyAtRiskPage.jsx` | — |
 | `audit_log` | — | `write_audit_entry` |
 | `canned_replies` | **select**: `FacultyQueryDetailPage.jsx` | — |
-| `cluster_head_courses` | **select**, **insert**: `seed-demo-accounts.mjs` (the screens read `current_cycle_courses`) | `submit_cluster_head_setup`, `create_academic_cycle` (copies the list) |
-| `current_cycle_courses` (view) | **select**: `ClusterHeadAttendancePage.jsx`, `ClusterHeadCoursesPage.jsx`, `ClusterHeadDashboardPage.jsx`, `ClusterHeadSetupPage.jsx` | — |
+| `cluster_head_courses` | **select**, **insert**: `seed-demo-accounts.mjs` (the screens read `current_cycle_courses`) | `submit_cluster_head_setup`, `create_academic_cycle` (copies the list), `record_attendance_batch` (a HOD's subject, 0039) |
+| `current_cycle_courses` (view) | **select**: `ClusterHeadAttendancePage.jsx`, `ClusterHeadCoursesPage.jsx`, `ClusterHeadDashboardPage.jsx`, `ClusterHeadSetupPage.jsx`, `uploadedSubjects.js` | — |
 | `counselling_requests` | **select**: `FacultyCounsellingPage.jsx`, `StudentCounsellingPage.jsx` | `request_counselling`, `respond_to_counselling` |
 | `cycle_job_runs` | — | `run_cycle_job` |
 | `cycle_job_schedule` | — | `run_cycle_job` |
@@ -3964,7 +4137,7 @@ Reads inside SQL functions and views are not listed.
 | `survey_questions` | — | — |
 | `survey_response_answers` | — | `submit_survey_response` |
 | `survey_responses` | — | `submit_survey_response` |
-| `user_profiles` | **select**: `AddAccountModal.jsx`, `AuthProvider.jsx`, `FacultyActivityReportPage.jsx`, `HodStudentsPage.jsx`, `import-roster-spreadsheet.js`, `manage-faculty-roster.js`, `provision-user-accounts.js`, `request-guards.js`, `upload-academic-data.js`<br>**update**: `AuthProvider.jsx`, `FacultyProfilePage.jsx`, `ProfilePhotoUploader.jsx`, `StudentProfilePage.jsx`, `import-roster-spreadsheet.js`, `provision-user-accounts.js`<br>**realtime**: `AuthProvider.jsx` | `activate_roster_students`, `handle_auth_user_email_change`, `handle_new_auth_user`, `map_students_to_mentors`, `reassign_mentees`, `set_faculty_employment_status`, `set_mentor_department_and_hod`, `set_star_mentee`, `submit_cluster_head_setup`, `submit_student_form_a`, `unlock_student_form_a` |
+| `user_profiles` | **select**: `AddAccountModal.jsx`, `AdminHodMappingPage.jsx`, `AuthProvider.jsx`, `FacultyActivityReportPage.jsx`, `HodStudentsPage.jsx`, `create-admin-account.mjs`, `import-roster-spreadsheet.js`, `manage-faculty-roster.js`, `provision-user-accounts.js`, `request-guards.js`, `upload-academic-data.js`<br>**update**: `AuthProvider.jsx`, `FacultyProfilePage.jsx`, `ProfilePhotoUploader.jsx`, `StudentProfilePage.jsx`, `import-roster-spreadsheet.js`, `make-administrator.mjs`, `provision-user-accounts.js`, `seed-demo-accounts.mjs`, `upload-academic-data.js`<br>**realtime**: `AuthProvider.jsx` | `activate_roster_students`, `handle_auth_user_email_change`, `handle_new_auth_user`, `map_faculty_to_hods`, `map_students_to_mentors`, `reassign_mentees`, `set_faculty_employment_status`, `set_mentor_department_and_hod`, `set_star_mentee`, `submit_cluster_head_setup`, `submit_student_form_a`, `unlock_student_form_a` |
 
 ---
 
@@ -4000,51 +4173,54 @@ Reads inside SQL functions and views are not listed.
 
 ### 8.3 Role capability matrix
 
-"Direct" means a table operation allowed by RLS. "RPC" means through a definer function.
+"Direct" means a table operation allowed by RLS. "RPC" means through a definer function. Since 0039 a HOD's "their" means the faculty mapped to them (`hod_id`) and those faculty's mentees, queries and meetings; the administrator has what the single HOD had before (§4.25).
 
-| Capability | student | faculty | hod | cluster_head |
-|---|---|---|---|---|
-| Own profile: read; update non-protected columns (phone, avatar, name, section…) | direct | direct | direct (any profile) | direct |
-| Read other profiles | own mentor | own mentees; all faculty | all | none |
-| Form A | own: read, RPC submit/edit, and a **direct insert/update of any column** (including `is_submitted`, `is_locked`, `gpa_sharing_enabled`) | mentees': read | all: read, direct update | — |
-| Semester GPA and official CGPA | own: read only (student entry ended in 0037) | mentees': read if sharing | all: read | write via upload RPC only |
-| Achievements | own: CRUD while unverified | mentees': read, RPC verify | all: read, RPC verify | — |
-| Queries | own: RPC create/confirm/rate/post; read | assigned: read, RPC resolve/escalate/post/in-progress, direct update | all: same as faculty | — |
-| Canned replies | — | read global and own; manage own (no UI) | same | — |
-| Counselling | own: RPC request; read | assigned: read, RPC respond, direct update | **none** | — |
-| CR reports (`mom_records`) | star mentee: RPC file; read the reports they filed | read reports addressed to them (`mentor_id`); act on items | read all | — |
-| At-risk flags, meetings, overview | own flags and meetings readable (RLS; no UI shows them) | mentees' (`can_access_student`); **direct UPDATE** of meetings they organise | all; direct UPDATE of meetings | re-check everyone's flags by RPC (`reevaluate_students_batch`), without reading them |
-| Attendance records and overview | own (active cycle) | mentees' | all | own uploads |
-| Backlogs | own (Academics page) | mentees' (student page) | all (student page) | rows they uploaded |
-| Black dots | own (Academics page) | mentees' (student page) | all (student page) | rows they uploaded |
-| Surveys | own: RPC answer | mentees' status (view), **and each mentee's individual answers** (RLS; no UI) | all, including answers | — |
-| Star mentee | star: group queries and survey status (RPCs) | RPC set | RPC set | — |
-| Uploads (attendance, GPA, backlog, black dot, mentor map) | — | — | via API, or the RPCs directly | via API (after setup), or the RPCs directly (no setup check) |
-| Academic cycles | read `academic_cycles` | read `academic_cycles`; their mentees' cycle rows | all: read; start, edit, remove and carry over by RPC (no screen); the cycle report via API | read; start, edit, remove, carry over by RPC; the whole-cycle overview (counts only) and the cycle report via API |
-| Roster import, account creation | — | — | via API (roster, single accounts) | via API (roster; mentor-map creates mentors) |
-| Faculty status, reassignment | — | — | via API, or the RPCs directly (no query handover) | — |
-| Cycle jobs | — | — | via API, or the RPCs directly | — |
-| Reports | own dossier (API/RPC allow it; no UI) | own activity; mentees' dossiers | all, plus the department report and cycle reports | cycle reports |
-| Notifications | own | own | own | own |
-| Audit log | — | — | read (no UI) | — |
+| Capability | student | faculty | hod | admin | cluster_head |
+|---|---|---|---|---|---|
+| Own profile: read; update non-protected columns (phone, avatar, name, section…) | direct | direct | direct (and their people's) | direct (any profile) | direct |
+| Read other profiles | own mentor | own mentees; all faculty | their faculty and mentees; every HOD, cluster head and the administrator | all | none |
+| Form A | own: read, RPC submit/edit, and a **direct insert/update of any column** (including `is_submitted`, `is_locked`, `gpa_sharing_enabled`) | mentees': read | theirs: read, direct update | all: read, direct update | — |
+| Semester GPA and official CGPA | own: read only (student entry ended in 0037) | mentees': read if sharing | theirs: read | all: read | write via upload RPC only |
+| Achievements | own: CRUD while unverified | mentees': read, RPC verify | theirs: read, RPC verify | all: read, RPC verify | — |
+| Queries | own: RPC create/confirm/rate/post; read | assigned: read, RPC resolve/escalate/post/in-progress, direct update | their faculty's: same as faculty | all: same as faculty | — |
+| Canned replies | — | read global and own; manage own (no UI) | same | same | — |
+| Counselling | own: RPC request; read | assigned: read, RPC respond, direct update | **none** | **none** | — |
+| CR reports (`mom_records`) | star mentee: RPC file; read the reports they filed | read reports addressed to them (`mentor_id`); act on items | their faculty's | all | — |
+| At-risk flags, meetings, overview | own flags and meetings readable (RLS; no UI shows them) | mentees' (`can_access_student`); **direct UPDATE** of meetings they organise | theirs; direct UPDATE of their faculty's meetings | all; direct UPDATE of meetings | re-check everyone's flags by RPC (`reevaluate_students_batch`), without reading them |
+| Attendance records and overview | own (active cycle) | mentees' | theirs | all | own uploads |
+| Backlogs | own (Academics page) | mentees' (student page) | theirs (student page) | all (student page) | rows they uploaded |
+| Black dots | own (Academics page) | mentees' (student page) | theirs (student page) | all (student page) | rows they uploaded |
+| Surveys | own: RPC answer | mentees' status (view), **and each mentee's individual answers** (RLS; no UI) | theirs, including answers | all, including answers | — |
+| Star mentee | star: group queries and survey status (RPCs) | RPC set | RPC set (theirs) | RPC set | — |
+| Uploads (attendance, GPA, backlog, black dot, mentor map) | — | — | Uploads screens (no setup; a subject is created from an attendance file), department-wide | via API or RPCs (no screen) | via API (after setup), or the RPCs directly (no setup check) |
+| Mentor–HOD mapping | — | name their HOD once, if unmapped (RPC) | — | Upload page (API → `map_faculty_to_hods`) | — |
+| Academic cycles | read `academic_cycles` | read `academic_cycles`; their mentees' cycle rows | Uploads → Academic Cycles: start, edit, remove, carry over; the overview and cycle report (department-wide) | the same by RPC and API (no screen) | read; start, edit, remove, carry over by RPC; the whole-cycle overview (counts only) and the cycle report via API |
+| Roster import, account creation | — | — | via API (roster; single accounts except HOD; mentor-map creates mentors); the faculty they create report to them | via API (roster, single accounts including HOD; the mapping creates HODs and faculty) | via API (roster; mentor-map creates mentors) |
+| Faculty status, reassignment | — | — | their faculty, via API or the RPCs directly (no query handover) | all, the same way | — |
+| Cycle jobs | — | — | via API, or the RPCs directly (department-wide) | the same | — |
+| Reports | own dossier (API/RPC allow it; no UI) | own activity; mentees' dossiers | their faculty's activity, the all-faculty report for their faculty, their students' dossiers, cycle reports | all, plus the department report and cycle reports | cycle reports |
+| Notifications | own | own | own | own | own |
+| Audit log | — | — | — | read (no UI) | — |
 
 ### 8.4 Who can see what
 
 - **Queries and messages.**
-  - `support_queries` rows are visible to the student, the query's `mentor_id`, and the HOD (`queries_select_participants`).
+  - `support_queries` rows are visible to the student, the query's `mentor_id`, that mentor's HOD and the administrator (`queries_select_participants`, 0039).
   - `query_messages` are visible through `can_access_query`.
   - A mentor who loses a student keeps seeing that student's old queries if they still own them (§4.4).
 - **Profiles.** `user_profiles` SELECT policies:
   - self;
   - own mentor (`my_mentor_id()`);
   - own mentees;
-  - faculty rows for faculty and the HOD;
-  - everything for the HOD.
+  - faculty rows for faculty and the administrator;
+  - for a HOD: their mapped faculty and those faculty's mentees (`profiles_select_hod_scope`), plus every HOD, cluster head and administrator (`profiles_select_staff_directory`);
+  - everything for the administrator.
 
-  Students cannot see classmates' profiles. The star mentee's group views come from narrow definer RPCs.
-- **Student records** (Form A, achievements, attendance, backlogs, black dots, risk flags, meetings, a student's per-cycle rows in `academic_cycle_students`): `can_access_student`, i.e. self, mentor or HOD. GPA and the official CGPA use `can_view_student_gpa` instead.
-- **Academic cycles.** `academic_cycles` is readable by every signed-in user. The cycle overview (`get_cycle_overview`, `list_academic_cycles`) is for cluster heads and the HOD and carries counts and averages only.
-- **Counselling.** Student and assigned mentor only. No HOD access.
+  Students cannot see classmates' profiles. A HOD cannot see faculty mapped to another HOD, unmapped faculty, or students without a mentor. The star mentee's group views come from narrow definer RPCs.
+- **Student records** (Form A, achievements, attendance, backlogs, black dots, risk flags, meetings, a student's per-cycle rows in `academic_cycle_students`): `can_access_student`, i.e. self, mentor, the mentor's HOD or the administrator. GPA and the official CGPA use `can_view_student_gpa` instead.
+- **Academic cycles.** `academic_cycles` is readable by every signed-in user. The cycle overview (`get_cycle_overview`, `list_academic_cycles`) is for cluster heads, HODs and the administrator, department-wide, and carries counts and averages only.
+- **Counselling.** Student and assigned mentor only. No HOD or administrator access.
+- **Audit log.** The administrator only (0039).
 - **Cluster heads.** Their own profile, their own courses, sections and attendance they uploaded, the backlog and black dot rows they uploaded, their own upload and roster batches, and each cycle's counts through `get_cycle_overview` (no student named; mentor names and e-mails are shown in the mentor workload). They have **no read access** to students' GPAs or CGPA, risk data, queries or Form A.
 - **Storage.** See §2.5. Profile photos are readable by any signed-in user.
 
@@ -4085,14 +4261,14 @@ Reads inside SQL functions and views are not listed.
 
 ### 8.9 Known security gaps (verified)
 
-These were found while writing this document and verified in the code; several were tested in rolled-back transactions. **S3 is fixed and S5 is narrowed by migration 0035, and S1 is fixed by 0037; the rest are not fixed.**
+These were found while writing this document and verified in the code; several were tested in rolled-back transactions. **S3 is fixed and S5 is narrowed by migration 0035, S1 is fixed by 0037, and S19 is narrowed by 0039; the rest are not fixed.**
 
 | # | Gap | Impact | Where |
 |---|---|---|---|
 | S1 | **Fixed in 0037.** Students could **directly** INSERT, UPDATE or DELETE their own `student_semester_gpas` rows regardless of `source`, including department-published GPAs *(tested)* | A student could falsify official GPA, which feeds risk evaluation, mentor views and the dossier. 0037 dropped the three policies, narrowed the grant to SELECT and revoked `upsert_semester_gpa` *(tested)* | policies `gpas_insert_own`, `gpas_update_own`, `gpas_delete_own` (dropped) |
 | S2 | `evaluate_student_risk(p_student_id)` has **no caller check** and is executable by `authenticated` | Any signed-in user, including students and cluster heads, can read any student's attendance mean, latest GPA, backlog count and reasons *(tested)*. The call also writes: it upserts the flag row and can trigger notifications | function `evaluate_student_risk` |
 | S3 | **Fixed in 0035.** `resolve_student_ids(text[])` had no role check and was executable by `authenticated` | Any signed-in user could map registration numbers or e-mails to student UUIDs (enumeration). It now refuses anyone but a cluster head, the HOD or a no-JWT call, and matches registration numbers only | function `resolve_student_ids` (0033, 0035) |
-| S4 | The HOD dashboard branch of `get_dashboard_metrics` is the `else` branch | A `cluster_head` calling the RPC receives department-wide query and user counts | function `get_dashboard_metrics` |
+| S4 | The department branch of `get_dashboard_metrics` is the `else` branch | A `cluster_head` calling the RPC receives department-wide query and user counts (the administrator does by design; a HOD's branch is scoped since 0039) | function `get_dashboard_metrics` |
 | S5 | Profile self-update covers every unprotected column (**narrowed in 0035**: `login_id`, the registration number every upload matches on, is now protected) | A user can change their own `full_name`, `section`, `semester_label`, `department`, `avatar_url`, `hod_email`, `parent_*`, `created_at`, the `*_completed_at` timestamps, and (faculty) `mentee_capacity`, which feeds the reserve pool. They can also clear `must_change_password` *(tested)*. | policy `profiles_update_self`; guard column list |
 | S6 | Mentor and HOD `UPDATE` policies on `support_queries` are not column-restricted (the mentor's `WITH CHECK` only keeps `mentor_id = auth.uid()`) | A mentor can change `status`, `resolution_status`, `reopen_count`, `satisfaction_rating`, the escalation columns, `subject` and so on directly, bypassing the RPC rules. The HOD can change anything. | policies `queries_update_mentor`, `queries_update_hod` |
 | S7 | `latest_gpa` is exposed through `student_risk_flags` / `at_risk_student_overview` with `can_access_student`, not `can_view_student_gpa` | GPA-sharing preference is bypassed (moot while the toggle is gone) | view `at_risk_student_overview` |
@@ -4101,13 +4277,13 @@ These were found while writing this document and verified in the code; several w
 | S10 | Password complexity is client-side only | A user can set a weak password with a direct `auth.updateUser` call | `ChangePasswordPage` |
 | S11 | No Content-Security-Policy, and the session is in `localStorage` | XSS impact is higher | `vercel.json`, `index.html` |
 | S12 | The escalation note is visible to the student, although the UI says it is not | Privacy expectation mismatch | `escalate_query_to_hod` system message |
-| S13 | `handle_new_auth_user` trusts `raw_user_meta_data.role` | Safe **only** while public sign-up is disabled | trigger `trg_on_auth_user_created` |
+| S13 | `handle_new_auth_user` trusts `raw_user_meta_data.role` for `student`, `faculty`, `hod` and `cluster_head` (`admin` also needs `raw_app_meta_data.role` in the inserted row, which only the service role sets, 0039; the Auth Admin API adds it after the insert, so `npm run db:admin` sets the role itself) | Safe **only** while public sign-up is disabled | trigger `trg_on_auth_user_created` |
 | S14 | Cluster heads can write `cluster_head_courses` directly | Bypasses setup validation. Deleting a course cascades attendance. | policy `ch_courses_write_own` |
 | S15 | Students can INSERT `support_queries` directly (`queries_insert_own`: own id and current mentor) | Bypasses `create_support_query`'s 20-unresolved cap and description rules. Only the subject's CHECK constraints (non-blank, ≤ 200) still apply. The row can carry any `status`, `resolution_status`, `priority`, rating, `resolved_by` or `escalated_*` value allowed by the column constraints (for example, a fake "Resolved, confirmed, rated 1/5" query credited to the mentor, *tested*). No first message is created. The creation notification still fires. | policy `queries_insert_own` |
 | S16 | Survey answers are readable by the mentor they are about | Individual ratings are not anonymous: `survey_responses` and `survey_response_answers` are visible to the mentor and the HOD through `can_access_student` *(tested)* | policies `survey_responses_select_scope`, `survey_answers_select_scope` |
 | S17 | The privileged RPCs behind the API are executable by `authenticated` and check only the caller's role: `record_*_batch`, `map_students_to_mentors`, `activate_roster_students` (0036), `run_cycle_job`, `run_all_cycle_jobs_now`, `reassign_mentees`, `set_faculty_employment_status` | A cluster head or HOD calling them through PostgREST skips the API's setup gate (no SQL function checks `cluster_head_setup_completed`), rate limit and audit entry. A direct `reassign_mentees` also skips the query handover. | function grants |
 | S18 | Mentors can UPDATE their counselling requests directly (`counselling_update_mentor`, all columns) | A mentor can rewrite the student's `concern` or change `status` outside `respond_to_counselling` | policy `counselling_update_mentor` |
-| S19 | The HOD bypasses the protected-column guard and has `profiles_update_hod` | The HOD can directly change any profile's role, activation, mentor or star flag, **including their own role** (by design, but with no audit trail) | `guard_protected_profile_columns`, `profiles_update_hod` |
+| S19 | **Narrowed in 0039.** The administrator bypasses the protected-column guard and has `profiles_update_hod` over everyone; a HOD has it over their own faculty and mentees | The administrator can directly change any profile's role, activation, mentor, star flag or HOD mapping (by design, with no audit trail). A HOD can change those of their own people, except the mapping columns and the `hod` / `admin` role (their own included), and can no longer reach anyone else's profile | `guard_protected_profile_columns`, policy `profiles_update_hod` |
 | S20 | `set_gpa_sharing` is still executable although the UI toggle was removed, and Form A rows are directly updatable | A student can turn GPA sharing off without the UI, hiding GPAs from the mentor | function `set_gpa_sharing`; policy `form_a_update_own` |
 
 ---
@@ -4141,7 +4317,7 @@ ErrorBoundary
             └─ AppRouter         (Suspense fallback = <PageLoader/>)
 ```
 
-- `LoginPage`, `ChangePasswordPage` and `NotFoundPage` are imported eagerly. Every other page (37 of them) is `React.lazy`, inside one `Suspense`.
+- `LoginPage`, `ChangePasswordPage` and `NotFoundPage` are imported eagerly. Every other page (40 of them) is `React.lazy`, inside one `Suspense`.
 - Every signed-in page renders its own `PortalShell`. The exceptions are the onboarding pages and `/cluster-head/setup`, which render bare so that no menu is available until the step is done.
 
 ### 9.3 Route table
@@ -4177,18 +4353,27 @@ ErrorBoundary
 | `/faculty/cr-reports` | `FacultyCrReportsPage` | Protected faculty | |
 | `/faculty/report` | `FacultyActivityReportPage` | Protected faculty | |
 | `/faculty/profile` | `FacultyProfilePage` | Protected faculty | |
-| `/hod` | `HodDashboardPage` | Protected hod | |
-| `/hod/queries` | `FacultyQueryQueuePage isHodView` | Protected hod | All queries, Mentor column, no Raise |
+| `/hod` | `HodDashboardPage` | Protected hod | Their faculty's figures (0039) |
+| `/hod/queries` | `FacultyQueryQueuePage isHodView` | Protected hod | Their faculty's queries, Mentor column, no Raise |
 | `/hod/queries/:queryId` | `FacultyQueryDetailPage isHodView` | Protected hod | No Raise, no mentee link |
 | `/hod/performance` | `HodFacultyPerformancePage` | Protected hod | |
 | `/hod/reports` | `FacultyActivityReportPage isHodView` | Protected hod | Faculty picker including "all" |
 | `/hod/roster` | `HodFacultyRosterPage` | Protected hod | |
 | `/hod/students` | `HodStudentsPage` | Protected hod | |
 | `/hod/students/:studentId` | `FacultyMenteeDetailPage isHodView` | Protected hod | No star toggle |
-| `/hod/at-risk` | `FacultyAtRiskPage isHodView` | Protected hod | Everyone, with a Mentor column |
-| `/hod/cr-reports` | `FacultyCrReportsPage isHodView` | Protected hod | All reports |
+| `/hod/at-risk` | `FacultyAtRiskPage isHodView` | Protected hod | Their faculty's mentees, with a Mentor column |
+| `/hod/cr-reports` | `FacultyCrReportsPage isHodView` | Protected hod | Their faculty's reports |
 | `/hod/operations` | `HodOperationsPage` | Protected hod | "Scheduled Jobs" |
 | `/hod/profile` | `HodProfilePage` (re-exports `FacultyProfilePage`) | Protected hod | |
+| `/hod/uploads` | `ClusterHeadDashboardPage` | Protected hod | Uploads → Overview, "Uploads overview" (0039) |
+| `/hod/uploads/cycles` | `ClusterHeadCyclesPage` | Protected hod | Uploads → Academic Cycles |
+| `/hod/uploads/attendance` | `ClusterHeadAttendancePage` | Protected hod | No subject gate; subjects from the files |
+| `/hod/uploads/gpa` | `ClusterHeadGpaPage` | Protected hod | |
+| `/hod/uploads/backlogs` | `ClusterHeadBacklogPage` | Protected hod | |
+| `/hod/uploads/black-dots` | `ClusterHeadBlackDotPage` | Protected hod | |
+| `/hod/uploads/rosters` | `ClusterHeadRosterPage` | Protected hod | Accounts created report to the HOD |
+| `/admin`, `/admin/queries`, `/admin/queries/:queryId`, `/admin/performance`, `/admin/reports`, `/admin/roster`, `/admin/students`, `/admin/students/:studentId`, `/admin/at-risk`, `/admin/cr-reports`, `/admin/operations`, `/admin/profile` | the same components as the twelve `/hod` routes above | Protected admin | The whole department (0039); mounted with the `/hod` ones by `departmentRoutes(base, role)` |
+| `/admin/upload` | `AdminHodMappingPage` | Protected admin | "Upload": the mentor–HOD mapping (§4.25) |
 | `/cluster-head/setup` | `ClusterHeadSetupPage` | Protected cluster_head | No shell |
 | `/cluster-head` | `ClusterHeadDashboardPage` | Protected cluster_head + `RequireClusterHeadSetup` | |
 | `/cluster-head/cycles` | `ClusterHeadCyclesPage` | same | "Academic Cycles" (0036) |
@@ -4201,27 +4386,28 @@ ErrorBoundary
 | `/cluster-head/profile` | `ClusterHeadProfilePage` (re-exports `FacultyProfilePage`) | same | |
 | `*` | `NotFoundPage` | none | |
 
-That is 50 routes. **Removed** since the old document: `/hod/semester` and every `/…/tickets…` path. There is no HOD counselling route.
+That is 70 routes (12 of them under `/admin`, 7 under `/hod/uploads` and `/admin/upload` added in 0039). **Removed** since the old document: `/hod/semester` and every `/…/tickets…` path. There is no HOD or administrator counselling route, and a HOD has no `/hod/uploads/courses` (My Subjects) or setup route.
 
 ### 9.4 Guards (`routes/RouteGuards.jsx`)
 
 - **`RequireAuth`.** Shows `PageLoader` ("Restoring your session...") while auth loads. Without both a session and a profile (`isAuthenticated`) it redirects to `/login` with `state.from`.
 - **`RequirePasswordChange`.** While `profile.must_change_password` is true it redirects to `/change-password`.
-- **`RequireRole({role})`.** On a mismatch it redirects to `HOME_PATH[profile.role]`.
+- **`RequireRole({role})`.** On a mismatch it redirects to `HOME_PATH[profile.role]`. So the administrator opening `/hod/...` lands on `/admin`, and a HOD opening `/cluster-head/...` lands on `/hod`.
 - **`RequireOnboarding`** (students). It checks `form_a_completed`, then `avatar_url` (§4.3).
-- **`RequireClusterHeadSetup`.** It redirects to `/cluster-head/setup` until `cluster_head_setup_completed`. Its comment about "the Course and Section dropdowns on every upload screen" is stale; the uploads have no such dropdowns.
+- **`RequireClusterHeadSetup`.** It redirects to `/cluster-head/setup` until `cluster_head_setup_completed`. It only acts on cluster heads, and the HOD's `/hod/uploads` routes do not use it. Its comment about "the Course and Section dropdowns on every upload screen" is stale; the uploads have no such dropdowns.
 
 All guards are UX only. The database enforces access.
 
 ### 9.5 Navigation (`NAVIGATION` in `lib/constants.js`)
 
-The sidebar renders the list for `profile.role`. An item with a `when` predicate renders only if it returns true for the profile.
+The sidebar renders the list for `profile.role`. An item with a `when` predicate renders only if it returns true for the profile. An item with `children` (and a `base` path) is a **group**: a heading button (`aria-expanded`) that opens its own list, open by default when the current page is under `base`; folded over the current page, the heading carries the active pill. The HOD and administrator department items come from one helper, `departmentNavigation(base)`. The sidebar subtitle reads "Head of Department" for a HOD and "Administrator" for the administrator.
 
 | Role | Items (label → path) |
 |---|---|
 | student | Home `/student`; My Queries `/student/queries`; **Group Queries** `/student/group-queries`\*; Academics `/student/academics`; Feedback Survey `/student/survey`; **Survey Tracking** `/student/survey-tracking`\*; **CR Report** `/student/cr-report`\*; Counselling `/student/counselling`; Achievements `/student/achievements`; My Profile `/student/profile` |
 | faculty | Home; Query Queue; My Mentees; At-Risk Students; Counselling; CR Reports; My Report; My Profile |
-| hod | Home; All Queries; Faculty Performance; Faculty Reports; Faculty Roster; Students; At-Risk Students; CR Reports; Scheduled Jobs (`/hod/operations`); My Profile |
+| hod | Home; All Queries; Faculty Performance; Faculty Reports; Faculty Roster; Students; At-Risk Students; CR Reports; Scheduled Jobs (`/hod/operations`); **Uploads** ▾ (Overview `/hod/uploads`; Academic Cycles; Upload Attendance; Upload GPA; Upload Backlogs; Upload Black dot; Rosters & Mentors); My Profile |
+| admin | Home `/admin`; All Queries; Faculty Performance; Faculty Reports; Faculty Roster; Students; At-Risk Students; CR Reports; Scheduled Jobs; **Upload** (`/admin/upload`); My Profile |
 | cluster_head | Home; Academic Cycles (`/cluster-head/cycles`); Upload Attendance; Upload GPA; Upload Backlogs; Upload Black dot (`/cluster-head/black-dots`); My Subjects (`/cluster-head/courses`); Rosters & Mentors (`/cluster-head/rosters`); My Profile |
 
 \* only when `profile.is_star_mentee`. Form A is deliberately not a menu item; after onboarding it lives inside My Profile.
@@ -4253,16 +4439,17 @@ Each page's behaviour is described in the feature section named in the last colu
 | `FacultyCounsellingPage` | `counselling_requests` | `respond_to_counselling` | 4.8 |
 | `FacultyCrReportsPage` | `mom_records`, `support_queries` | `set_query_in_progress`, `resolve_support_query` | 4.7 |
 | `FacultyActivityReportPage` | `get_faculty_activity_report` / `get_department_faculty_report` | PDF | 4.18 |
-| `FacultyProfilePage` (also HOD, cluster head) | profile | phone update | 4.22 |
-| `HodDashboardPage` | `get_dashboard_metrics`, `faculty_performance_summary`, `query_daily_trend` | — | 4.17 |
+| `FacultyProfilePage` (also HOD, administrator, cluster head) | profile | phone update | 4.22 |
+| `HodDashboardPage` (HOD and administrator) | `get_dashboard_metrics`, `faculty_performance_summary`, `query_daily_trend` | — | 4.17 |
 | `HodFacultyPerformancePage` | `faculty_performance_summary` | report links, PDF | 4.17 |
 | `HodFacultyRosterPage` | `/api/admin/manage-faculty-roster` | set status, reassign | 4.19 |
 | `HodStudentsPage` | `student_query_summary` (every row, paged), faculty names | Add account | 4.20 |
 | `HodOperationsPage` | `/api/admin/run-cycle-job` (GET) | run a job, run all | 4.16 |
 | `ClusterHeadSetupPage` / `ClusterHeadCoursesPage` | `current_cycle_courses` | `submit_cluster_head_setup` | 4.11 |
-| `ClusterHeadDashboardPage` | `academic_cycles`, `current_cycle_courses`, `academic_upload_history` (10, exact count) | — | 4.17 |
+| `ClusterHeadDashboardPage` (also a HOD's Uploads → Overview) | `academic_cycles`, `current_cycle_courses` (a HOD: `fetchUploadedSubjects`), `academic_upload_history` (10, exact count; a HOD: their own) | — | 4.17, 4.25 |
 | `ClusterHeadCyclesPage` | `list_academic_cycles`, `get_cycle_overview` | start the next cycle, edit dates, remove, carry over, re-check flags, download the report | 4.24 |
-| `ClusterHeadAttendancePage` | `current_cycle_courses` | attendance upload | 4.12 |
+| `ClusterHeadAttendancePage` | `current_cycle_courses` (a HOD: `fetchUploadedSubjects`) | attendance upload | 4.12, 4.25 |
+| `AdminHodMappingPage` | `user_profiles` (every faculty member, paged; every HOD) | mentor–HOD mapping upload | 4.25 |
 | `ClusterHeadGpaPage` / `BacklogPage` / `BlackDotPage` | — | GPA, backlog and black dot uploads; each shows what it read from the file | 4.12 |
 | `ClusterHeadRosterPage` | `roster_import_batches` (15, with the cycle label) | roster uploads (activating existing students), mentor map | 4.13 |
 
@@ -4346,7 +4533,7 @@ These must be kept in sync with the Postgres enums wherever the UI offers a valu
 
 | Export | Value |
 |---|---|
-| `ROLES` / `ROLE_LABELS` | student "Student", faculty "Faculty Mentor", hod "Head of Department", cluster_head "Cluster Head" |
+| `ROLES` / `ROLE_LABELS` | student "Student", faculty "Faculty Mentor", hod "Head of Department", cluster_head "Cluster Head", admin "Administrator" |
 | `QUERY_CATEGORIES` | Academics, Examination, Behavioural, Administrative, Others. Legacy values are deliberately not offered. |
 | `QUERY_STATUSES` / `QUERY_PRIORITIES` | Open, In Progress, Resolved / Low, Medium, High, Urgent |
 | `RESOLUTION_STATUS_LABELS` | Defined but **unused**; the badges carry their own labels |
@@ -4361,7 +4548,7 @@ These must be kept in sync with the Postgres enums wherever the UI offers a valu
 | `EMPLOYMENT_STATUS_LABELS` | Active, On leave, Departed |
 | `CHART_COLORS` | §9.9 |
 | `NAVIGATION` | §9.5 |
-| `HOME_PATH` | student `/student`, faculty `/faculty`, hod `/hod`, cluster_head `/cluster-head` |
+| `HOME_PATH` | student `/student`, faculty `/faculty`, hod `/hod`, cluster_head `/cluster-head`, admin `/admin` |
 
 ### 9.11 Dead or unused frontend code
 
@@ -4449,11 +4636,11 @@ Fully empty rows are dropped.
 **Header normalisation** (`cleanHeader`): lower-case; `.` and `_` become spaces; whitespace collapses; trim. So "Reg. No." becomes `reg no`.
 
 - Aliases written with a dot ("reg. no", "registration no.") **can never match** and are dead entries. The dot-free alias catches those headers.
-- When two columns map to the same field, the **last non-empty** one wins (roster, attendance). The **first** wins in the mentor map and in the GPA, backlog and black dot parsers.
+- When two columns map to the same field, the **last non-empty** one wins (roster, attendance). The **first** wins in the mentor map, the mentor–HOD map and the GPA, backlog and black dot parsers.
 
 **Row limits.**
 
-- Roster, GPA, backlog, black dot and mentor map: at most **5,000** data rows ("Too many rows (N). Split the file into batches of 5000.").
+- Roster, GPA, backlog, black dot, mentor map and mentor–HOD map: at most **5,000** data rows ("Too many rows (N). Split the file into batches of 5000.").
 - Attendance: no cap.
 - A header row and at least one data row are required.
 
@@ -4566,13 +4753,33 @@ Fully empty rows are dropped.
 
 Other columns, such as the mentor's phone, are ignored.
 
-**Self-check.** `node api/_lib/spreadsheet-parser.check.mjs` (`npm run test:parser`, also part of `npm test`) runs 17 checks:
+**Mentor–HOD mapping** (`parseHodMappingFile`, the administrator's Upload page, 0039). Missing columns → 'The file needs the mentor's email ("Official Email") and the HOD's email ("Official Email of HOD") columns.'
+
+Headers are classified by what they say (after `cleanHeader`, with spaces around `/` removed), in this order:
+
+| Field | A header is this field when it… |
+|---|---|
+| `hod_email` | names the HOD (hod, cluster head, head of department) **and** an e-mail (email, e-mail, mail): "Official Email of Cluster Head", "HOD Email" |
+| `hod_name` | names the HOD without an e-mail: "Cluster Head", "HOD", "Head of Department" |
+| `mentor_email` | names an e-mail but not the HOD: "Official Email", "Mentor Email" |
+| `section` | is section, sec, class section, section name or class |
+| `designation` | is role, designation, mentor role, type or responsibility |
+| `mentor_name` | contains "name", or is mentor, class coordinator, mentor/class coordinator or faculty: "Mentor / Class Coordinator Name" |
+
+- The department's sheet heads the HOD columns "Cluster Head"; it is read as the HOD.
+- Every value has its whitespace collapsed and trimmed; e-mails are lower-cased; a hyperlinked e-mail cell reads as its text.
+- `section` is normalised by `normaliseMappingSection`: "O3", "o 3" and "O-3" all become "O 3".
+- A row with no mentor e-mail, HOD e-mail or mentor name (the blank rows at the end of the sheet) is skipped. Each record keeps its spreadsheet row number as `row`.
+- Output: `[{row, section, mentor_name, designation, mentor_email, hod_name, hod_email}]`, at most 5,000 rows.
+
+**Self-check.** `node api/_lib/spreadsheet-parser.check.mjs` (`npm run test:parser`, also part of `npm test`) runs 20 checks:
 
 1. Attendance: the section comes from the row, not a blank header; a repeated registration number is summed; a single row keeps the ERP percentage; the header section still works as a fallback.
 2. Mentor map: registration number, mentor e-mail and name, phone ignored; an e-mail column no longer stands in for the registration number.
-3. GPA: each GPA lands under the semester written above it and "-" is left out (the ERP layout, from the sample generator); the same export as CSV and as `.xlsx` with merged headers; a flat sheet; an e-mail column is rejected.
-4. Backlogs: semester and exam from the title, names and credits (and "OE") from the subject table; the real title wording ("-24-25 ()", "III SEMESTER"); a hand-made list with no Cleared column.
-5. Black dots: the `.docx` notice (case lines, merged dates, two-line Course/Branch, `where`); a CSV with a Case No column; day-first dates that are never guessed.
+3. Mentor–HOD map: the department's `.xlsx` layout with "Cluster Head" columns ("O3" → "O 3", tidied names, lower-cased and hyperlinked e-mails, blank trailing rows skipped); the sample CSV with "HOD" columns; a file without both e-mail columns is refused.
+4. GPA: each GPA lands under the semester written above it and "-" is left out (the ERP layout, from the sample generator); the same export as CSV and as `.xlsx` with merged headers; a flat sheet; an e-mail column is rejected.
+5. Backlogs: semester and exam from the title, names and credits (and "OE") from the subject table; the real title wording ("-24-25 ()", "III SEMESTER"); a hand-made list with no Cleared column.
+6. Black dots: the `.docx` notice (case lines, merged dates, two-line Course/Branch, `where`); a CSV with a Case No column; day-first dates that are never guessed.
 
 It is **not** run in CI.
 
@@ -4601,6 +4808,7 @@ It is **not** run in CI.
 | Long lists | Read in pages of 1,000 with `fetchAllRows` (HOD Students, at-risk list), because PostgREST caps each response at `max_rows` = 1,000 (§4.20) |
 | Re-checking everyone's at-risk flags (new cycle, "Re-check now") | `reevaluate_students_batch` in slices of 300, each its own request and transaction: under 30 ms per slice at 1,949 students (§4.24) |
 | The cycle overview and report | One `get_cycle_overview` call (about 130 ms for a whole cycle at 1,949 students and 11,694 attendance rows); every "this cycle" filter uses a `(cycle_id, …)` index |
+| A HOD's scoped reads (0039) | Policies read `my_overseen_faculty()` once per statement (`(select …)::uuid[]`); `can_access_student` adds one indexed join per row. At 1,949 students, a HOD's student list page reads in about 13 ms and the at-risk list in about 210 ms (about 250 ms for the old all-seeing HOD). A full scan of a large table through `can_access_student` (every attendance row, which no screen asks for) costs about 0.3 ms a row. |
 | Rate-limit table growth | A 1% chance per call to purge rows older than a day |
 
 ---
@@ -4637,12 +4845,13 @@ No values are given here. The templates are `.env.example` (server) and `fronten
 
 | Name | Required | Read by | Purpose |
 |---|---|---|---|
-| `SUPABASE_URL` | yes | `api/_lib/environment.js`; `supabase/scripts/seed-demo-accounts.mjs` | Project URL. Validated as `http(s)://host`; whitespace is stripped. |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | `environment.js`; the seed script | Service-role key for Auth admin and privileged writes. It must match the three-part key shape. **Never expose it to the browser.** |
+| `SUPABASE_URL` | yes | `api/_lib/environment.js`; `supabase/scripts/seed-demo-accounts.mjs`, `create-admin-account.mjs` | Project URL. Validated as `http(s)://host`; whitespace is stripped. |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes | `environment.js`; the seed and admin scripts | Service-role key for Auth admin and privileged writes. It must match the three-part key shape. **Never expose it to the browser.** |
 | `SUPABASE_ANON_KEY` | yes | `environment.js` | Anon key, used to build the "as user" client |
 | `ALLOWED_ORIGINS` | no | `environment.js` | Comma-separated CORS allow-list, for example the production domain. One `*.vercel.app` entry enables all `*.vercel.app` preview origins. |
-| `ALLOWED_EMAIL_DOMAINS` | no | `input-validation.js` (`process.env`, read at module load) | Comma-separated domains that account e-mails must end with. Blank means any domain. Applies to provisioning, roster rows and mentor-map mentors. |
-| `SSMP_TEMPORARY_PASSWORD` | no, but **set it** | `environment.js` | Shared first-login password for every account the API creates. Falls back to a built-in value when unset. **Not listed in `.env.example`.** |
+| `ALLOWED_EMAIL_DOMAINS` | no | `input-validation.js` (`process.env`, read at module load) | Comma-separated domains that account e-mails must end with. Blank means any domain. Applies to provisioning, roster rows, mentor-map mentors and the HODs and mentors the mentor–HOD mapping creates. |
+| `SSMP_TEMPORARY_PASSWORD` | no, but **set it** | `environment.js`; `create-admin-account.mjs` | Shared first-login password for every account the API creates, and for the administrator `npm run db:admin` creates. Falls back to a built-in value when unset. **Not listed in `.env.example`.** |
+| `SSMP_ADMIN_EMAIL` | no | `create-admin-account.mjs` | The administrator's address for `npm run db:admin` (default `smp.admin@jaipur.manipal.edu`) |
 | `SEED_DEFAULT_PASSWORD` | seed only | the seed script | Password given to the demo accounts. Has a built-in fallback. |
 | `VERCEL_ENV`, `NODE_ENV` | set by the platform | `environment.js`, `health.js` | `production` disables the localhost CORS rule; also reported by `/api/health` |
 
@@ -4723,6 +4932,7 @@ These are hard-coded. Changing one means editing code or SQL; they are collected
 | `install:all` | root and frontend `npm install` |
 | `db:push` / `db:reset` | `supabase db push` / `supabase db reset` |
 | `db:seed` | `node supabase/scripts/seed-demo-accounts.mjs` |
+| `db:admin` | `node supabase/scripts/create-admin-account.mjs`: the administrator account only (§4.25). Safe on a real project. |
 | `sample:files` | `node sample-data/cluster-head-sample-data.mjs` |
 | `verify:security` | `node supabase/scripts/verify-security-policies.mjs` — **the file does not exist; this script fails** |
 | `test` | `npm --prefix frontend run test:ui && node api/_lib/spreadsheet-parser.check.mjs` |
@@ -4733,8 +4943,8 @@ These are hard-coded. Changing one means editing code or SQL; they are collected
 
 **Automated tests** (these are all of them):
 
-1. `frontend/test/ui-regression.test.jsx` renders `Panel`, `Modal`, `TextField` and `TextAreaField` in jsdom. It asserts that the Panel body is padded, that the first field (not ✕) gets focus when a Modal opens, that focus stays in the input while typing, and that it stays in a textarea such as the Report-to-HOD note. Since 2026-09-27 it also checks that `fetchAllRows` returns every row past a 1,000-row cap (and past a smaller server page) with no duplicates; the overview arithmetic in `lib/academicRecord.js` (semester labels, the 75% rounding guard, the GPA change, gaps in the trend, backlog order, the semester picker); and that `AcademicOverview` renders its tiles and tables, with no CGPA of 0 when nothing is uploaded. Since 2026-09-28 it also checks the student's version (`showHeader={false}`: no heading, no semester picker, still the current view, no "record below" copy) and the academic-cycle helpers in `lib/academicCycles.js` (labels, which semester a date is in, India time, the next cycle's year, date validation, upload scope).
-2. `api/_lib/spreadsheet-parser.check.mjs` runs the 17 parser checks (§10.4).
+1. `frontend/test/ui-regression.test.jsx` renders `Panel`, `Modal`, `TextField` and `TextAreaField` in jsdom. It asserts that the Panel body is padded, that the first field (not ✕) gets focus when a Modal opens, that focus stays in the input while typing, and that it stays in a textarea such as the Report-to-HOD note. Since 2026-09-27 it also checks that `fetchAllRows` returns every row past a 1,000-row cap (and past a smaller server page) with no duplicates; the overview arithmetic in `lib/academicRecord.js` (semester labels, the 75% rounding guard, the GPA change, gaps in the trend, backlog order, the semester picker); and that `AcademicOverview` renders its tiles and tables, with no CGPA of 0 when nothing is uploaded. Since 2026-09-28 it also checks the student's version (`showHeader={false}`: no heading, no semester picker, still the current view, no "record below" copy) and the academic-cycle helpers in `lib/academicCycles.js` (labels, which semester a date is in, India time, the next cycle's year, date validation, upload scope). Since 2026-10-07 it checks the administrator and HOD menus: the same department screens under `/admin` and `/hod`, Upload before My Profile for the administrator, the HOD's Uploads group (the cluster head's menu with Overview for Home, without My Subjects or My Profile, every entry under `/hod/uploads`), the cluster head's own menu unchanged, and `departmentBase` / `uploadsBase`.
+2. `api/_lib/spreadsheet-parser.check.mjs` runs the 20 parser checks (§10.4).
 
 There are **no** tests for RLS, the RPCs or the API handlers.
 
@@ -4761,7 +4971,8 @@ There are **no** tests for RLS, the RPCs or the API handlers.
      - after 0031, the frontend calls `*_query` functions and tables;
      - after 0032, the setup form no longer sends a section count;
      - 0033 is needed for large uploads;
-     - 0034 and 0035 must be applied before the API that sends `black-dot` uploads, the new GPA/backlog row shapes and `p_subject_codes`.
+     - 0034 and 0035 must be applied before the API that sends `black-dot` uploads, the new GPA/backlog row shapes and `p_subject_codes`;
+     - **0038 then 0039, as two transactions** (`db push` applies each file on its own; pasting both into one SQL editor run fails, because a transaction cannot use the enum value it added). Both must be in before the frontend that routes `/admin` and `/hod/uploads`, and before the API that sends `hod-map`.
    - Never edit an applied migration.
 2. **Supabase settings:** follow §12.3.
 3. **Vercel project:**
@@ -4772,21 +4983,26 @@ There are **no** tests for RLS, the RPCs or the API handlers.
    - `GET /api/health` should show `configured` with all three variables `ok`.
    - Sign in as each role.
    - As a cluster head, complete setup and upload a small file.
-   - As the HOD, open Scheduled Jobs, which calls the API.
-5. **Do not** run `db:seed` against production. The demo accounts use known passwords.
+   - As a HOD, open Scheduled Jobs, which calls the API, and Uploads → Overview.
+   - As the administrator, open Upload.
+5. **The administrator and the mapping** (once, after 0039): run `npm run db:admin`, sign in as the administrator (temporary password, then a new one), open **Upload** and upload the department's mentor–HOD sheet. Until then each HOD sees only the faculty whose HOD e-mail already named them, and nobody but the administrator sees the rest.
+   - An earlier version of the script stopped with "The account was created but is not an administrator" and, on a second run, "… belongs to a student". That account is a student made by the script; the current script finishes it (§4.25). Deleting the user in Supabase (Auth → Users) and running `db:admin` again also works: the profile and its cycle enrolment go with it.
+6. **Do not** run `db:seed` against production. The demo accounts use known passwords.
 
 ### 13.6 Operating the system (what has no UI)
 
 | Task | How |
 |---|---|
-| Run the periodic jobs | HOD → Scheduled Jobs → "Run now" / "Run all". Nothing runs automatically (§4.16). |
+| Run the periodic jobs | HOD or administrator → Scheduled Jobs → "Run now" / "Run all". Nothing runs automatically (§4.16). |
+| Decide which faculty each HOD sees | Administrator → Upload: upload the mentor–HOD sheet again (§4.25). To take a mentor away from every HOD, clear `hod_id` in SQL. |
 | Reset a user's password | No UI. The user can use "Forgot password", or an admin uses the Supabase dashboard (Auth → Users). |
 | Deactivate an account | No UI. Update `user_profiles.is_active` in SQL. Also ban or delete the Auth user to end their sessions. |
-| Change a student's mentor | HOD → Faculty Roster → Reassign, or a mentor–mentee mapping upload. Only the HOD route moves open queries. |
+| Change a student's mentor | HOD (within their faculty) or administrator → Faculty Roster → Reassign, or a mentor–mentee mapping upload. Only the roster route moves open queries. |
 | Change the shared temporary password | Set `SSMP_TEMPORARY_PASSWORD` in Vercel and redeploy. Existing accounts are unaffected. |
-| Create HOD or cluster-head accounts | HOD → Students → Add account (any role). The **first** HOD cannot be created in the app, because provisioning needs an HOD. Use the seed script, or create the user in the Supabase dashboard (the profile defaults to `student`) and promote it with SQL, e.g. `update user_profiles set role = 'hod' where email = …`. SQL run without a JWT bypasses the protected-column guard. |
+| Create the administrator | `npm run db:admin` (§4.25). Nothing in the app can create one, and an account made in the Supabase dashboard with `admin` in its metadata becomes a student (§4.1). |
+| Create HOD or cluster-head accounts | HODs: the administrator's mentor–HOD mapping upload creates every HOD it names, or administrator → Students → Add account. Cluster heads: HOD or administrator → Students → Add account. A HOD cannot create HOD accounts. |
 | Add canned replies | No UI. Insert rows into `canned_replies` (global rows need SQL or the service role). |
-| Read the audit log | No UI. Run SQL on `audit_log` (HOD-readable via RLS). |
+| Read the audit log | No UI. Run SQL on `audit_log` (readable by the administrator via RLS since 0039). |
 
 ---
 
@@ -4826,6 +5042,17 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 - **An interrupted roster upload** (tab closed, 429, network) leaves the accounts already created and a partial history row. Re-uploading resumes naturally, because existing accounts are skipped, but credentials created in the lost chunks are not shown again.
 - **A deactivated user with a live session** keeps it until it expires (§8.9 S8).
 
+**The mentor–HOD mapping and HOD scope** (§4.25)
+
+- **A HOD with nobody mapped** sees empty department screens ("No faculty mapped to you yet" on the dashboard leaderboard). The administrator's upload fixes it.
+- **The same mentor twice in the sheet** ends on the last row; both rows count.
+- **A HOD e-mail that is a faculty account** becomes a HOD only if that faculty member mentors nobody; otherwise the row fails and asks for their mentees to be moved first.
+- **A HOD e-mail that is a cluster head** becomes a HOD; their subjects and upload history stay theirs, and their portal is now the HOD portal.
+- **A mentor named as a HOD elsewhere in the sheet** is created (if new) as a HOD, and the rows naming them as a mentor then fail ("…the hod role, not a faculty member").
+- **An e-mail outside the allowed domains** that has no account yet is listed under "Accounts that could not be created", and its rows fail as having no account.
+- **A mentor the sheet omits** keeps their HOD. There is no "remove" row.
+- **A HOD's upload of an attendance code a cluster head already has** files under the cluster head's subject, so the course is not doubled on students' records; the HOD's "Subjects uploaded" list still shows it.
+
 **Queries**
 
 - **After a reassignment through a mentor-map upload**, open queries stay with the old mentor (§4.4).
@@ -4836,7 +5063,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 
 **Uploads**
 
-- **A course-code mismatch** between the ERP header and My Subjects aborts the attendance upload with guidance. Matching is case-insensitive, but the stored spelling is kept.
+- **A course-code mismatch** between the ERP header and My Subjects aborts a cluster head's attendance upload with guidance. Matching is case-insensitive, but the stored spelling is kept. A HOD's upload creates the subject instead (§4.25), so a typo in a HOD's file creates a subject with the typo.
 - **A student not active, or not in the roster**, produces a per-row "No student matches…".
 - **The same registration number twice in an attendance file** is merged. Twice in a GPA or backlog file, the last row wins, because each row upserts.
 - **Changing a subject's code** deletes its attendance history (§4.11).
@@ -4872,7 +5099,7 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 
 **Data volume**
 
-- **Long lists.** The HOD Students page and the HOD at-risk list page through PostgREST's `max_rows` (1,000 by default) since 2026-09-27 (B11). The remaining unpaged reads are per mentor or per student.
+- **Long lists.** The HOD / administrator Students page, the at-risk list and the administrator's mapping table page through PostgREST's `max_rows` (1,000 by default) (B11). The remaining unpaged reads are per mentor or per student.
 - **The HOD trend chart** misbehaves after 400 (mentor, day) rows (§4.17).
 
 ---
@@ -4888,8 +5115,8 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | Student onboarding (Form A and photo) | **Implemented** | Form A editable any time; staff have no photo upload |
 | Queries: raise, converse, resolve, confirm or reopen (cap 3), rate, priority | **Implemented** | Legacy-category counters (B1) |
 | Canned replies | **Partial** | Read-only chips; no management UI; the four global replies come only from the seeds |
-| Raise to HOD (routed to the mentor's HOD) | **Implemented** | No escalated filter for the HOD; the note is visible to the student |
-| Mentor department and HOD e-mail | **Implemented** | |
+| Raise to HOD (routed to the mentor's mapped HOD, else the administrator) | **Implemented** | No escalated filter for the HOD; the note is visible to the student |
+| Mentor department and HOD e-mail | **Implemented** | Read-only once the mentor is mapped (0039) |
 | Star mentee: group queries, survey tracking | **Implemented** | |
 | CR reports (minutes and action items) | **Implemented** | |
 | Counselling | **Implemented** | Single overwriting reply, no thread; no realtime |
@@ -4915,7 +5142,11 @@ There are **no** tests for RLS, the RPCs or the API handlers.
 | Form A lock / unlock workflow | **Dead** | Functions exist; no callers; Form A is always editable |
 | "Upload Black dot" (PB notice), ERP CGPA / GPA & Credits and Defaulter Grade formats | **Implemented** | Added 2026-09-27 (0034–0035, §4.12). Black dots show on the student's Academics page, on the mentor's and HOD's student page and, since 0036, on the at-risk pages (one in the active cycle flags a student); no removal UI |
 | Academic Performance Overview (student Academics page, mentor's and HOD's student page) | **Implemented** | Added 2026-09-27 (§4.9, §4.18). Attendance is shown for the current semester only. Since 2026-09-28 the student's page is titled with it and has no semester picker |
-| Academic cycles (per-year filing, subjects, students, report) | **Implemented** | Added 2026-09-28 (0036, §4.24). Cluster-head screen only; the HOD can use the RPCs and the report API |
+| Academic cycles (per-year filing, subjects, students, report) | **Implemented** | Added 2026-09-28 (0036, §4.24). Cluster heads, and HODs from Uploads since 0039; the administrator can use the RPCs and the report API |
+| Administrator portal (the department screens for everyone, Upload) | **Implemented** | Added 2026-10-07 (0038–0039, §4.25). One account, created by `npm run db:admin` |
+| Mentor–HOD mapping upload (with HOD and mentor creation) | **Implemented** | Administrator only. No way to unmap a mentor from the sheet |
+| Each HOD sees only their mapped faculty and mentees | **Implemented** | Enforced by RLS and the RPCs (§4.25). Uploads, cycles and jobs stay department-wide |
+| HOD Uploads (the cluster head's screens in the HOD portal) | **Implemented** | No setup or My Subjects; an attendance file's subject is created on first upload |
 
 ### 15.2 Known functional bugs (verified in the code)
 
@@ -4981,7 +5212,7 @@ Security gaps S1–S20 are in §8.9.
 **Documents** (all superseded by this file):
 
 - **`README.md`:**
-  - "three portals" (there are four);
+  - "three portals" (there are five: student, faculty, HOD, cluster head and administrator);
   - HOD "semester initialisation with roster import" (removed; rosters are uploaded by the cluster head);
   - HOD can "unlock a submitted Form A" (dead).
 - **`SETUP_GUIDE.md`:**
@@ -4989,7 +5220,7 @@ Security gaps S1–S20 are in §8.9.
   - it uses the removed GPA-sharing toggle (step 8).
 - **`docs/SECURITY.md`:**
   - roster import limited to 10 per 5 minutes (now 200 per 300 s);
-  - roster imports HOD-only (now cluster head or HOD);
+  - roster imports HOD-only (now cluster head, HOD or administrator);
   - `unlock_student_form_a` described as a feature;
   - "14-character generated" temporary passwords (now one shared password).
 - **`docs/CLUSTER-HEAD-AND-CYCLE-JOBS.md`:** describes a Vercel Cron or `pg_cron` hook-up that does not exist and cannot work as written, plus several upload details that have since changed.
@@ -5097,6 +5328,7 @@ These parts of the old document still describe the code correctly. The names hav
 | Frontend | `/reset-password`, `components/queries/*`, `PasswordField`, `AcademicUploadPanel`, `COURSE_CATALOGUE`, `SURVEY_SCALE`, `CYCLE_JOBS`, counselling and at-risk labels | frontend |
 | Config and docs | `SSMP_TEMPORARY_PASSWORD`, `[auth.sessions]`, `docs/CLUSTER-HEAD-AND-CYCLE-JOBS.md`, `sample-data/cluster-head-sample-data.mjs` and `generated/` | repo |
 | Academic cycles | `academic_cycles`, `academic_cycle_students`, `cycle_id` on seven tables, the Academic Cycles page, the cycle report, black dots in the at-risk rule; student GPA entry removed | 0036, 0037; `/cluster-head/cycles`; `/api/reports/academic-cycle-report` |
+| Administrator and HOD scope | The `admin` role and portal (`/admin`, Upload); the mentor–HOD mapping (`hod_id`, `mentor_section`, `mentor_designation`, `map_faculty_to_hods`, `parseHodMappingFile`, the `hod-map` action); each HOD limited to their mapped faculty (`is_admin`, `my_overseen_faculty`, `oversees_faculty`, `oversees_student`, scoped policies and RPCs); the cluster head's upload screens inside the HOD portal (`/hod/uploads`, subjects from the attendance files); `npm run db:admin` | 0038, 0039; §4.25 |
 | Fixes not in the old §12 | Blank "Referred to HOD" card (0030); attendance filed everyone under one section (0027); stale `/tickets` notification links (0031); roster-import timeouts (chunking and pool); statement timeouts on ~2,300-row uploads (0033); frequent sign-outs (localStorage and the 30-day window) | as listed |
 
 ### 16.6 Statements that were already wrong in the old document
@@ -5117,7 +5349,7 @@ Each rule exists because breaking it caused a real failure, or would cause one t
 2. **Enable RLS; never force it.** Definer functions run as the owner and must write rows no client policy allows: system messages, notifications, state machines.
 3. **Protected profile columns** (§7.1) change only when one of these holds:
    - no JWT;
-   - the caller is the HOD;
+   - the caller is the administrator (a HOD only for their own people, and never the mapping columns or the `hod` / `admin` role);
    - a definer RPC that has already checked authorization sets the transaction-local `ssmp.trusted_operation` flag around the write:
 
      ```sql
@@ -5126,7 +5358,7 @@ Each rule exists because breaking it caused a real failure, or would cause one t
      perform set_config('ssmp.trusted_operation', 'off', true);
      ```
 
-   If you forget the flag, the guard raises 42501 and the feature breaks for everyone except the HOD.
+   If you forget the flag, the guard raises 42501 and the feature breaks for everyone except the administrator.
 4. **Rule-bearing state changes are SECURITY DEFINER RPCs.** Each one:
    - pins `set search_path = public, pg_temp`;
    - checks the caller first;
@@ -5146,6 +5378,8 @@ Each rule exists because breaking it caused a real failure, or would cause one t
 16. **Exactly one academic cycle is active, and a closed cycle is never rewritten** (§4.24). New tables whose rows belong to a year get a `cycle_id` set by a `BEFORE INSERT` trigger, never by the page. Screens and rules that mean "this year" filter on `active_cycle_id()`; nothing overwrites or deletes an earlier cycle's rows to start a new year.
 17. **A cycle is not a semester.** Which semester (odd or even) a row belongs to is computed from its own date against `even_starts_on` when it is read; it is never stored, so a date correction re-files everything. The programme semester (1–8) stays on the student and on GPA and backlog rows.
 18. **Anything that re-evaluates many students at once runs in slices** (`reevaluate_students_batch`, 300 at a time) and with `ssmp.quiet_risk_notifications` on, so no single call nears the statement timeout and mentors are not flooded with "no longer at-risk" notices.
+19. **Who a HOD sees is decided by `hod_id`, through the `oversees_*` helpers, never by `is_hod()`** (§4.25). `is_hod()` is true for every HOD and the administrator and is only for department-level actions (uploads, cycles, jobs, imports). A new policy or RPC that lets "the HOD" read or change a person, query or meeting must use `oversees_student` / `oversees_faculty` (or `my_overseen_faculty()` read once per statement as `(select …)::uuid[]`); a new department-level one uses `is_hod()`. Using `is_hod()` for a person would show every HOD the whole department again.
+20. **Only the administrator changes the mentor–HOD mapping and the `hod` / `admin` roles,** and only the service role creates an administrator (`npm run db:admin`, which sets the profile's role itself, §4.1). The mapping sheet is the source of truth; a mentor may name their HOD only while unmapped.
 
 ## Appendix B — Change recipes
 
@@ -5160,8 +5394,8 @@ Each recipe ends with the verification loop in B.10.
 **B.2 Add a page to a portal**
 
 1. Create the page under `pages/<role>/`, wrapped in `PortalShell`.
-2. Add a `lazy()` import and a `<Route>` in `AppRouter.jsx` inside `Protected role="…"`. Students also need `RequireOnboarding`; cluster heads need `RequireClusterHeadSetup`.
-3. Add a `NAVIGATION[role]` item, with `when` if it is conditional.
+2. Add a `lazy()` import and a `<Route>` in `AppRouter.jsx` inside `Protected role="…"`. Students also need `RequireOnboarding`; cluster heads need `RequireClusterHeadSetup`. A department page belongs in `departmentRoutes(base, role)`, which mounts it for both the HOD (`/hod`) and the administrator (`/admin`); a cluster-head upload page that HODs should also have gets a `/hod/uploads/...` route too.
+3. Add a `NAVIGATION[role]` item, with `when` if it is conditional (a department page: `departmentNavigation(base)`; a HOD upload page: the Uploads group's `children`). Links inside a page shared by two portals use `usePortalPaths()`, never a hard-coded `/hod` or `/cluster-head`.
 4. Enforce access in the database, not in the page.
 
 **B.3 Add a table**
@@ -5207,6 +5441,8 @@ Each recipe ends with the verification loop in B.10.
 
 **B.8b Make a new kind of record per cycle.** Add `cycle_id uuid references academic_cycles(id)` in a new migration, backfill existing rows into the cycle they belong to, add a `BEFORE INSERT` trigger with `tag_row_with_active_cycle('required')` (or a function of its own if the row's date decides the cycle), index `(cycle_id, …)`, and read it with `where cycle_id = active_cycle_id()` where "this year" is meant. Add it to `get_cycle_overview`, `delete_academic_cycle`'s emptiness check and the report if the cluster head should see it.
 
+**B.8c Move mentors between HODs, or add a HOD.** Nothing to deploy. Edit the department's mentor–HOD sheet (a new HOD is just a new e-mail in the HOD columns) and upload it as the administrator (Upload). New HOD and mentor accounts are created on the temporary password; the mapping and the HOD's view change at once.
+
 **B.9 Change the visual theme.** Change token **values** in `tailwind.config.cjs`, `CHART_COLORS` and the PDF `PALETTE`. Keep the token names; every screen depends on them.
 
 **B.10 Verification loop**
@@ -5231,6 +5467,7 @@ Each recipe ends with the verification loop in B.10.
 | Open counselling requests per student; concern / reply length | 5; 3,000 / 3,000 characters | counselling RPCs |
 | CR report items; notes | 12; 5,000 characters | `submit_mom_report` |
 | Subjects per cluster head | 1–60 per academic cycle | `submit_cluster_head_setup` |
+| Mentor–HOD mapping | ≤ 5,000 rows per upload; section ≤ 40, role ≤ 80 characters | `map_faculty_to_hods`, constraints |
 | Academic cycles | one per `start_year` (2000–2098); exactly one active; dates within a year either side of the label | `academic_cycles` constraints |
 | At-risk re-check slice | 300 students per call (1–1,000) | `reevaluate_students_batch` |
 | Reassignment batch | 500 students | `reassign_mentees`, zod |
@@ -5253,25 +5490,28 @@ Each recipe ends with the verification loop in B.10.
 
 ## Appendix D — Demo and seed data
 
-**Never seed production.** The demo passwords are known. They are set by `SEED_DEFAULT_PASSWORD`, which has a built-in fallback; `supabase/seed.sql` states its password in a comment. No password is reproduced here.
+**Never seed production.** The demo passwords are known. They are set by `SEED_DEFAULT_PASSWORD`, which has a built-in fallback; `supabase/seed.sql` states its password in a comment. No password is reproduced here. (For a real deployment, `npm run db:admin` creates only the administrator, on `SSMP_TEMPORARY_PASSWORD`.)
 
 | Role | E-mail | Notes |
 |---|---|---|
-| hod | `hod.iotis@jaipur.manipal.edu` | "Dr. Sarah Jenkins", HOD001 |
+| admin | `smp.admin@jaipur.manipal.edu` | "SMP Admin", ADM001. Sees the whole department; Upload. |
+| hod | `hod.iotis@jaipur.manipal.edu` | "Dr. Sarah Jenkins", HOD001. Mapped: Alice (A 3) and Bob (B 3), so John, Jane and Mike |
+| hod | `hod2.iotis@jaipur.manipal.edu` | "Dr. Vikram Rao", HOD002. Mapped: Carol (A 4, class coordinator), so Emily |
 | faculty | `alice.smith@jaipur.manipal.edu`, `bob.johnson@jaipur.manipal.edu`, `carol.williams@jaipur.manipal.edu` | FAC1001–FAC1003 |
 | student | `john.doe@muj.manipal.edu`, `jane.smith@muj.manipal.edu`, `mike.davis@muj.manipal.edu`, `emily.wilson@muj.manipal.edu` | Registration numbers 2428020221–2428020224; mentors assigned by the seed |
 | cluster_head | `cluster.head1@jaipur.manipal.edu`, `cluster.head2@jaipur.manipal.edu` | From `sample-data/cluster-head-sample-data.mjs`; seed script only |
 
 **`npm run db:seed`** (the hosted-safe path through the Admin API) creates:
 
-- the accounts above, with mentor links;
+- the accounts above, with mentor links. The administrator is filed as a student by Supabase Auth and then made the administrator (`makeAdministrator`, §4.1; the seed prints "~ promoted admin");
+- the mentor–HOD mapping (`SAMPLE_HOD_MAPPING`, through `map_faculty_to_hods`); the same rows are `sample-data/generated/mentor-hod-mapping-sample.csv`, for trying the administrator's Upload page;
 - sample queries and messages;
 - the 4 global canned replies;
 - the cluster heads' subjects, in the active academic cycle (the seed stops with "No active academic cycle. Apply migration 0036 before seeding." if there is none);
 - uploaded sample attendance, GPA (the CGPA / GPA & Credits shape: semesters 1–2 and CGPA), two Defaulter Grade results for semester 2 (end term, then a make-up that clears Emily's backlog) and a black dot notice (John and Jane, plus one student from outside the portal who is reported back), through `record_attendance_batch`, `record_gpa_batch`, `record_backlog_batch` and `record_black_dot_batch`. Each demo student trips a different at-risk condition, and one trips none. Since 0036 John's and Jane's black dots are an at-risk reason of their own in the cycle they fall in.
 - The seed then runs the at-risk jobs and a survey cycle through `run_cycle_job`, and records sample survey responses.
 
-**`supabase/seed.sql`** (local `db reset` only) inserts the 8 non-cluster-head accounts directly into `auth.users`/`auth.identities`, plus mentors, sample queries and messages, and the canned replies.
+**`supabase/seed.sql`** (local `db reset` only) inserts the 10 non-cluster-head accounts (administrator, two HODs, three faculty, four students) directly into `auth.users`/`auth.identities` (with `app_metadata` in the same insert, so the trigger makes the administrator directly), plus mentors, the mentor–HOD mapping, sample queries and messages, and the canned replies.
 
 ## Appendix E — Glossary
 
@@ -5284,10 +5524,16 @@ Each recipe ends with the verification loop in B.10.
 | **Star mentee / student representative / CR** | The one student per mentor group with `is_star_mentee`. They see group queries and survey status and file CR reports. |
 | **CR report / MoM** | Class-representative meeting minutes (`mom_records`). Their action items are queries with `mom_id`. |
 | **Resolution confirmation** | The student's yes/no after a mentor resolves a query; "no" reopens it (at most 3 times) |
-| **Raise to HOD / referral / escalation** | The mentor flags a query for the HOD named in their `hod_email` (or all HODs) |
+| **Raise to HOD / referral / escalation** | The mentor flags a query for the HOD they are mapped to (or the administrator) |
+| **Administrator** | The `admin` role: the department-wide portal the single HOD used to have, plus the mentor–HOD mapping upload (§4.25) |
+| **Mentor–HOD mapping** | The department's sheet of mentors and class coordinators with their section and HOD, uploaded by the administrator; stored as `user_profiles.hod_id`, `mentor_section`, `mentor_designation` |
+| **Class coordinator** | A faculty member listed in the mapping as "Class Coordinator (fallback)" for a section; to the portal, a mentor like any other |
+| **A HOD's faculty / scope** | The faculty mapped to a HOD (`hod_id`) and those faculty's mentees, queries, meetings and reports: everything that HOD sees |
+| **Coverage** | Whose figures a dashboard or all-faculty report holds: `department` (administrator, cluster head) or `hod` (one HOD's faculty) |
+| **Uploads (HOD)** | The cluster head's upload screens inside the HOD portal, under `/hod/uploads` |
 | **Form A** | The department's mentor–mentee onboarding form, digitised in `student_form_a_profiles` |
 | **Cluster head** | The staff role that uploads academic data and rosters for its subjects |
-| **Subjects / My Subjects** | A cluster head's `cluster_head_courses` (name and code) |
+| **Subjects / My Subjects** | A cluster head's `cluster_head_courses` (name and code). A HOD has no list: their subjects are created from attendance files |
 | **ERP export** | The university ERP's Class Attendance file: an HTML table saved as `.xls` |
 | **At-risk** | A student meeting any of: attendance < 75% in the active cycle, latest GPA < 6, ≥ 1 uncleared backlog, ≥ 1 black dot in the active cycle |
 | **Academic cycle** | One academic year ("2026–27", `academic_cycles`), with an odd and an even semester. Exactly one is active; everything uploaded is filed under one (§4.24) |

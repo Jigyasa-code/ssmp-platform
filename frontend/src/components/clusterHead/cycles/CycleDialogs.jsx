@@ -103,7 +103,7 @@ export function StartCycleModal({ onClose, activeCycle, suggestedYear, pending, 
                 is. Its uploads, attendance, students and mentors stay in its report.
               </li>
             )}
-            <li>Every cluster head&apos;s subject list is copied into {label}, ready to edit under My Subjects.</li>
+            <li>Every subject is copied into {label}; a cluster head can edit theirs under My Subjects.</li>
             <li>
               Attendance and black dots start again from nothing, for students and for the at-risk rule. GPA and any
               backlog still open carry on.

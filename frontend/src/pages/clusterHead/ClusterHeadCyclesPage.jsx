@@ -45,6 +45,7 @@ import { describeError, formatDate } from '../../lib/formatters.js';
 import {
   SEMESTERS, cycleLabel, nextCycleYear, semesterRange, semesterTitle
 } from '../../lib/academicCycles.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 const count = (value) => Number(value ?? 0).toLocaleString('en-IN');
 
@@ -113,6 +114,7 @@ function SemesterCard({ cycle, semester, isCurrent }) {
 }
 
 export default function ClusterHeadCyclesPage() {
+  const { uploadsBase } = usePortalPaths();
   const toast = useToast();
 
   const [cycles, setCycles] = useState([]);
@@ -422,7 +424,7 @@ export default function ClusterHeadCyclesPage() {
                     : 'Import this year\'s roster, or bring last year\'s students across.'
                 }
               >
-                <Link to="/cluster-head/rosters" className="btn-secondary btn-sm">Import roster</Link>
+                <Link to={`${uploadsBase}/rosters`} className="btn-secondary btn-sm">Import roster</Link>
                 {previous && overview?.students?.previous_not_here > 0 && (
                   <button type="button" className="btn-ghost btn-sm" onClick={carryOver} disabled={working}>
                     Carry over {count(overview.students.previous_not_here)} from {cycleLabel(previous.label)}
@@ -437,7 +439,7 @@ export default function ClusterHeadCyclesPage() {
                     : 'Upload the mentor–mentee mapping once students are in.'
                 }
               >
-                <Link to="/cluster-head/rosters" className="btn-secondary btn-sm">Upload mapping</Link>
+                <Link to={`${uploadsBase}/rosters`} className="btn-secondary btn-sm">Upload mapping</Link>
               </WorkflowStep>
               <WorkflowStep number={4} title="Track data" status={dataStatus}
                 detail={
@@ -446,10 +448,10 @@ export default function ClusterHeadCyclesPage() {
                     : 'Attendance, GPA, backlogs and black dots, whenever they arrive.'
                 }
               >
-                <Link to="/cluster-head/attendance" className="btn-ghost btn-sm">Attendance</Link>
-                <Link to="/cluster-head/gpa" className="btn-ghost btn-sm">GPA</Link>
-                <Link to="/cluster-head/backlogs" className="btn-ghost btn-sm">Backlogs</Link>
-                <Link to="/cluster-head/black-dots" className="btn-ghost btn-sm">Black dots</Link>
+                <Link to={`${uploadsBase}/attendance`} className="btn-ghost btn-sm">Attendance</Link>
+                <Link to={`${uploadsBase}/gpa`} className="btn-ghost btn-sm">GPA</Link>
+                <Link to={`${uploadsBase}/backlogs`} className="btn-ghost btn-sm">Backlogs</Link>
+                <Link to={`${uploadsBase}/black-dots`} className="btn-ghost btn-sm">Black dots</Link>
               </WorkflowStep>
               <WorkflowStep number={5} title="Generate the report" status="todo"
                 detail={`An Excel report of ${semester === 'all' ? 'the whole cycle' : semesterTitle(cycle, semester)}: students, mentors, attendance, backlogs, black dots and uploads.`}

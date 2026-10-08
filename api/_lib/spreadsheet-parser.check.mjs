@@ -19,6 +19,7 @@ import {
   parseBacklogExport,
   parseBlackDotNotice,
   parseGpaExport,
+  parseHodMappingFile,
   parseMentorMappingFile,
   parseNoticeDate
 } from './spreadsheet-parser.js';
@@ -27,7 +28,9 @@ import {
   SAMPLE_GPA_EXPORT,
   buildBlackDotNoticeDocx,
   buildDefaulterGradeHtml,
-  buildGpaExportHtml
+  buildGpaExportHtml,
+  buildHodMappingCsv,
+  SAMPLE_HOD_MAPPING
 } from '../../sample-data/cluster-head-sample-data.mjs';
 
 const enc = (s) => Buffer.from(s, 'utf8');
@@ -135,6 +138,46 @@ await check('an email column no longer stands in for the registration number', a
        </table>`
     ), 'map.xlsx'),
     /Registration No/
+  );
+});
+
+console.log('\nMentor-HOD mapping (administrator)');
+
+await check('reads the department sheet, "Cluster Head" columns as the HOD', async () => {
+  const workbook = new ExcelJS.Workbook();
+  const ws = workbook.addWorksheet('Mentor - Section - Email');
+  ws.addRow(['Section', 'Mentor / Class Coordinator Name', 'Role', 'Official Email', 'Cluster Head', 'Official Email of Cluster Head']);
+  ws.addRow(['O3', '  Dr  Asha   Verma ', 'Mentor', 'Asha.Verma@example.edu', 'Dr. Ravi Kumar', 'Ravi.Kumar@example.edu']);
+  ws.addRow(['O 3', 'Mr. Dev Nair', 'Class Coordinator (fallback)', 'dev.nair@example.edu', 'Dr. Ravi Kumar', 'ravi.kumar@example.edu']);
+  ws.addRow(['p 12', 'Ms. Ira Sen', 'Mentor', { text: 'ira.sen@example.edu', hyperlink: 'mailto:ira.sen@example.edu' }, 'Dr. Meera Iyer', 'meera.iyer@example.edu']);
+  ws.addRow([]);
+  ws.addRow(['', '', '', '', '', '']);
+  const records = await parseHodMappingFile(Buffer.from(await workbook.xlsx.writeBuffer()), 'Mentor_Section_Email_List.xlsx');
+
+  assert.equal(records.length, 3, 'blank trailing rows are skipped');
+  assert.equal(records[0].section, 'O 3', '"O3" is written "O 3"');
+  assert.equal(records[1].section, 'O 3');
+  assert.equal(records[2].section, 'P 12');
+  assert.equal(records[0].mentor_name, 'Dr Asha Verma', 'stray spaces in names are tidied');
+  assert.equal(records[0].mentor_email, 'asha.verma@example.edu', 'emails are lower-cased');
+  assert.equal(records[0].hod_email, 'ravi.kumar@example.edu');
+  assert.equal(records[0].hod_name, 'Dr. Ravi Kumar');
+  assert.equal(records[1].designation, 'Class Coordinator (fallback)');
+  assert.equal(records[2].mentor_email, 'ira.sen@example.edu', 'a hyperlinked email cell reads as its text');
+  assert.equal(records[0].row, 2, 'row numbers are the spreadsheet\'s');
+});
+
+await check('the sample file, with "HOD" headers', async () => {
+  const records = await parseHodMappingFile(Buffer.from(buildHodMappingCsv()), 'mentor-hod-mapping-sample.csv');
+  assert.equal(records.length, SAMPLE_HOD_MAPPING.length);
+  assert.deepEqual(records.map((r) => r.hod_email), SAMPLE_HOD_MAPPING.map((m) => m.hod_email));
+  assert.equal(records[0].hod_name, 'Dr. Sarah Jenkins');
+});
+
+await check('a file without both email columns is refused', async () => {
+  await assert.rejects(
+    parseHodMappingFile(enc('Section,Mentor Name,Official Email\nA 3,Dr X,x@example.edu\n'), 'map.csv'),
+    /HOD's email/
   );
 });
 

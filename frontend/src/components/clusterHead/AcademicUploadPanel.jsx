@@ -25,6 +25,9 @@
  * ACADEMIC CYCLE
  * Every upload is filed under the active cycle (migration 0036), so the
  * panel says which one before anything is sent.
+ *
+ * Also used, with showCycle off, for the administrator's mentor-HOD
+ * mapping upload (migration 0039), which belongs to no cycle.
  */
 
 import { useState } from 'react';
@@ -36,6 +39,7 @@ import { apiClient } from '../../lib/apiClient.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { useActiveCycle } from '../../hooks/useActiveCycle.js';
 import { cycleLabel, semesterOn, semesterTitle, todayInIndia } from '../../lib/academicCycles.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 /** Tailwind needs whole class names, so the summary grid is picked from a list. */
 const TILE_GRID = {
@@ -83,8 +87,15 @@ export default function AcademicUploadPanel({
   placeholder = 'Choose a file (CSV or XLSX)',
   // Faculty accounts belong to no cycle, so the faculty roster leaves the
   // "Goes into the 2026–27 cycle" line out.
-  showCycle = true
+  showCycle = true,
+  // What the "Rows that need attention" table calls the identifier
+  // column, when it is neither a registration number nor a roster email
+  // (the mentor-HOD mapping reports an email address).
+  identifierLabel,
+  // The line beside the button while nothing is uploading.
+  idleNote = 'You can upload on any day — there is no window you have to wait for.'
 }) {
+  const { uploadsBase } = usePortalPaths();
   const { run, pending } = useAsyncAction();
   const { cycle, loading: cycleLoading, error: cycleError } = useActiveCycle();
   const [file, setFile] = useState(null);
@@ -164,7 +175,8 @@ export default function AcademicUploadPanel({
   const tiles = result ? summarise(result) : [];
   // Academic uploads match students on registration number only; the
   // roster import reports accounts by email.
-  const identifierHeader = errors.some((error) => error.email) ? 'Reg. no. / email' : 'Registration no.';
+  const identifierHeader =
+    identifierLabel ?? (errors.some((error) => error.email) ? 'Reg. no. / email' : 'Registration no.');
 
   return (
     <>
@@ -181,7 +193,7 @@ export default function AcademicUploadPanel({
               // Only when the read worked: a failed read is not "no cycle".
               <p className="rounded-lg bg-warning-container/40 px-4 py-3 text-body-sm text-on-surface-variant">
                 There is no active academic cycle, so nothing can be filed yet.{' '}
-                <Link to="/cluster-head/cycles" className="text-primary hover:underline">Start one under Academic Cycles</Link>.
+                <Link to={`${uploadsBase}/cycles`} className="text-primary hover:underline">Start one under Academic Cycles</Link>.
               </p>
             )
           )}
@@ -217,9 +229,7 @@ export default function AcademicUploadPanel({
                 tab open.
               </p>
             ) : (
-              <p className="text-label-sm text-tertiary">
-                You can upload on any day — there is no window you have to wait for.
-              </p>
+              <p className="text-label-sm text-tertiary">{idleNote}</p>
             )}
           </div>
         </div>

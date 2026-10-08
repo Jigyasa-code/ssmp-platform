@@ -172,7 +172,7 @@ export default function FacultyActivityReportPage({ isHodView = false }) {
     <PortalShell>
       <PageHeader
         title={isDepartmentView ? 'Department faculty report' : isHodView ? 'Faculty activity report' : 'My activity report'}
-        subtitle={`${isDepartmentView ? `All faculty · ${report.department}` : report.faculty.name} · ${formatDate(report.period.from)} to ${formatDate(report.period.to)}`}
+        subtitle={`${isDepartmentView ? `${report.coverage === 'hod' ? 'Faculty reporting to you' : 'All faculty'} · ${report.department}` : report.faculty.name} · ${formatDate(report.period.from)} to ${formatDate(report.period.to)}`}
         actions={
           <button type="button" className="btn-primary" onClick={download} disabled={downloading}>
             <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
@@ -376,7 +376,7 @@ function DepartmentReportBody({ report }) {
         <StatCard label="Faculty" value={summary.faculty_count} icon="badge" tone="secondary"
           caption={`${summary.active_faculty} active`} />
         <StatCard label="Students" value={summary.student_count} icon="school" tone="primary"
-          caption={`${summary.unassigned_students} unassigned`} />
+          caption={report.coverage === 'hod' ? 'Mentees of your faculty' : `${summary.unassigned_students} unassigned`} />
         <StatCard label="Satisfaction" value={summary.avg_satisfaction ? `${summary.avg_satisfaction}/5` : '—'}
           icon="grade" tone="warning" />
         <StatCard label="Referred to HOD" value={summary.escalated_queries} icon="flag"

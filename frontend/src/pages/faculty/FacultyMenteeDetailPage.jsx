@@ -28,8 +28,10 @@ import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { ACHIEVEMENT_CATEGORIES, CHART_COLORS } from '../../lib/constants.js';
 import { describeError, formatDate, formatHours } from '../../lib/formatters.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 export default function FacultyMenteeDetailPage({ isHodView = false }) {
+  const { departmentBase } = usePortalPaths();
   const { studentId } = useParams();
   const toast = useToast();
   const { run, pending } = useAsyncAction();
@@ -128,7 +130,7 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
           title="Student not available"
           description="This student does not exist, or they are not in your mentor group."
           action={
-            <Link to={isHodView ? '/hod/students' : '/faculty/mentees'} className="btn-primary">
+            <Link to={isHodView ? `${departmentBase}/students` : '/faculty/mentees'} className="btn-primary">
               Back to the list
             </Link>
           }
@@ -138,7 +140,7 @@ export default function FacultyMenteeDetailPage({ isHodView = false }) {
   }
 
   const { student, form_a: formA, query_summary: queries, gpa_stats: gpaStats } = dossier;
-  const backPath = isHodView ? '/hod/students' : '/faculty/mentees';
+  const backPath = isHodView ? `${departmentBase}/students` : '/faculty/mentees';
 
   // The official CGPA from the ERP export when one has been uploaded; the
   // plain mean of the semester GPAs is only a stand-in until then, and with

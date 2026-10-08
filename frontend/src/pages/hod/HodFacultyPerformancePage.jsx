@@ -13,6 +13,7 @@ import { apiClient } from '../../lib/apiClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { CHART_COLORS } from '../../lib/constants.js';
 import { describeError, formatHours } from '../../lib/formatters.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 const SORTS = [
   { value: 'resolved_queries', label: 'Most resolved' },
@@ -24,6 +25,7 @@ const SORTS = [
 ];
 
 export default function HodFacultyPerformancePage() {
+  const { departmentBase } = usePortalPaths();
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -195,7 +197,7 @@ export default function HodFacultyPerformancePage() {
                 header: 'Report',
                 render: (row) => (
                   <span className="flex flex-nowrap gap-1">
-                    <NavLink to={`/hod/reports?faculty_id=${row.faculty_id}`} className="btn-ghost btn-sm">
+                    <NavLink to={`${departmentBase}/reports?faculty_id=${row.faculty_id}`} className="btn-ghost btn-sm">
                       <span className="material-symbols-outlined text-[16px]">analytics</span>
                       View
                     </NavLink>

@@ -577,6 +577,87 @@ export async function parseMentorMappingFile(buffer, filename) {
   return records;
 }
 
+/**
+ * The administrator's mentor-HOD mapping (migration 0039): one row per
+ * mentor or class coordinator, naming their section and their HOD.
+ *
+ *   Section | Mentor / Class Coordinator Name | Role | Official Email |
+ *   HOD | Official Email of HOD
+ *
+ * The department's own sheet calls the HOD "Cluster Head", so either
+ * word is read as the HOD. Columns are recognised by what they say, not
+ * by position: any header naming the HOD (HOD, Head of Department,
+ * Cluster Head) and an email is the HOD's email; any other email column
+ * is the mentor's.
+ *
+ * Sections are written the way the rest of the app writes them: "O3"
+ * and "o 3" both become "O 3".
+ */
+export function normaliseMappingSection(value) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const match = /^([A-Z]+)\s*-?\s*(\d+)$/.exec(text);
+  return match ? `${match[1]} ${match[2]}` : text;
+}
+
+function classifyHodMappingHeader(raw) {
+  const header = cleanHeader(raw).replace(/\s*\/\s*/g, '/');
+  const namesHod = /\b(hod|cluster head|head of (the )?department)\b/.test(header);
+  const namesEmail = /\b(e-?mail|mail)\b/.test(header);
+  if (namesHod && namesEmail) return 'hod_email';
+  if (namesHod) return 'hod_name';
+  if (namesEmail) return 'mentor_email';
+  if (['section', 'sec', 'class section', 'section name', 'class'].includes(header)) return 'section';
+  if (['role', 'designation', 'mentor role', 'type', 'responsibility'].includes(header)) return 'designation';
+  if (/\bname\b/.test(header) || ['mentor', 'class coordinator', 'mentor/class coordinator', 'faculty'].includes(header)) {
+    return 'mentor_name';
+  }
+  return null;
+}
+
+export async function parseHodMappingFile(buffer, filename) {
+  const rows = await readSheetRows(buffer, filename);
+  if (rows.length < 2) {
+    throw new ApiError('The file needs a header row and at least one data row.', 400);
+  }
+  if (rows.length - 1 > MAX_ROWS) {
+    throw new ApiError(`Too many rows (${rows.length - 1}). Split the file into batches of ${MAX_ROWS}.`, 400);
+  }
+
+  const headerMap = rows[0].map(classifyHodMappingHeader);
+  if (!headerMap.includes('mentor_email') || !headerMap.includes('hod_email')) {
+    throw new ApiError(
+      'The file needs the mentor\'s email ("Official Email") and the HOD\'s email ("Official Email of HOD") columns.',
+      400
+    );
+  }
+
+  const tidy = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const records = [];
+  for (let r = 1; r < rows.length; r += 1) {
+    const raw = Object.create(null);
+    for (let c = 0; c < headerMap.length; c += 1) {
+      const key = headerMap[c];
+      if (!key || raw[key]) continue;
+      const value = tidy(rows[r][c]);
+      if (value) raw[key] = value;
+    }
+    // Blank rows at the end of the sheet.
+    if (!raw.mentor_email && !raw.hod_email && !raw.mentor_name) continue;
+    records.push({
+      row: r + 1,
+      section: raw.section ? normaliseMappingSection(raw.section).slice(0, 40) : '',
+      mentor_name: (raw.mentor_name ?? '').slice(0, 120),
+      designation: (raw.designation ?? '').slice(0, 80),
+      mentor_email: (raw.mentor_email ?? '').toLowerCase(),
+      hod_name: (raw.hod_name ?? '').slice(0, 120),
+      hod_email: (raw.hod_email ?? '').toLowerCase()
+    });
+  }
+
+  if (!records.length) throw new ApiError('No usable rows were found in that file.', 400);
+  return records;
+}
+
 
 // =====================================================================
 // Semester numbers

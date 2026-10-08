@@ -9,6 +9,9 @@
  *      the student's version of it (no header, no semester picker).
  *   5. The academic-cycle helpers: which semester a date falls in, and
  *      the checks on a new cycle's dates.
+ *   6. The administrator and HOD menus (migration 0039): the same
+ *      department screens under /admin and /hod, the administrator's
+ *      Upload page, and the HOD's Uploads group without My Subjects.
  */
 import { JSDOM } from 'jsdom';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -285,6 +288,45 @@ const cycles = await import('../src/lib/academicCycles.js');
     /out of order/.test(cycles.validateCycleDates(2027, { starts_on: '2027-07-01', even_starts_on: '2027-06-01', ends_on: '2028-06-30' }) ?? ''));
   check('dates far from the year are refused',
     /fall around 2027–28/.test(cycles.validateCycleDates(2027, { starts_on: '2027-07-01', even_starts_on: '2028-01-01', ends_on: '2029-01-01' }) ?? ''));
+}
+
+// ── 6. Administrator and HOD menus ───────────────────────────────────
+console.log('\nAdministrator and HOD menus');
+
+const { NAVIGATION, HOME_PATH, ROLE_LABELS } = await import('../src/lib/constants.js');
+const paths = await import('../src/lib/portalPaths.js');
+{
+  const labels = (items) => items.map((item) => item.label);
+  const hod = NAVIGATION.hod;
+  const admin = NAVIGATION.admin;
+  const uploads = hod.find((item) => item.children);
+  const hodDepartment = hod.filter((item) => !item.children && !item.to.startsWith('/hod/profile'));
+  const adminDepartment = admin.filter((item) => !['/admin/upload', '/admin/profile'].includes(item.to));
+
+  check('the administrator has the HOD\'s department screens, under /admin',
+    JSON.stringify(labels(adminDepartment)) === JSON.stringify(labels(hodDepartment))
+    && adminDepartment.every((item, i) => item.to === hodDepartment[i].to.replace(/^\/hod/, '/admin')));
+  check('... plus Upload, just before My Profile',
+    JSON.stringify(labels(admin).slice(-2)) === JSON.stringify(['Upload', 'My Profile']));
+  check('the administrator has no Uploads group', !admin.some((item) => item.children));
+  check('the HOD has an Uploads group before My Profile',
+    Boolean(uploads) && hod.indexOf(uploads) === hod.length - 2 && hod.at(-1).label === 'My Profile');
+  check('Uploads holds the cluster head menu, Overview for Home, without My Subjects or My Profile',
+    JSON.stringify(labels(uploads.children)) === JSON.stringify(
+      ['Overview', 'Academic Cycles', 'Upload Attendance', 'Upload GPA', 'Upload Backlogs', 'Upload Black dot', 'Rosters & Mentors']
+    ), JSON.stringify(labels(uploads.children)));
+  check('every Uploads screen is under /hod/uploads',
+    uploads.children.every((item) => item.to === uploads.base || item.to.startsWith(`${uploads.base}/`)));
+  check('each Uploads screen is a cluster head screen of the same name',
+    uploads.children.slice(1).every((item) =>
+      NAVIGATION.cluster_head.some((ch) => ch.label === item.label && ch.to.replace('/cluster-head', '/hod/uploads') === item.to)));
+  check('the cluster head menu itself is unchanged',
+    labels(NAVIGATION.cluster_head).includes('My Subjects') && NAVIGATION.cluster_head[0].label === 'Home');
+  check('the administrator signs in to /admin', HOME_PATH.admin === '/admin' && ROLE_LABELS.admin === 'Administrator');
+  check('department links follow the portal',
+    paths.departmentBase('admin') === '/admin' && paths.departmentBase('hod') === '/hod');
+  check('upload links follow the portal',
+    paths.uploadsBase('cluster_head') === '/cluster-head' && paths.uploadsBase('hod') === '/hod/uploads');
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`}`);

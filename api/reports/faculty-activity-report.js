@@ -4,7 +4,10 @@
  *
  *   ?format=json  -> the same JSON the on-screen charts render
  *   ?format=pdf   -> a branded, chart-led PDF of exactly those numbers
- *   ?faculty_id=  -> HOD only; faculty always get their own data
+ *   ?faculty_id=  -> HOD (their own faculty) or administrator; faculty
+ *                    always get their own data. 'all' is the all-faculty
+ *                    report: the department for the administrator, the
+ *                    HOD's own faculty for a HOD.
  *   ?from= &to=   -> YYYY-MM-DD window, defaults to the last 90 days
  *
  * Scoping is enforced inside get_faculty_activity_report(): a faculty
@@ -18,7 +21,7 @@ import { buildFacultyActivityPdf, buildDepartmentReportPdf } from '../_lib/repor
 
 export default withApiDefaults(['GET'], async (req, res) => {
   const context = await requireAuthenticatedUser(req);
-  requireRole(context, 'faculty', 'hod');
+  requireRole(context, 'faculty', 'hod', 'admin');
   await enforceRateLimit(context, { key: 'faculty-report', max: 30, windowSeconds: 60 });
 
   const query = parseOrThrow(facultyReportQuerySchema, {

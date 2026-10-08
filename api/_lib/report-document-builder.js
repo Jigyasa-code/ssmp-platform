@@ -597,6 +597,9 @@ export async function buildStudentDossierPdf(report) {
  * ==================================================================== */
 export async function buildDepartmentReportPdf(report) {
   const { summary, period } = report;
+  // A HOD's copy covers the faculty mapped to them (migration 0039); the
+  // administrator's covers the department.
+  const isHodScope = report.coverage === 'hod';
   const { pdf, doc } = await createDocument({
     title: `Department Faculty Report — ${report.department}`,
     generatedAt: report.generated_at
@@ -604,7 +607,9 @@ export async function buildDepartmentReportPdf(report) {
 
   doc.titleBlock(
     'Department Faculty Report',
-    `All faculty members · ${report.department}`,
+    isHodScope
+      ? `Faculty reporting to ${report.hod_name ?? 'the HOD'} · ${report.department}`
+      : `All faculty members · ${report.department}`,
     [
       `Period: ${formatDate(period.from)} – ${formatDate(period.to)}`,
       `${summary.faculty_count} faculty (${summary.active_faculty} active)`,
@@ -626,8 +631,12 @@ export async function buildDepartmentReportPdf(report) {
         accent: PALETTE.warning },
       { label: 'Faculty', value: summary.faculty_count, accent: PALETTE.primaryLight,
         caption: `${summary.active_faculty} active` },
-      { label: 'Unassigned students', value: summary.unassigned_students,
-        accent: summary.unassigned_students ? PALETTE.error : PALETTE.success },
+      // Every student in a HOD's scope has a mentor, so the HOD's copy
+      // counts their students instead.
+      isHodScope
+        ? { label: 'Students', value: summary.student_count, accent: PALETTE.primaryLight }
+        : { label: 'Unassigned students', value: summary.unassigned_students,
+            accent: summary.unassigned_students ? PALETTE.error : PALETTE.success },
       { label: 'Referred to HOD', value: summary.escalated_queries,
         accent: summary.escalated_queries ? PALETTE.error : PALETTE.slate }
     ]

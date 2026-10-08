@@ -24,6 +24,8 @@ import { describeError, formatDate } from '../../lib/formatters.js';
 
 export default function FacultyMenteesPage() {
   const { profile, refreshProfile } = useAuth();
+  // Mapped to a HOD (by the administrator, or once by naming them here).
+  const isMapped = Boolean(profile?.hod_id);
   const toast = useToast();
   const { run, pending } = useAsyncAction();
 
@@ -93,8 +95,9 @@ export default function FacultyMenteesPage() {
       }
     );
 
-  // Department is stamped on every mentee in one RPC; the HOD email is
-  // what every later "Raise to HOD" is routed to.
+  // Department is stamped on every mentee in one RPC. The HOD is the one
+  // the administrator mapped this mentor to (migration 0039); a mentor
+  // nobody has mapped yet names their HOD here, once.
   const saveDepartment = () =>
     run(
       async () => {
@@ -323,7 +326,11 @@ export default function FacultyMenteesPage() {
         onClose={() => setDeptOpen(false)}
         size="md"
         title="Department &amp; HOD"
-        description="The department is applied to every one of your mentees. The HOD email decides who your referrals go to."
+        description={
+          isMapped
+            ? 'The department is applied to every one of your mentees. Your HOD comes from the department\'s mentor–HOD mapping.'
+            : 'The department is applied to every one of your mentees. The HOD you name is who your referrals go to, and who sees your mentees.'
+        }
         footer={
           <>
             <button type="button" className="btn-ghost" onClick={() => setDeptOpen(false)} disabled={pending}>
@@ -348,10 +355,15 @@ export default function FacultyMenteesPage() {
             label="HOD email"
             name="hod_email"
             type="email"
-            required
+            required={!isMapped}
+            readOnly={isMapped}
             value={deptForm.hod_email}
             onChange={(event) => setDeptForm((f) => ({ ...f, hod_email: event.target.value }))}
-            hint="Must be an existing, active HOD account. Every Raise to HOD you send goes to this person."
+            hint={
+              isMapped
+                ? 'Set by the administrator\'s mentor–HOD mapping. Ask the administrator if it is wrong.'
+                : 'Must be an existing, active HOD account. It can be set once; after that the administrator changes it.'
+            }
           />
         </div>
       </Modal>

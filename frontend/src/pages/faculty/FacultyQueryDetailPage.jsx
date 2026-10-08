@@ -14,11 +14,13 @@ import { useQueryThread } from '../../hooks/useRealtimeQueries.js';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { formatDateTime, formatHours } from '../../lib/formatters.js';
 import { QUERY_PRIORITIES } from '../../lib/constants.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 /** Must match max_resolution_rejections() in migration 0018. */
 const MAX_REJECTIONS = 3;
 
 export default function FacultyQueryDetailPage({ isHodView = false }) {
+  const { departmentBase } = usePortalPaths();
   const { queryId } = useParams();
   const { query, messages, loading, error, reload, appendMessage } = useQueryThread(queryId);
   const { run, pending } = useAsyncAction();
@@ -101,7 +103,7 @@ export default function FacultyQueryDetailPage({ isHodView = false }) {
           title="Query not available"
           description={error ?? 'This query does not exist, or it is not assigned to you.'}
           action={
-            <Link to={isHodView ? '/hod/queries' : '/faculty/queries'} className="btn-primary">
+            <Link to={isHodView ? `${departmentBase}/queries` : '/faculty/queries'} className="btn-primary">
               Back to the queue
             </Link>
           }
@@ -116,7 +118,7 @@ export default function FacultyQueryDetailPage({ isHodView = false }) {
     <PortalShell>
       <PageHeader
         breadcrumb={
-          <Link to={isHodView ? '/hod/queries' : '/faculty/queries'} className="hover:text-primary hover:underline">
+          <Link to={isHodView ? `${departmentBase}/queries` : '/faculty/queries'} className="hover:text-primary hover:underline">
             ← {isHodView ? 'All queries' : 'Query queue'}
           </Link>
         }

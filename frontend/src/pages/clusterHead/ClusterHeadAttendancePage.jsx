@@ -21,6 +21,12 @@
  * TIMING IS UNCONSTRAINED
  * The From/To dates describe the data. They do not restrict when an upload
  * may happen — early, late or twice in a day is all fine.
+ *
+ * FROM THE HOD PORTAL (/hod/uploads/attendance, migration 0039)
+ * A HOD keeps no subject list. The file's Course Code and Course Name
+ * are the subject: the first upload of a code in the cycle creates it,
+ * later ones file under it. So there is no "set up your subjects first"
+ * step, and the list on this page is what their uploads created.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -32,28 +38,43 @@ import DataTable from '../../components/ui/DataTable.jsx';
 import AcademicUploadPanel from '../../components/clusterHead/AcademicUploadPanel.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
+import { useAuth } from '../../context/AuthProvider.jsx';
+import { useActiveCycle } from '../../hooks/useActiveCycle.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 import { cycleLabel } from '../../lib/academicCycles.js';
+import { fetchUploadedSubjects } from '../../lib/uploadedSubjects.js';
 import { describeError, formatDate } from '../../lib/formatters.js';
 
 export default function ClusterHeadAttendancePage() {
   const toast = useToast();
+  const { profile } = useAuth();
+  const { isHodUploads } = usePortalPaths();
+  const { cycle } = useActiveCycle();
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastUpload, setLastUpload] = useState(null);
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('current_cycle_courses')
-      .select('id, course_name, course_code')
-      .order('display_order');
+    const { data, error } = isHodUploads
+      ? await fetchUploadedSubjects(profile?.id, cycle?.id)
+      : await supabase
+          .from('current_cycle_courses')
+          .select('id, course_name, course_code')
+          .order('display_order');
     if (error) toast.error(describeError(error));
     setCourses(data ?? []);
     setLoading(false);
-  }, [toast]);
+  }, [toast, isHodUploads, profile?.id, cycle?.id]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleUploaded = (data) => {
+    setLastUpload(data);
+    // A HOD's first upload of a course creates the subject.
+    if (isHodUploads) load();
+  };
 
   return (
     <PortalShell>
@@ -62,7 +83,7 @@ export default function ClusterHeadAttendancePage() {
         subtitle="Drop in the ERP attendance export. The course, section and dates are read from the file — you can upload on any day."
       />
 
-      {!loading && !courses.length ? (
+      {!isHodUploads && !loading && !courses.length ? (
         <Panel>
           <EmptyState
             icon="menu_book"
@@ -84,7 +105,7 @@ export default function ClusterHeadAttendancePage() {
               filename,
               file_base64
             })}
-            onUploaded={setLastUpload}
+            onUploaded={handleUploaded}
           />
 
           {lastUpload?.course_code && (
@@ -92,7 +113,12 @@ export default function ClusterHeadAttendancePage() {
               <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                 {[
                   ['Course code', lastUpload.course_code],
-                  ['Course name', lastUpload.course_name],
+                  [
+                    'Course name',
+                    isHodUploads && lastUpload.course_created
+                      ? `${lastUpload.course_name ?? '—'} (new subject)`
+                      : lastUpload.course_name
+                  ],
                   ['Section', lastUpload.section],
                   [
                     'Period',
@@ -115,7 +141,12 @@ export default function ClusterHeadAttendancePage() {
             </Panel>
           )}
 
-          <Panel className="mt-4" tab="Your subjects" tabIcon="menu_book" bodyClassName="">
+          <Panel
+            className="mt-4"
+            tab={isHodUploads ? 'Subjects you have uploaded this cycle' : 'Your subjects'}
+            tabIcon="menu_book"
+            bodyClassName=""
+          >
             <DataTable
               dense
               columns={[
@@ -124,17 +155,36 @@ export default function ClusterHeadAttendancePage() {
               ]}
               rows={courses}
               rowKey={(row) => row.id}
+              emptyState={
+                isHodUploads ? (
+                  <EmptyState
+                    icon="menu_book"
+                    title="None yet"
+                    description="Upload an attendance export and its course appears here."
+                  />
+                ) : undefined
+              }
             />
           </Panel>
 
           <Panel className="mt-4" tab="How the matching works" tabIcon="info">
             <ul className="space-y-2 text-body-sm text-on-surface-variant">
-              <li>
-                <strong className="text-on-surface">Course</strong> — matched on the{' '}
-                <em>Course Code</em> line in the file header against the list above. If the code is not
-                one of your subjects the upload is rejected rather than creating a new one, so a typo in
-                the export cannot invent a subject on a student&apos;s record.
-              </li>
+              {isHodUploads ? (
+                <li>
+                  <strong className="text-on-surface">Course</strong> — read from the{' '}
+                  <em>Course Code</em> and <em>Course Name</em> lines in the file header. The first upload
+                  of a code this cycle makes it a subject; later uploads of the same code file under it.
+                  A code a cluster head already uploads under is filed with theirs, so a course never
+                  appears twice on a student&apos;s record.
+                </li>
+              ) : (
+                <li>
+                  <strong className="text-on-surface">Course</strong> — matched on the{' '}
+                  <em>Course Code</em> line in the file header against the list above. If the code is not
+                  one of your subjects the upload is rejected rather than creating a new one, so a typo in
+                  the export cannot invent a subject on a student&apos;s record.
+                </li>
+              )}
               <li>
                 <strong className="text-on-surface">Student</strong> — matched on the{' '}
                 <em>Registration No.</em> column. Rows that match nobody are listed back to you rather

@@ -8,6 +8,10 @@
  * Everything here is the ACTIVE academic cycle's (migration 0036): its
  * subjects, and the uploads filed under it, which can be narrowed to one
  * of its two semesters.
+ *
+ * Also the HOD's "Uploads -> Overview" (/hod/uploads, migration 0039).
+ * A HOD keeps no subject list, so the subjects shown are the ones their
+ * attendance uploads were filed under, and the uploads are their own.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -27,6 +31,8 @@ import { useActiveCycle } from '../../hooks/useActiveCycle.js';
 import { formatDateTime, describeError } from '../../lib/formatters.js';
 import { ACADEMIC_UPLOAD_LABELS } from '../../lib/constants.js';
 import { SEMESTERS, cycleLabel, semesterOn, semesterTitle, todayInIndia, uploadScope } from '../../lib/academicCycles.js';
+import { fetchUploadedSubjects } from '../../lib/uploadedSubjects.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 /** "Dr. Meera Iyer" -> "Dr. Iyer"; "Meera Iyer" -> "Meera". */
 function greetingName(fullName) {
@@ -37,14 +43,15 @@ function greetingName(fullName) {
 }
 
 const SHORTCUTS = [
-  { to: '/cluster-head/attendance', label: 'Upload attendance', icon: 'fact_check', tone: 'primary' },
-  { to: '/cluster-head/gpa', label: 'Upload GPA', icon: 'grade', tone: 'info' },
-  { to: '/cluster-head/backlogs', label: 'Upload backlogs', icon: 'assignment_late', tone: 'warning' },
-  { to: '/cluster-head/black-dots', label: 'Upload black dots', icon: 'gavel', tone: 'error' }
+  { to: 'attendance', label: 'Upload attendance', icon: 'fact_check', tone: 'primary' },
+  { to: 'gpa', label: 'Upload GPA', icon: 'grade', tone: 'info' },
+  { to: 'backlogs', label: 'Upload backlogs', icon: 'assignment_late', tone: 'warning' },
+  { to: 'black-dots', label: 'Upload black dots', icon: 'gavel', tone: 'error' }
 ];
 
 export default function ClusterHeadDashboardPage() {
   const { profile } = useAuth();
+  const { uploadsBase, isHodUploads } = usePortalPaths();
   const toast = useToast();
   const { cycle, loading: cycleLoading } = useActiveCycle();
 
@@ -66,12 +73,17 @@ export default function ClusterHeadDashboardPage() {
       .order('created_at', { ascending: false })
       .limit(10);
     if (semester !== 'all') history = history.eq('semester', semester);
+    // A cluster head only ever reads their own uploads; a HOD can read the
+    // department's, so their overview asks for their own.
+    if (isHodUploads) history = history.eq('uploaded_by', profile?.id);
 
     const [courseResult, batchResult] = await Promise.all([
-      supabase
-        .from('current_cycle_courses')
-        .select('id, course_name, course_code')
-        .order('display_order'),
+      isHodUploads
+        ? fetchUploadedSubjects(profile?.id, cycle.id)
+        : supabase
+            .from('current_cycle_courses')
+            .select('id, course_name, course_code')
+            .order('display_order'),
       history
     ]);
 
@@ -82,7 +94,7 @@ export default function ClusterHeadDashboardPage() {
     setBatches(batchResult.data ?? []);
     setUploadCount(batchResult.count ?? (batchResult.data ?? []).length);
     setLoading(false);
-  }, [cycle, cycleLoading, semester, toast]);
+  }, [cycle, cycleLoading, semester, toast, isHodUploads, profile?.id]);
 
   useEffect(() => {
     load();
@@ -93,10 +105,17 @@ export default function ClusterHeadDashboardPage() {
 
   return (
     <PortalShell>
-      <PageHeader
-        title={`Welcome, ${greetingName(profile?.full_name)}`}
-        subtitle="Upload attendance and academic records for the subjects you handle. There is no fixed day for this — upload whenever the data is ready."
-      />
+      {isHodUploads ? (
+        <PageHeader
+          title="Uploads overview"
+          subtitle="Upload attendance and academic records for the department. Subjects are read from each attendance file, so there is no subject list to keep. There is no fixed day — upload whenever the data is ready."
+        />
+      ) : (
+        <PageHeader
+          title={`Welcome, ${greetingName(profile?.full_name)}`}
+          subtitle="Upload attendance and academic records for the subjects you handle. There is no fixed day for this — upload whenever the data is ready."
+        />
+      )}
 
       {loading || cycleLoading ? (
         <SkeletonCards count={4} />
@@ -109,7 +128,12 @@ export default function ClusterHeadDashboardPage() {
             icon="event_repeat"
             tone="primary"
           />
-          <StatCard label="Subjects this cycle" value={courses.length} icon="menu_book" tone="info" />
+          <StatCard
+            label={isHodUploads ? 'Subjects uploaded' : 'Subjects this cycle'}
+            value={courses.length}
+            icon="menu_book"
+            tone="info"
+          />
           <StatCard
             label={semester === 'all' ? 'Uploads this cycle' : `Uploads, ${semesterTitle(cycle, semester)}`}
             value={uploadCount}
@@ -130,7 +154,7 @@ export default function ClusterHeadDashboardPage() {
         {SHORTCUTS.map((shortcut) => (
           <Link
             key={shortcut.to}
-            to={shortcut.to}
+            to={`${uploadsBase}/${shortcut.to}`}
             className="panel flex items-center gap-3 p-5 transition-shadow hover:shadow-raised"
           >
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-fixed text-primary">
@@ -149,7 +173,11 @@ export default function ClusterHeadDashboardPage() {
       <div className="grid gap-4 xl:grid-cols-5">
         <Panel
           className="xl:col-span-2"
-          tab={cycle ? `My subjects · ${cycleLabel(cycle.label)}` : 'My subjects'}
+          tab={
+            isHodUploads
+              ? cycle ? `Subjects uploaded · ${cycleLabel(cycle.label)}` : 'Subjects uploaded'
+              : cycle ? `My subjects · ${cycleLabel(cycle.label)}` : 'My subjects'
+          }
           tabIcon="menu_book"
           bodyClassName=""
         >
@@ -161,11 +189,19 @@ export default function ClusterHeadDashboardPage() {
             rows={courses}
             rowKey={(row) => row.id}
             emptyState={
-              <EmptyState
-                icon="menu_book"
-                title="No subjects in this cycle yet"
-                description="Add your subjects from My Subjects to start uploading."
-              />
+              isHodUploads ? (
+                <EmptyState
+                  icon="menu_book"
+                  title="No attendance uploaded in this cycle yet"
+                  description="Each attendance file's course code and name become a subject the first time they are uploaded."
+                />
+              ) : (
+                <EmptyState
+                  icon="menu_book"
+                  title="No subjects in this cycle yet"
+                  description="Add your subjects from My Subjects to start uploading."
+                />
+              )
             }
           />
         </Panel>
@@ -176,7 +212,7 @@ export default function ClusterHeadDashboardPage() {
           tabIcon="history"
           bodyClassName=""
           actions={
-            <Link to="/cluster-head/cycles" className="text-label-md text-primary hover:underline">
+            <Link to={`${uploadsBase}/cycles`} className="text-label-md text-primary hover:underline">
               Whole cycle
             </Link>
           }

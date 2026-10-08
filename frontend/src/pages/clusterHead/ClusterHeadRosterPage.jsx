@@ -34,6 +34,7 @@ import { useToast } from '../../context/ToastProvider.jsx';
 import { useActiveCycle } from '../../hooks/useActiveCycle.js';
 import { describeError, formatDateTime } from '../../lib/formatters.js';
 import { cycleLabel } from '../../lib/academicCycles.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 /** created/skipped/failed, which is what the roster endpoint reports. */
 const rosterSummary = (data) => [
@@ -60,6 +61,7 @@ const mentorSummary = (data) => [
 ];
 
 export default function ClusterHeadRosterPage() {
+  const { uploadsBase, isHodUploads } = usePortalPaths();
   const toast = useToast();
   const { cycle } = useActiveCycle();
   const [batches, setBatches] = useState([]);
@@ -121,7 +123,7 @@ export default function ClusterHeadRosterPage() {
             : 'Create accounts from the departmental spreadsheets, then map each student to their allotted mentor.'
         }
         actions={
-          <Link to="/cluster-head/cycles" className="btn-secondary">
+          <Link to={`${uploadsBase}/cycles`} className="btn-secondary">
             <span className="material-symbols-outlined text-[18px]">event_repeat</span>
             Academic cycle
           </Link>
@@ -182,7 +184,10 @@ export default function ClusterHeadRosterPage() {
           tabIcon="badge"
           endpoint="/admin/import-roster-spreadsheet"
           summarise={rosterSummary}
-          hint="CSV or XLSX. Columns: Faculty ID, Name, Email. Optional: Department, Password."
+          hint={
+            'CSV or XLSX. Columns: Faculty ID, Name, Email. Optional: Department, Password.' +
+            (isHodUploads ? ' Faculty you add here report to you.' : '')
+          }
           submitLabel="Create faculty accounts"
           showCycle={false}
           buildPayload={({ filename, file_base64 }) => ({
@@ -203,7 +208,10 @@ export default function ClusterHeadRosterPage() {
           title="3 · Mentor–mentee mapping"
           tabIcon="supervisor_account"
           summarise={mentorSummary}
-          hint="CSV or XLSX. Columns: Registration No. and Mentor Email. Optional: Mentor Name, used to name any account this creates. The Mentor Phone No. column is ignored."
+          hint={
+            'CSV or XLSX. Columns: Registration No. and Mentor Email. Optional: Mentor Name, used to name any account this creates. The Mentor Phone No. column is ignored.' +
+            (isHodUploads ? ' Mentor accounts this creates report to you.' : '')
+          }
           submitLabel="Map students to mentors"
           buildPayload={({ filename, file_base64 }) => ({
             action: 'mentor-map',

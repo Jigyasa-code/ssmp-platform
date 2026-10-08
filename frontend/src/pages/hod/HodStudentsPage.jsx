@@ -13,10 +13,12 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { fetchAllRows } from '../../lib/fetchAllRows.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { describeError } from '../../lib/formatters.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 const PAGE_SIZE = 50;
 
 export default function HodStudentsPage() {
+  const { departmentBase } = usePortalPaths();
   const toast = useToast();
   const [students, setStudents] = useState([]);
   const [mentorNames, setMentorNames] = useState({});
@@ -142,7 +144,7 @@ export default function HodStudentsPage() {
                 key: 'student_name',
                 header: 'Student',
                 render: (row) => (
-                  <Link to={`/hod/students/${row.student_id}`} className="text-on-surface hover:text-primary hover:underline">
+                  <Link to={`${departmentBase}/students/${row.student_id}`} className="text-on-surface hover:text-primary hover:underline">
                     <span className="block">{row.student_name}</span>
                     <span className="text-label-sm text-tertiary">{row.email}</span>
                   </Link>

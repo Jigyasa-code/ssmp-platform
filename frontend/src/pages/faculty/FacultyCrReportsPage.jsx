@@ -28,8 +28,10 @@ import { supabase } from '../../lib/supabaseClient.js';
 import { useToast } from '../../context/ToastProvider.jsx';
 import { useAsyncAction } from '../../hooks/useAsyncAction.js';
 import { describeError, formatDate, formatRelativeTime } from '../../lib/formatters.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 
 export default function FacultyCrReportsPage({ isHodView = false }) {
+  const { departmentBase } = usePortalPaths();
   const toast = useToast();
   const { run, pending } = useAsyncAction();
 
@@ -177,7 +179,7 @@ export default function FacultyCrReportsPage({ isHodView = false }) {
                       <li key={item.id} className="flex flex-wrap items-center gap-2 py-3">
                         <span className="min-w-0 flex-1">
                           <Link
-                            to={`${isHodView ? '/hod' : '/faculty'}/queries/${item.id}`}
+                            to={`${isHodView ? departmentBase : '/faculty'}/queries/${item.id}`}
                             className="block truncate text-label-md text-on-surface hover:text-primary hover:underline"
                           >
                             {item.subject}

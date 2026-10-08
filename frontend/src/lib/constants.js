@@ -4,14 +4,16 @@ export const ROLES = {
   STUDENT: 'student',
   FACULTY: 'faculty',
   HOD: 'hod',
-  CLUSTER_HEAD: 'cluster_head'
+  CLUSTER_HEAD: 'cluster_head',
+  ADMIN: 'admin'
 };
 
 export const ROLE_LABELS = {
   student: 'Student',
   faculty: 'Faculty Mentor',
   hod: 'Head of Department',
-  cluster_head: 'Cluster Head'
+  cluster_head: 'Cluster Head',
+  admin: 'Administrator'
 };
 
 /**
@@ -211,7 +213,28 @@ export const CHART_COLORS = {
 };
 
 /**
+ * The department screens, served under /hod and under /admin (see
+ * lib/portalPaths.js). Same screens, same order; what each shows is
+ * decided by the database.
+ */
+function departmentNavigation(base) {
+  return [
+    { to: base, label: 'Home', icon: 'home', end: true },
+    { to: `${base}/queries`, label: 'All Queries', icon: 'inbox' },
+    { to: `${base}/performance`, label: 'Faculty Performance', icon: 'leaderboard' },
+    { to: `${base}/reports`, label: 'Faculty Reports', icon: 'analytics' },
+    { to: `${base}/roster`, label: 'Faculty Roster', icon: 'badge' },
+    { to: `${base}/students`, label: 'Students', icon: 'school' },
+    { to: `${base}/at-risk`, label: 'At-Risk Students', icon: 'e911_emergency' },
+    { to: `${base}/cr-reports`, label: 'CR Reports', icon: 'description' },
+    { to: `${base}/operations`, label: 'Scheduled Jobs', icon: 'settings_suggest' }
+  ];
+}
+
+/**
  * Sidebar menu per role — the SLCM "MENU" list.
+ * An item with `children` is a group: a heading that opens a sub-list,
+ * open by default whenever the current page is under its `base`.
  * An item may carry a `when` predicate; it is only rendered if that returns
  * true for the signed-in profile. Form A is deliberately absent: it is a
  * one-time full-screen step before the portal opens, and afterwards it
@@ -255,17 +278,34 @@ export const NAVIGATION = {
     { to: '/faculty/report', label: 'My Report', icon: 'analytics' },
     { to: '/faculty/profile', label: 'My Profile', icon: 'account_circle' }
   ],
+  // A HOD's department screens show the faculty mapped to them and those
+  // faculty's mentees (migration 0039). Uploads is the cluster head's
+  // portal inside the HOD's, without the subject list: subjects are read
+  // from the attendance files.
   hod: [
-    { to: '/hod', label: 'Home', icon: 'home', end: true },
-    { to: '/hod/queries', label: 'All Queries', icon: 'inbox' },
-    { to: '/hod/performance', label: 'Faculty Performance', icon: 'leaderboard' },
-    { to: '/hod/reports', label: 'Faculty Reports', icon: 'analytics' },
-    { to: '/hod/roster', label: 'Faculty Roster', icon: 'badge' },
-    { to: '/hod/students', label: 'Students', icon: 'school' },
-    { to: '/hod/at-risk', label: 'At-Risk Students', icon: 'e911_emergency' },
-    { to: '/hod/cr-reports', label: 'CR Reports', icon: 'description' },
-    { to: '/hod/operations', label: 'Scheduled Jobs', icon: 'settings_suggest' },
+    ...departmentNavigation('/hod'),
+    {
+      label: 'Uploads',
+      icon: 'cloud_upload',
+      base: '/hod/uploads',
+      children: [
+        { to: '/hod/uploads', label: 'Overview', icon: 'dashboard', end: true },
+        { to: '/hod/uploads/cycles', label: 'Academic Cycles', icon: 'event_repeat' },
+        { to: '/hod/uploads/attendance', label: 'Upload Attendance', icon: 'fact_check' },
+        { to: '/hod/uploads/gpa', label: 'Upload GPA', icon: 'grade' },
+        { to: '/hod/uploads/backlogs', label: 'Upload Backlogs', icon: 'assignment_late' },
+        { to: '/hod/uploads/black-dots', label: 'Upload Black dot', icon: 'gavel' },
+        { to: '/hod/uploads/rosters', label: 'Rosters & Mentors', icon: 'group_add' }
+      ]
+    },
     { to: '/hod/profile', label: 'My Profile', icon: 'account_circle' }
+  ],
+  // The administrator: the department screens for the whole department,
+  // plus the mentor-HOD mapping upload.
+  admin: [
+    ...departmentNavigation('/admin'),
+    { to: '/admin/upload', label: 'Upload', icon: 'upload_file' },
+    { to: '/admin/profile', label: 'My Profile', icon: 'account_circle' }
   ],
   // Deliberately short. A Cluster Head uploads data and creates the
   // accounts that data attaches to — no queries, no student profiles, no
@@ -288,5 +328,6 @@ export const HOME_PATH = {
   student: '/student',
   faculty: '/faculty',
   hod: '/hod',
-  cluster_head: '/cluster-head'
+  cluster_head: '/cluster-head',
+  admin: '/admin'
 };

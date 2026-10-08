@@ -185,12 +185,19 @@ export const mentorMapUploadSchema = z.object({
   ...uploadFileSchema
 });
 
+/** The administrator's mentor-HOD mapping (migration 0039). */
+export const hodMapUploadSchema = z.object({
+  action: z.literal('hod-map'),
+  ...uploadFileSchema
+});
+
 export const clusterHeadUploadSchema = z.discriminatedUnion('action', [
   attendanceUploadSchema,
   gpaUploadSchema,
   backlogUploadSchema,
   blackDotUploadSchema,
-  mentorMapUploadSchema
+  mentorMapUploadSchema,
+  hodMapUploadSchema
 ]);
 
 /** On-demand trigger for anything that normally runs on the 15-day cycle. */

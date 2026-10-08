@@ -90,10 +90,13 @@ export default withApiDefaults(['POST'], async (req, res) => {
   assertBodySize(req);
 
   const context = await requireAuthenticatedUser(req);
-  // Roster upload moved to the Cluster Head portal — they are the ones
-  // holding the departmental files. The HOD keeps access so the office
-  // can correct an import without borrowing an account.
-  requireRole(context, 'cluster_head', 'hod');
+  // Roster upload lives on the cluster head's screens, which every HOD
+  // has too since migration 0039; the administrator has everything a
+  // HOD has.
+  requireRole(context, 'cluster_head', 'hod', 'admin');
+  // Faculty a HOD introduces report to that HOD (hod_id), so they are not
+  // invisible to the person who just added them.
+  const uploadingHod = context.profile.role === 'hod' ? context.profile : null;
   // One upload is now many requests, so the old ceiling of 10 would stop
   // a single large roster halfway through.
   await enforceRateLimit(context, { key: 'roster-import', max: 200, windowSeconds: 300 });
@@ -331,6 +334,10 @@ export default withApiDefaults(['POST'], async (req, res) => {
        */
       const profilePatch = {};
       if (mentorId) profilePatch.assigned_mentor_id = mentorId;
+      if (rowRole === 'faculty' && uploadingHod) {
+        profilePatch.hod_id = uploadingHod.id;
+        profilePatch.hod_email = uploadingHod.email;
+      }
       if (rowRole === 'student') {
         if (record.parent_name) profilePatch.parent_name = sanitizeSingleLine(record.parent_name, 120);
         if (/^[0-9]{10}$/.test(record.parent_mobile ?? '')) profilePatch.parent_mobile = record.parent_mobile;

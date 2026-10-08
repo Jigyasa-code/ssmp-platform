@@ -10,11 +10,20 @@ import { SkeletonCards } from '../../components/ui/Skeleton.jsx';
 import { DonutChart, CategoryBarChart, AreaTrendChart, GaugeChart } from '../../components/charts/Charts.jsx';
 import { supabase } from '../../lib/supabaseClient.js';
 import { useDashboardMetrics } from '../../hooks/useDashboardMetrics.js';
+import { usePortalPaths } from '../../hooks/usePortalPaths.js';
 import { CHART_COLORS } from '../../lib/constants.js';
 import { formatHours, percentage } from '../../lib/formatters.js';
 
+/**
+ * The department home. The administrator sees the whole department; a
+ * HOD sees the faculty mapped to them and those faculty's mentees
+ * (migration 0039) — the same screen, scoped by the database.
+ */
 export default function HodDashboardPage() {
   const { metrics, loading } = useDashboardMetrics();
+  const { departmentBase, isAdmin } = usePortalPaths();
+  // Every student a HOD sees has a mentor by definition of their scope.
+  const isHodScope = metrics?.coverage === 'hod';
   const [leaderboard, setLeaderboard] = useState([]);
   const [trend, setTrend] = useState([]);
 
@@ -71,9 +80,13 @@ export default function HodDashboardPage() {
     <PortalShell>
       <PageHeader
         title="Department overview"
-        subtitle="Live picture of support load, faculty performance and onboarding across the department."
+        subtitle={
+          isAdmin
+            ? 'Live picture of support load, faculty performance and onboarding across the department.'
+            : 'Live picture of support load, faculty performance and onboarding for the faculty who report to you.'
+        }
         actions={
-          <Link to="/hod/roster" className="btn-primary">
+          <Link to={`${departmentBase}/roster`} className="btn-primary">
             <span className="material-symbols-outlined text-[18px]">badge</span>
             Faculty roster
           </Link>
@@ -86,7 +99,7 @@ export default function HodDashboardPage() {
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Students" value={metrics?.total_students ?? 0} icon="school" tone="primary"
-              caption={`${metrics?.unassigned_students ?? 0} without a mentor`} />
+              caption={isHodScope ? 'Mentees of your faculty' : `${metrics?.unassigned_students ?? 0} without a mentor`} />
             <StatCard label="Faculty mentors" value={metrics?.total_faculty ?? 0} icon="badge" tone="info"
               caption={`${metrics?.active_faculty ?? 0} active · ${metrics?.departed_faculty ?? 0} departed`} />
             <StatCard label="Total queries" value={metrics?.total_queries ?? 0} icon="confirmation_number" tone="secondary"
@@ -106,7 +119,7 @@ export default function HodDashboardPage() {
                   <li>{metrics.departed_faculty} faculty member(s) are marked as departed — check their mentee lists.</li>
                 )}
               </ul>
-              <Link to="/hod/roster" className="btn-primary btn-sm mt-3">
+              <Link to={`${departmentBase}/roster`} className="btn-primary btn-sm mt-3">
                 Open faculty roster
               </Link>
             </div>
@@ -149,7 +162,7 @@ export default function HodDashboardPage() {
           </Panel>
 
           <Panel tab="Faculty response leaderboard" tabIcon="leaderboard" className="mt-4" bodyClassName=""
-            actions={<Link to="/hod/performance" className="btn-ghost btn-sm">View full comparison</Link>}>
+            actions={<Link to={`${departmentBase}/performance`} className="btn-ghost btn-sm">View full comparison</Link>}>
             <DataTable
               columns={[
                 {
@@ -186,7 +199,17 @@ export default function HodDashboardPage() {
               ]}
               rows={leaderboard}
               rowKey={(row) => row.faculty_id}
-              emptyState={<EmptyState icon="badge" title="No faculty yet" description="Import the faculty roster to get started." />}
+              emptyState={
+                isAdmin || !isHodScope ? (
+                  <EmptyState icon="badge" title="No faculty yet" description="Import the faculty roster to get started." />
+                ) : (
+                  <EmptyState
+                    icon="badge"
+                    title="No faculty mapped to you yet"
+                    description="The administrator maps each mentor to their HOD with the mentor-HOD mapping upload. Faculty you add yourself are yours straight away."
+                  />
+                )
+              }
             />
           </Panel>
         </>

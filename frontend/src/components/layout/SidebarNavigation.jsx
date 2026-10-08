@@ -4,11 +4,13 @@
  * an orange pill marking the current page, and a user card with Sign Out
  * pinned to the bottom.
  *
- * One component for all three portals; only the item list differs, which
- * comes from NAVIGATION in lib/constants.js.
+ * One component for every portal; only the item list differs, which
+ * comes from NAVIGATION in lib/constants.js. An item with children (the
+ * HOD's Uploads) is a group that opens into a sub-list.
  */
 
-import { NavLink } from 'react-router-dom';
+import { useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import mujLogo from '../../assets/manipal-university-jaipur-logo.png';
 import { NAVIGATION, ROLE_LABELS } from '../../lib/constants.js';
 import Avatar from '../ui/Avatar.jsx';
@@ -17,9 +19,71 @@ import { useAuth } from '../../context/AuthProvider.jsx';
 const ROLE_SUBTITLE = {
   student: 'Student Portal',
   faculty: 'Faculty Mentor',
-  hod: 'Department Admin',
-  cluster_head: 'Cluster Head'
+  hod: 'Head of Department',
+  cluster_head: 'Cluster Head',
+  admin: 'Administrator'
 };
+
+function NavItem({ item, onNavigate, nested = false }) {
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      onClick={onNavigate}
+      className={({ isActive }) => `sidebar-link ${nested ? 'pl-9' : ''} ${isActive ? 'sidebar-link-active' : ''}`}
+    >
+      <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
+        {item.icon}
+      </span>
+      <span>{item.label}</span>
+    </NavLink>
+  );
+}
+
+/**
+ * A heading that opens into its own list. Every page mounts its own
+ * shell, so the group starts open whenever the current page is one of
+ * its own and closed otherwise; the heading folds it either way. Folded
+ * over the current page, the heading itself carries the active pill.
+ */
+function NavGroup({ group, onNavigate }) {
+  const { pathname } = useLocation();
+  const inside = pathname === group.base || pathname.startsWith(`${group.base}/`);
+  const [expanded, setExpanded] = useState(inside);
+  const listId = `nav-group-${group.base.replace(/[^a-z0-9]+/gi, '-')}`;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-controls={listId}
+        className={`sidebar-link w-full ${inside && !expanded ? 'sidebar-link-active' : ''} ${inside && expanded ? 'text-primary' : ''}`}
+      >
+        <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
+          {group.icon}
+        </span>
+        <span>{group.label}</span>
+        <span
+          className={`material-symbols-outlined ml-auto text-[18px] transition-transform ${expanded ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        >
+          expand_more
+        </span>
+      </button>
+      {expanded && (
+        <ul id={listId} className="mt-1 space-y-1">
+          {group.children.map((child) => (
+            <li key={child.to}>
+              <NavItem item={child} onNavigate={onNavigate} nested />
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
 
 export default function SidebarNavigation({ role, profile, isOpen, onToggle, onNavigate }) {
   const { signOut } = useAuth();
@@ -70,18 +134,12 @@ export default function SidebarNavigation({ role, profile, isOpen, onToggle, onN
         <nav className="custom-scrollbar flex-1 overflow-y-auto px-3 pb-4" aria-label="Main menu">
           <ul className="space-y-1">
             {items.map((item) => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.end}
-                  onClick={onNavigate}
-                  className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`}
-                >
-                  <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
-                </NavLink>
+              <li key={item.to ?? item.base}>
+                {item.children ? (
+                  <NavGroup group={item} onNavigate={onNavigate} />
+                ) : (
+                  <NavItem item={item} onNavigate={onNavigate} />
+                )}
               </li>
             ))}
           </ul>
